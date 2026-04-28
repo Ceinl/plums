@@ -1,8 +1,6 @@
 package layout
 
-import (
-	"plums/internal/screen"
-)
+import "plums/internal/screen"
 
 // Main interface for all layout components
 type Component interface {
@@ -10,7 +8,7 @@ type Component interface {
 	MakeDirty()
 	ClearDirty()
 
-	Layout()
+	Layout(x, y, w, h int)
 	Render(screen *screen.Screen)
 
 	SetParent(parent Component)

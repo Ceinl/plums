@@ -21,11 +21,24 @@ func (s *State) AppendInput(b rune) {
 	s.input += string(b)
 }
 
-func (s *State) PopInput(b rune) {
+func (s *State) PopInput() {
 	runes := []rune(s.input)
-	s.input = string(runes[:len(runes)-1])
+	if len(runes) > 0 {
+		s.input = string(runes[:len(runes)-1])
+	}
+}
+
+func (s *State) SubmitInput() {
+	if s.input != "" {
+		s.history = append(s.history, s.input)
+		s.input = ""
+	}
 }
 
 func (s *State) AppendAiOutput(b string) {
 	s.aioutput += b
+}
+
+func (s *State) History() []string {
+	return s.history
 }

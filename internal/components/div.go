@@ -8,7 +8,6 @@ import (
 type Div struct {
 	isDirty bool
 
-	X, Y int
 	W, H layout.Unit
 
 	justifyContent layout.JustifyContent
@@ -17,6 +16,15 @@ type Div struct {
 	children []layout.Component
 
 	parent layout.Component
+
+	cx, cy int
+	cw, ch int
+
+	padding layout.Padding
+}
+
+func NewDiv() *Div {
+	return &Div{}
 }
 
 func (d *Div) IsDirty() bool {
@@ -31,23 +39,120 @@ func (d *Div) ClearDirty() {
 	d.isDirty = false
 }
 
-func (d *Div) Layout() {
-	if d.parent == nil { // Only root div will not have a parent, use full screen
-		d.W = layout.Unit{
-			Type:  layout.UnitPersent,
-			Value: 100,
+func (d *Div) Layout(x, y, w, h int) {
+	d.cx = x
+	d.cy = y
+	d.cw = w
+	d.ch = h
+
+	pl := d.padding.Left.Resolve(w)
+	pr := d.padding.Right.Resolve(w)
+	pt := d.padding.Top.Resolve(h)
+	pb := d.padding.Bottom.Resolve(h)
+
+	innerW := w - pl - pr
+	innerH := h - pt - pb
+	if innerW < 0 {
+		innerW = 0
+	}
+	if innerH < 0 {
+		innerH = 0
+	}
+
+	type childSize struct {
+		child  layout.Component
+		cw, ch int
+	}
+	var sizes []childSize
+	totalGrow := 0
+	fixedH := 0
+
+	for _, child := range d.children {
+		if cd, ok := child.(*Div); ok {
+			var cw, ch int
+			switch cd.W.Type {
+			case layout.UnitPx:
+				cw = int(cd.W.Value)
+			case layout.UnitPersent:
+				cw = int(float64(innerW) * cd.W.Value / 100.0)
+			case layout.UnitGrow:
+				cw = innerW
+			}
+			if cw > innerW {
+				cw = innerW
+			}
+			if cw < 0 {
+				cw = 0
+			}
+
+			switch cd.H.Type {
+			case layout.UnitPx:
+				ch = int(cd.H.Value)
+			case layout.UnitPersent:
+				ch = int(float64(innerH) * cd.H.Value / 100.0)
+			case layout.UnitGrow:
+				totalGrow++
+			}
+			if ch < 0 {
+				ch = 0
+			}
+
+			if cd.H.Type != layout.UnitGrow {
+				fixedH += ch
+			}
+			sizes = append(sizes, childSize{child, cw, ch})
+		} else {
+			totalGrow++
+			sizes = append(sizes, childSize{child, innerW, 0})
 		}
-		d.H = layout.Unit{
-			Type:  layout.UnitPersent,
-			Value: 100,
+	}
+
+	growSize := 0
+	if totalGrow > 0 {
+		rem := innerH - fixedH
+		if rem > 0 {
+			growSize = rem / totalGrow
+		}
+	}
+
+	for i := range sizes {
+		if cd, ok := sizes[i].child.(*Div); ok && cd.H.Type == layout.UnitGrow {
+			sizes[i].ch = growSize
+		} else if _, ok := sizes[i].child.(*Div); !ok {
+			sizes[i].ch = growSize
+		}
+	}
+
+	rem := innerH - fixedH - (growSize * totalGrow)
+	for i := range sizes {
+		if rem <= 0 {
+			break
+		}
+		if cd, ok := sizes[i].child.(*Div); ok && cd.H.Type == layout.UnitGrow {
+			sizes[i].ch++
+			rem--
+		} else if _, ok := sizes[i].child.(*Div); !ok {
+			sizes[i].ch++
+			rem--
+		}
+	}
+
+	cy := y + pt
+	for _, sc := range sizes {
+		cx := x + pl
+		cw := sc.cw
+		ch := sc.ch
+
+		switch d.alignItems {
+		case layout.ACenter:
+			cx += (innerW - cw) / 2
+		case layout.ARight:
+			cx += innerW - cw
 		}
 
-		d.X = 0
-		d.Y = 0
-		return
+		sc.child.Layout(cx, cy, cw, ch)
+		cy += ch
 	}
-	d.X = d.parent.(*Div).X + int(d.parent.(*Div).W.Value)
-	d.Y = d.parent.(*Div).Y + int(d.parent.(*Div).H.Value)
 }
 
 func (d *Div) SetSize(w, h layout.Unit) {
@@ -55,11 +160,18 @@ func (d *Div) SetSize(w, h layout.Unit) {
 	d.H = h
 }
 
-func (d *Div) Render(screen *screen.Screen) {
-	// Div is just empty box, so nothing to render YET,
-	// TODO: Add borders and background
+func (d *Div) SetPadding(p layout.Padding) {
+	d.padding = p
+}
+
+func (d *Div) Render(s *screen.Screen) {
+	for y := d.cy; y < d.cy+d.ch; y++ {
+		for x := d.cx; x < d.cx+d.cw; x++ {
+			s.Set(x, y, ' ')
+		}
+	}
 	for _, child := range d.children {
-		child.Render(screen)
+		child.Render(s)
 	}
 }
 

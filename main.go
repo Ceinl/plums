@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"plums/internal/ai"
 	"plums/internal/app"
@@ -22,6 +21,7 @@ func main() {
 	stream := ai.RepeatFunc(ctx, ai.SudoText)
 
 	state := app.NewState(t.W, t.H)
+	app.Render(state)
 
 	for {
 		select {
@@ -30,10 +30,12 @@ func main() {
 			case keyboard.KeyCtrlC:
 				return
 			case keyboard.KeyEnter:
-				fmt.Print("\n\n\n")
+				state.SubmitInput()
+				app.Render(state)
 				continue
 			case keyboard.KeyBackspace:
-				state.PopInput(ev.Ch)
+				state.PopInput()
+				app.Render(state)
 				continue
 			case keyboard.KeyRune:
 				state.AppendInput(ev.Ch)

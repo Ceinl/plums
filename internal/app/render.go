@@ -1,56 +1,63 @@
 package app
 
-import "fmt"
+import (
+	"strings"
 
-const (
-	OPEN_ALT     = "\x1b[?1049h"
-	CLOSE_ALT    = "\x1b[?1049l"
-	HIDE_CURSOR  = "\x1b[?25l"
-	SHOW_CURSOR  = "\x1b[?25h"
-	CLEAR_SCREEN = "\x1b[2J"
-	MOVE_CURSOR  = "\x1b[H"
+	"plums/internal/components"
+	"plums/internal/layout"
+	"plums/internal/screen"
 )
 
-func moveCursor(row, col int) {
-	fmt.Printf("\x1b[%d;%dH", row, col)
-}
-
-func clearLine() {
-	fmt.Print("\x1b[2K")
-}
-
-func clearBelow() {
-	fmt.Print("\x1b[J")
-}
+var scr *screen.Screen
 
 func Render(state *State) {
-	fmt.Print(HIDE_CURSOR)
-	moveCursor(1, 5)
-	lines := wrapText(state.aioutput, state.width-5)
-	for i, line := range lines {
-		moveCursor(i+1, 1)
-		clearLine()
-		fmt.Print(line)
+	if scr == nil || scr.Width() != state.width || scr.Height() != state.height {
+		scr = screen.NewScreen(state.width, state.height)
 	}
-	clearBelow()
+	scr.Clear()
 
-	for i := len(lines); i < state.height-2; i++ {
-		fmt.Print("\x1b[K\r\n")
-	}
-	for i := 0; i < state.width; i++ {
-		fmt.Print("_")
-	}
-	//fmt.Print(SHOW_CURSOR)
-}
+	root := components.NewDiv()
+	root.SetSize(
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+	)
 
-func wrapText(text string, width int) []string {
-	var lines []string
-	for len(text) > width {
-		lines = append(lines, text[:width])
-		text = text[width:]
-	}
-	if len(text) > 0 {
-		lines = append(lines, text)
-	}
-	return lines
+	outputDiv := components.NewDiv()
+	outputDiv.SetSize(
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitGrow, Value: 1},
+	)
+	outputText := components.NewText()
+	outputText.SetContent(state.aioutput)
+	outputDiv.AppendChild(outputText)
+	outputDiv.SetPadding(layout.Padding{Left: layout.Unit{Type: layout.UnitPx, Value: 3}, Right: layout.Unit{Type: layout.UnitPx, Value: 3}, Top: layout.Unit{Type: layout.UnitPx, Value: 1}, Bottom: layout.Unit{Type: layout.UnitPx, Value: 1}})
+
+	sepDiv := components.NewDiv()
+	sepDiv.SetSize(
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPx, Value: 1},
+	)
+	sepText := components.NewText()
+	sepText.SetContent(strings.Repeat("─", state.width))
+	sepDiv.AppendChild(sepText)
+
+	inputDiv := components.NewDiv()
+	inputDiv.SetSize(
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPx, Value: 1},
+	)
+	inputText := components.NewText()
+	inputText.SetContent("> " + state.input)
+	inputDiv.AppendChild(inputText)
+
+	root.AppendChild(outputDiv)
+	root.AppendChild(sepDiv)
+	root.AppendChild(inputDiv)
+
+	root.Layout(0, 0, state.width, state.height)
+	root.Render(scr)
+
+	scr.Flush()
+	scr.SetCursor(2+len([]rune(state.input)), state.height-1)
+	scr.ShowCursor()
 }
