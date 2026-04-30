@@ -21,6 +21,16 @@ type Div struct {
 	cw, ch int
 
 	padding layout.Padding
+
+	style layout.Style
+}
+
+func (d *Div) GetStyle() layout.Style {
+	return d.style
+}
+
+func (d *Div) SetStyle(style layout.Style) {
+	d.style = style
 }
 
 func NewDiv() *Div {
@@ -165,9 +175,13 @@ func (d *Div) SetPadding(p layout.Padding) {
 }
 
 func (d *Div) Render(s *screen.Screen) {
+	bg := d.style.GetBackground()
+	fg := d.style.GetForeground()
+	decor := d.style.GetDecor()
+
 	for y := d.cy; y < d.cy+d.ch; y++ {
 		for x := d.cx; x < d.cx+d.cw; x++ {
-			s.Set(x, y, ' ')
+			s.Set(x, y, ' ', fg, bg, decor)
 		}
 	}
 	for _, child := range d.children {

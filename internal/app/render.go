@@ -30,7 +30,12 @@ func Render(state *State) {
 	outputText := components.NewText()
 	outputText.SetContent(state.aioutput)
 	outputDiv.AppendChild(outputText)
-	outputDiv.SetPadding(layout.Padding{Left: layout.Unit{Type: layout.UnitPx, Value: 3}, Right: layout.Unit{Type: layout.UnitPx, Value: 3}, Top: layout.Unit{Type: layout.UnitPx, Value: 1}, Bottom: layout.Unit{Type: layout.UnitPx, Value: 1}})
+	outputDiv.SetPadding(
+		layout.Padding{
+			Left:   layout.Unit{Type: layout.UnitPx, Value: 3},
+			Right:  layout.Unit{Type: layout.UnitPx, Value: 3},
+			Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
+			Bottom: layout.Unit{Type: layout.UnitPx, Value: 1}})
 
 	sepDiv := components.NewDiv()
 	sepDiv.SetSize(
@@ -48,6 +53,16 @@ func Render(state *State) {
 	)
 	inputText := components.NewText()
 	inputText.SetContent("> " + state.input)
+
+	sty := layout.Style{}
+	sty.SetBackground(30, 27, 35)
+	sty.SetForeground(255, 255, 255)
+	sty.AddTextDecoration(layout.Italic)
+	sty.AddTextDecoration(layout.Bold)
+	sepDiv.SetStyle(sty)
+	inputDiv.SetStyle(sty)
+	outputDiv.SetStyle(sty)
+
 	inputDiv.AppendChild(inputText)
 
 	root.AppendChild(outputDiv)

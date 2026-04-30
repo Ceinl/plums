@@ -2,8 +2,14 @@ package layout
 
 import "plums/internal/screen"
 
+type Styler interface {
+	GetStyle() Style
+}
+
 // Main interface for all layout components
 type Component interface {
+	Styler
+
 	IsDirty() bool
 	MakeDirty()
 	ClearDirty()

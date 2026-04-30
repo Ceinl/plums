@@ -11,6 +11,7 @@ type Text struct {
 	parent  layout.Component
 	x, y    int
 	w, h    int
+	style   layout.Style
 }
 
 func NewText() *Text {
@@ -29,6 +30,17 @@ func (t *Text) Layout(x, y, w, h int) {
 }
 
 func (t *Text) Render(s *screen.Screen) {
+	bg := t.style.GetBackground()
+	fg := t.style.GetForeground()
+	decor := t.style.GetDecor()
+
+	if t.parent != nil {
+		ps := t.parent.GetStyle()
+		bg = ps.GetBackground()
+		fg = ps.GetForeground()
+		decor = ps.GetDecor()
+	}
+
 	cx, cy := t.x, t.y
 	for _, r := range t.content {
 		if r == '\n' {
@@ -46,10 +58,12 @@ func (t *Text) Render(s *screen.Screen) {
 				break
 			}
 		}
-		s.Set(cx, cy, r)
+		s.Set(cx, cy, r, fg, bg, decor)
 		cx++
 	}
 }
+
+func (t *Text) GetStyle() layout.Style { return t.style }
 
 func (t *Text) SetParent(p layout.Component) { t.parent = p }
 
