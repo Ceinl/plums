@@ -12,7 +12,7 @@ type CursorPos struct {
 
 type Cursor struct {
 	// Position of cursor on grid
-	pos CursorPos
+	Pos CursorPos
 
 	// Use to track selection of text in the editor
 	SelStart           CursorPos
@@ -65,36 +65,36 @@ func (e *Editor) Layout(x, y, w, h int)        {}
 func (e *Editor) Render(screen *screen.Screen) {}
 
 func (e *Editor) CursorMoveRowUp() {
-	if e.Cursor.pos.Row == 0 {
-		e.Cursor.pos.Col = 0
+	if e.Cursor.Pos.Row == 0 {
+		e.Cursor.Pos.Col = 0
 	} else {
-		e.Cursor.pos.Row--
-		e.Cursor.pos.Col = int(e.LastCursorUpdate(e.Content[e.Cursor.pos.Row]))
+		e.Cursor.Pos.Row--
+		e.Cursor.Pos.Col = int(e.LastCursorUpdate(e.Content[e.Cursor.Pos.Row]))
 	}
 }
 func (e *Editor) CursorMoveRowDown() {
-	if e.Cursor.pos.Row != len(e.Content)-1 {
-		e.Cursor.pos.Row++
-		e.Cursor.pos.Col = int(e.Cursor.lastCol)
-		e.Cursor.pos.Col = int(e.LastCursorUpdate(e.Content[e.Cursor.pos.Row]))
+	if e.Cursor.Pos.Row != len(e.Content)-1 {
+		e.Cursor.Pos.Row++
+		e.Cursor.Pos.Col = int(e.Cursor.lastCol)
+		e.Cursor.Pos.Col = int(e.LastCursorUpdate(e.Content[e.Cursor.Pos.Row]))
 	}
 }
 func (e *Editor) CursorMoveColRight() {
-	if e.Cursor.pos.Col == len(e.Content[e.Cursor.pos.Row]) {
+	if e.Cursor.Pos.Col == len(e.Content[e.Cursor.Pos.Row]) {
 		e.CursorMoveRowDown()
-		e.Cursor.pos.Col = 0
+		e.Cursor.Pos.Col = 0
 	} else {
-		e.Cursor.pos.Col++
+		e.Cursor.Pos.Col++
 		// Deal with the types ... Do i need lastCol to be uint or do i need pos to be ints
-		e.Cursor.lastCol = uint(e.Cursor.pos.Col)
+		e.Cursor.lastCol = uint(e.Cursor.Pos.Col)
 	}
 }
 func (e *Editor) CursorMoveColLeft() {
-	if e.Cursor.pos.Col == 0 {
+	if e.Cursor.Pos.Col == 0 {
 		e.CursorMoveRowUp()
 	} else {
-		e.Cursor.pos.Col--
-		e.Cursor.lastCol = uint(e.Cursor.pos.Col)
+		e.Cursor.Pos.Col--
+		e.Cursor.lastCol = uint(e.Cursor.Pos.Col)
 	}
 }
 
@@ -107,7 +107,7 @@ func (e *Editor) LastCursorUpdate(nextRow []rune) uint {
 
 func (e *Editor) ShiftPress() {
 	e.Cursor.isSelectionStarted = true
-	e.Cursor.SelStart = e.Cursor.pos
+	e.Cursor.SelStart = e.Cursor.Pos
 }
 
 func (e *Editor) ShiftRelease() {
@@ -115,24 +115,24 @@ func (e *Editor) ShiftRelease() {
 }
 
 func (e *Editor) AppendAfterCursor(r rune) {
-	row := e.Content[e.Cursor.pos.Row]
-	before := row[:e.Cursor.pos.Col]
-	after := row[e.Cursor.pos.Col:]
+	row := e.Content[e.Cursor.Pos.Row]
+	before := row[:e.Cursor.Pos.Col]
+	after := row[e.Cursor.Pos.Col:]
 	new := append(before, r)
 	new = append(new, after...)
-	e.Content[e.Cursor.pos.Row] = new
-	e.Cursor.pos.Col++
+	e.Content[e.Cursor.Pos.Row] = new
+	e.Cursor.Pos.Col++
 }
 
 func (e *Editor) RemoveBeforeCursor() {
-	if e.Cursor.pos.Col > 0 {
-		e.Content[e.Cursor.pos.Row] = append(e.Content[e.Cursor.pos.Row][:e.Cursor.pos.Col-1], e.Content[e.Cursor.pos.Row][e.Cursor.pos.Col:]...)
-		e.Cursor.pos.Col--
+	if e.Cursor.Pos.Col > 0 {
+		e.Content[e.Cursor.Pos.Row] = append(e.Content[e.Cursor.Pos.Row][:e.Cursor.Pos.Col-1], e.Content[e.Cursor.Pos.Row][e.Cursor.Pos.Col:]...)
+		e.Cursor.Pos.Col--
 	}
 }
 
 func (e *Editor) InsertNewLine() {
 	e.Content = append(e.Content, make([]rune, 0))
-	e.Cursor.pos.Row++
-	e.Cursor.pos.Col = 0
+	e.Cursor.Pos.Row++
+	e.Cursor.Pos.Col = 0
 }
