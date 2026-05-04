@@ -3,6 +3,7 @@ package layout
 type UnitType int
 type JustifyContent int
 type AlignItems int
+type Direction int
 
 const (
 	UnitPx UnitType = iota
@@ -18,6 +19,9 @@ const (
 	ABottom
 	ALeft
 	ARight
+
+	Column Direction = iota
+	Row
 )
 
 type Unit struct {

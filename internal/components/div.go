@@ -12,6 +12,7 @@ type Div struct {
 
 	justifyContent layout.JustifyContent
 	alignItems     layout.AlignItems
+	direction      layout.Direction
 
 	children []layout.Component
 
@@ -74,94 +75,190 @@ func (d *Div) Layout(x, y, w, h int) {
 		cw, ch int
 	}
 	var sizes []childSize
-	totalGrow := 0
-	fixedH := 0
 
-	for _, child := range d.children {
-		if cd, ok := child.(*Div); ok {
-			var cw, ch int
-			switch cd.W.Type {
-			case layout.UnitPx:
-				cw = int(cd.W.Value)
-			case layout.UnitPersent:
-				cw = int(float64(innerW) * cd.W.Value / 100.0)
-			case layout.UnitGrow:
-				cw = innerW
-			}
-			if cw > innerW {
-				cw = innerW
-			}
-			if cw < 0 {
-				cw = 0
-			}
+	if d.direction == layout.Row {
+		totalGrow := 0
+		fixedW := 0
 
-			switch cd.H.Type {
-			case layout.UnitPx:
-				ch = int(cd.H.Value)
-			case layout.UnitPersent:
-				ch = int(float64(innerH) * cd.H.Value / 100.0)
-			case layout.UnitGrow:
+		for _, child := range d.children {
+			if cd, ok := child.(*Div); ok {
+				var cw, ch int
+				switch cd.W.Type {
+				case layout.UnitPx:
+					cw = int(cd.W.Value)
+				case layout.UnitPersent:
+					cw = int(float64(innerW) * cd.W.Value / 100.0)
+				case layout.UnitGrow:
+					totalGrow++
+				}
+				if cw > innerW {
+					cw = innerW
+				}
+				if cw < 0 {
+					cw = 0
+				}
+
+				switch cd.H.Type {
+				case layout.UnitPx:
+					ch = int(cd.H.Value)
+				case layout.UnitPersent:
+					ch = int(float64(innerH) * cd.H.Value / 100.0)
+				case layout.UnitGrow:
+					ch = innerH
+				}
+				if ch > innerH {
+					ch = innerH
+				}
+				if ch < 0 {
+					ch = 0
+				}
+
+				if cd.W.Type != layout.UnitGrow {
+					fixedW += cw
+				}
+				sizes = append(sizes, childSize{child, cw, ch})
+			} else {
 				totalGrow++
+				sizes = append(sizes, childSize{child, 0, innerH})
 			}
-			if ch < 0 {
-				ch = 0
+		}
+
+		growSize := 0
+		if totalGrow > 0 {
+			rem := innerW - fixedW
+			if rem > 0 {
+				growSize = rem / totalGrow
 			}
+		}
 
-			if cd.H.Type != layout.UnitGrow {
-				fixedH += ch
+		for i := range sizes {
+			if cd, ok := sizes[i].child.(*Div); ok && cd.W.Type == layout.UnitGrow {
+				sizes[i].cw = growSize
+			} else if _, ok := sizes[i].child.(*Div); !ok {
+				sizes[i].cw = growSize
 			}
-			sizes = append(sizes, childSize{child, cw, ch})
-		} else {
-			totalGrow++
-			sizes = append(sizes, childSize{child, innerW, 0})
 		}
-	}
 
-	growSize := 0
-	if totalGrow > 0 {
-		rem := innerH - fixedH
-		if rem > 0 {
-			growSize = rem / totalGrow
+		rem := innerW - fixedW - (growSize * totalGrow)
+		for i := range sizes {
+			if rem <= 0 {
+				break
+			}
+			if cd, ok := sizes[i].child.(*Div); ok && cd.W.Type == layout.UnitGrow {
+				sizes[i].cw++
+				rem--
+			} else if _, ok := sizes[i].child.(*Div); !ok {
+				sizes[i].cw++
+				rem--
+			}
 		}
-	}
 
-	for i := range sizes {
-		if cd, ok := sizes[i].child.(*Div); ok && cd.H.Type == layout.UnitGrow {
-			sizes[i].ch = growSize
-		} else if _, ok := sizes[i].child.(*Div); !ok {
-			sizes[i].ch = growSize
-		}
-	}
-
-	rem := innerH - fixedH - (growSize * totalGrow)
-	for i := range sizes {
-		if rem <= 0 {
-			break
-		}
-		if cd, ok := sizes[i].child.(*Div); ok && cd.H.Type == layout.UnitGrow {
-			sizes[i].ch++
-			rem--
-		} else if _, ok := sizes[i].child.(*Div); !ok {
-			sizes[i].ch++
-			rem--
-		}
-	}
-
-	cy := y + pt
-	for _, sc := range sizes {
 		cx := x + pl
-		cw := sc.cw
-		ch := sc.ch
+		for _, sc := range sizes {
+			cy := y + pt
+			cw := sc.cw
+			ch := sc.ch
 
-		switch d.alignItems {
-		case layout.ACenter:
-			cx += (innerW - cw) / 2
-		case layout.ARight:
-			cx += innerW - cw
+			switch d.alignItems {
+			case layout.ACenter:
+				cy += (innerH - ch) / 2
+			case layout.ABottom:
+				cy += innerH - ch
+			}
+
+			sc.child.Layout(cx, cy, cw, ch)
+			cx += cw
+		}
+	} else {
+		totalGrow := 0
+		fixedH := 0
+
+		for _, child := range d.children {
+			if cd, ok := child.(*Div); ok {
+				var cw, ch int
+				switch cd.W.Type {
+				case layout.UnitPx:
+					cw = int(cd.W.Value)
+				case layout.UnitPersent:
+					cw = int(float64(innerW) * cd.W.Value / 100.0)
+				case layout.UnitGrow:
+					cw = innerW
+				}
+				if cw > innerW {
+					cw = innerW
+				}
+				if cw < 0 {
+					cw = 0
+				}
+
+				switch cd.H.Type {
+				case layout.UnitPx:
+					ch = int(cd.H.Value)
+				case layout.UnitPersent:
+					ch = int(float64(innerH) * cd.H.Value / 100.0)
+				case layout.UnitGrow:
+					totalGrow++
+				}
+				if ch < 0 {
+					ch = 0
+				}
+
+				if cd.H.Type != layout.UnitGrow {
+					fixedH += ch
+				}
+				sizes = append(sizes, childSize{child, cw, ch})
+			} else {
+				totalGrow++
+				sizes = append(sizes, childSize{child, innerW, 0})
+			}
 		}
 
-		sc.child.Layout(cx, cy, cw, ch)
-		cy += ch
+		growSize := 0
+		if totalGrow > 0 {
+			rem := innerH - fixedH
+			if rem > 0 {
+				growSize = rem / totalGrow
+			}
+		}
+
+		for i := range sizes {
+			if cd, ok := sizes[i].child.(*Div); ok && cd.H.Type == layout.UnitGrow {
+				sizes[i].ch = growSize
+			} else if _, ok := sizes[i].child.(*Div); !ok {
+				sizes[i].ch = growSize
+			}
+		}
+
+		rem := innerH - fixedH - (growSize * totalGrow)
+		for i := range sizes {
+			if rem <= 0 {
+				break
+			}
+			if cd, ok := sizes[i].child.(*Div); ok && cd.H.Type == layout.UnitGrow {
+				sizes[i].ch++
+				rem--
+			} else if _, ok := sizes[i].child.(*Div); !ok {
+				sizes[i].ch++
+				rem--
+			}
+		}
+
+		cy := y + pt
+		for _, sc := range sizes {
+			cx := x + pl
+			cw := sc.cw
+			ch := sc.ch
+
+			switch d.alignItems {
+			case layout.ACenter:
+				cx += (innerW - cw) / 2
+			case layout.ARight:
+				cx += innerW - cw
+			}
+
+			sc.child.Layout(cx, cy, cw, ch)
+			cy += ch
+		}
 	}
 }
 
@@ -195,6 +292,10 @@ func (d *Div) JustifyContent(jc layout.JustifyContent) {
 
 func (d *Div) AlignItems(ai layout.AlignItems) {
 	d.alignItems = ai
+}
+
+func (d *Div) SetDirection(dir layout.Direction) {
+	d.direction = dir
 }
 
 func (d *Div) SetParent(parent layout.Component) {
