@@ -61,7 +61,9 @@ func (e *Editor) GetStyle() layout.Style       { return e.style }
 func (e *Editor) SetParent(p layout.Component) { e.parent = p }
 func (e *Editor) SetStyle(s layout.Style)      { e.style = s }
 
-func (e *Editor) Layout(x, y, w, h int)        {}
+func (e *Editor) Layout(x, y, w, h int) {
+	e.x, e.y, e.w, e.h = x, y, w, h
+}
 func (e *Editor) Render(screen *screen.Screen) {}
 
 func (e *Editor) CursorMoveRowUp() {
