@@ -15,8 +15,8 @@ type Cursor struct {
 	pos CursorPos
 
 	// Use to track selection of text in the editor
-	selStart           CursorPos
-	selEnd             CursorPos
+	SelStart           CursorPos
+	SelEnd             CursorPos
 	isSelectionStarted bool
 
 	// Use to remember cursor position on shorter lines
@@ -107,7 +107,7 @@ func (e *Editor) LastCursorUpdate(nextRow []rune) uint {
 
 func (e *Editor) ShiftPress() {
 	e.Cursor.isSelectionStarted = true
-	e.Cursor.selStart = e.Cursor.pos
+	e.Cursor.SelStart = e.Cursor.pos
 }
 
 func (e *Editor) ShiftRelease() {
@@ -115,7 +115,12 @@ func (e *Editor) ShiftRelease() {
 }
 
 func (e *Editor) AppendAfterCursor(r rune) {
-	e.Content[e.Cursor.pos.Row] = append(e.Content[e.Cursor.pos.Row], r)
+	row := e.Content[e.Cursor.pos.Row]
+	before := row[:e.Cursor.pos.Col]
+	after := row[e.Cursor.pos.Col:]
+	new := append(before, r)
+	new = append(new, after...)
+	e.Content[e.Cursor.pos.Row] = new
 	e.Cursor.pos.Col++
 }
 
