@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"os"
+	"os/signal"
 	"plums/internal/ai"
 	"plums/internal/app"
 	"plums/internal/keyboard"
 	"plums/internal/ui"
+	"syscall"
 )
 
 func main() {
@@ -20,6 +22,9 @@ func main() {
 	keys := keyboard.Listen(ctx)
 	stream := ai.RepeatFunc(ctx, ai.SudoText)
 
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGWINCH)
+
 	state := app.NewState(t.W, t.H)
 	app.Render(state)
 
@@ -32,6 +37,10 @@ func main() {
 			}
 		case s := <-stream:
 			state.AppendAiOutput(s)
+			app.Render(state)
+		case <-sigCh:
+			t.RefreshSize()
+			state.Resize(t.W, t.H)
 			app.Render(state)
 		}
 	}

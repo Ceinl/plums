@@ -50,6 +50,11 @@ func (s *State) History() []string {
 	return s.history
 }
 
+func (s *State) Resize(w, h int) {
+	s.width = w
+	s.height = h
+}
+
 func (s *State) SwitchLayout() {
 	switch s.Layout {
 	case LayoutDefault:
