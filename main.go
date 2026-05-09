@@ -31,7 +31,11 @@ func main() {
 	for {
 		select {
 		case ev := <-keys:
-			handled := handleKey(state, ev)
+			handled, quit := handleKey(state, ev)
+			if quit {
+				cancel()
+				return
+			}
 			if handled {
 				app.Render(state)
 			}
@@ -46,87 +50,87 @@ func main() {
 	}
 }
 
-func handleKey(state *app.State, ev keyboard.Event) bool {
+func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 	tb := state.TextBox
 
 	switch ev.Type {
 	case keyboard.KeyCtrlC:
-		os.Exit(0)
+		return false, true
 	case keyboard.KeyEnter:
 		if ev.Alt && tb.IsMultiline() {
 			tb.InsertNewline()
-			return true
+			return true, false
 		}
 		state.SubmitInput()
-		return true
+		return true, false
 	case keyboard.KeyBackspace:
 		tb.DeleteBackward()
-		return true
+		return true, false
 	case keyboard.KeyDelete:
 		tb.DeleteForward()
-		return true
+		return true, false
 	case keyboard.KeyTab:
 		state.SwitchLayout()
-		return true
+		return true, false
 	case keyboard.KeyEscape:
 		tb.ClearSelection()
-		return true
+		return true, false
 	case keyboard.KeyRune:
 		if ev.Ctrl {
 			switch ev.Ch {
 			case 'a', 'A':
 				tb.SelectAll()
-				return true
+				return true, false
 			case 's', 'S':
 				state.SubmitInput()
-				return true
+				return true, false
 			}
-			return false
+			return false, false
 		}
 		tb.InsertRune(ev.Ch)
-		return true
+		return true, false
 	case keyboard.KeyArrowLeft:
 		if ev.Shift {
 			tb.SelectLeft()
 		} else {
 			tb.MoveCursorLeft()
 		}
-		return true
+		return true, false
 	case keyboard.KeyArrowRight:
 		if ev.Shift {
 			tb.SelectRight()
 		} else {
 			tb.MoveCursorRight()
 		}
-		return true
+		return true, false
 	case keyboard.KeyArrowUp:
 		if ev.Shift {
 			tb.SelectUp()
 		} else {
 			tb.MoveCursorUp()
 		}
-		return true
+		return true, false
 	case keyboard.KeyArrowDown:
 		if ev.Shift {
 			tb.SelectDown()
 		} else {
 			tb.MoveCursorDown()
 		}
-		return true
+		return true, false
 	case keyboard.KeyHome:
 		if ev.Shift {
 			tb.SelectHome()
 		} else {
 			tb.MoveCursorHome()
 		}
-		return true
+		return true, false
 	case keyboard.KeyEnd:
 		if ev.Shift {
 			tb.SelectEnd()
 		} else {
 			tb.MoveCursorEnd()
 		}
-		return true
+		return true, false
 	}
-	return false
+	return false, false
 }
