@@ -14,31 +14,33 @@ func newOutput() *components.Div {
 	outputDiv := components.NewDiv()
 	outputDiv.SetPadding(
 		layout.Padding{
-			Left:   layout.Unit{Type: layout.UnitPx, Value: 3},
-			Right:  layout.Unit{Type: layout.UnitPx, Value: 3},
+			Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+			Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
 			Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
 			Bottom: layout.Unit{Type: layout.UnitPx, Value: 1}})
 
 	style := layout.Style{}
-	style.SetBackground(30, 27, 35)
-	style.SetForeground(255, 255, 255)
-	style.AddTextDecoration(layout.Italic)
-	style.AddTextDecoration(layout.Bold)
+	style.SetBackground(25, 23, 29)
 	outputDiv.SetStyle(style)
 	return outputDiv
 }
 
-func newOutputText(state *State) *components.Text {
-	outputText := components.NewText()
-	outputText.SetContent(state.aioutput)
-	return outputText
+func newChatLog(state *State) *components.ChatLog {
+	chatLog := components.NewChatLog()
+	msgs := make([]components.ChatMessage, len(state.messages))
+	for i, m := range state.messages {
+		msgs[i] = components.ChatMessage{Role: m.Role, Content: m.Content}
+	}
+	chatLog.SetMessages(msgs)
+	chatLog.SetAiOutput(state.aioutput)
+	return chatLog
 }
 
 func newSeparatorDiv(state *State) *components.Div {
-	return newTextDiv(strings.Repeat("─", state.width),
+	return newTextDiv(strings.Repeat("\u2500", state.width),
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 1},
-		30, 27, 35,
+		40, 38, 45,
 	)
 }
 
@@ -48,9 +50,7 @@ func newTextDiv(content string, w, h layout.Unit, bgR, bgG, bgB uint8) *componen
 
 	style := layout.Style{}
 	style.SetBackground(bgR, bgG, bgB)
-	style.SetForeground(255, 255, 255)
-	style.AddTextDecoration(layout.Italic)
-	style.AddTextDecoration(layout.Bold)
+	style.SetForeground(150, 148, 155)
 	div.SetStyle(style)
 
 	text := components.NewText()
@@ -65,9 +65,7 @@ func newTextBoxDiv(tb *components.TextBox, w, h layout.Unit, bgR, bgG, bgB uint8
 
 	style := layout.Style{}
 	style.SetBackground(bgR, bgG, bgB)
-	style.SetForeground(255, 255, 255)
-	style.AddTextDecoration(layout.Italic)
-	style.AddTextDecoration(layout.Bold)
+	style.SetForeground(220, 220, 220)
 	div.SetStyle(style)
 	div.AppendChild(tb)
 	return div
@@ -109,14 +107,14 @@ func CreateDefaultLayout(state *State) *components.Div {
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 		layout.Unit{Type: layout.UnitGrow, Value: 1},
 	)
-	outputDiv.AppendChild(newOutputText(state))
+	outputDiv.AppendChild(newChatLog(state))
 
 	sepDiv := newSeparatorDiv(state)
 
 	inputDiv := newTextBoxDiv(state.TextBox,
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 1},
-		35, 30, 40,
+		30, 28, 35,
 	)
 
 	root := components.NewDiv()
@@ -136,13 +134,19 @@ func CreateSplitLayout(state *State) *components.Div {
 		layout.Unit{Type: layout.UnitPersent, Value: 50},
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 	)
-	leftDiv.AppendChild(newOutputText(state))
+	leftDiv.AppendChild(newChatLog(state))
 
 	rightDiv := newTextBoxDiv(state.TextBox,
 		layout.Unit{Type: layout.UnitPersent, Value: 50},
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
-		35, 30, 40,
+		30, 28, 35,
 	)
+	rightDiv.SetPadding(
+		layout.Padding{
+			Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+			Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+			Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
+			Bottom: layout.Unit{Type: layout.UnitPx, Value: 1}})
 
 	root := components.NewDiv()
 	root.SetSize(
@@ -159,6 +163,7 @@ func CreateFullscreenLayout(state *State) *components.Div {
 	return newTextBoxDiv(state.TextBox,
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
-		35, 30, 40,
+		30, 28, 35,
 	)
 }
+

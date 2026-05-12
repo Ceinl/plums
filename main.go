@@ -20,28 +20,65 @@ func main() {
 	defer cancel()
 
 	keys := keyboard.Listen(ctx)
-	stream := ai.RepeatFunc(ctx, ai.SudoText)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGWINCH)
 
 	state := app.NewState(t.W, t.H)
+
+	client := ai.NewClient()
+	if err := client.Health(ctx); err == nil {
+		session, err := client.CreateSession(ctx)
+		if err == nil {
+			state.SessionID = session.ID
+		}
+	}
+
 	app.Render(state)
+
+	var aiStream <-chan string
+	var cancelStream context.CancelFunc
 
 	for {
 		select {
 		case ev := <-keys:
 			handled, quit := handleKey(state, ev)
 			if quit {
+				if cancelStream != nil {
+					cancelStream()
+				}
 				cancel()
 				return
 			}
 			if handled {
+				if ev.Type == keyboard.KeyEnter && !ev.Alt {
+					msgs := state.Messages()
+					if len(msgs) > 0 {
+						last := msgs[len(msgs)-1]
+						if last.Role == "user" && state.SessionID != "" {
+							if cancelStream != nil {
+								cancelStream()
+							}
+							var sctx context.Context
+							sctx, cancelStream = context.WithCancel(ctx)
+							state.SetStreaming(true)
+							state.ClearAiOutput()
+							aiStream = client.SendMessage(sctx, state.SessionID, last.Content)
+						}
+					}
+				}
 				app.Render(state)
 			}
-		case s := <-stream:
-			state.AppendAiOutput(s)
-			app.Render(state)
+		case s, ok := <-aiStream:
+			if ok {
+				state.AppendAiOutput(s)
+				app.Render(state)
+			} else {
+				state.FinalizeAiOutput()
+				aiStream = nil
+				cancelStream = nil
+				app.Render(state)
+			}
 		case <-sigCh:
 			t.RefreshSize()
 			state.Resize(t.W, t.H)

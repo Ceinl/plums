@@ -10,16 +10,24 @@ const (
 	LayoutSplit
 )
 
+type Message struct {
+	Role    string
+	Content string
+}
+
 type State struct {
 	width  int
 	height int
 
-	history []string
-	TextBox *components.TextBox
+	messages []Message
+	TextBox  *components.TextBox
 
-	aioutput string
+	aioutput    string
+	isStreaming bool
 
 	Layout LayoutType
+
+	SessionID string
 }
 
 func NewState(width int, height int) *State {
@@ -32,22 +40,39 @@ func NewState(width int, height int) *State {
 	}
 }
 
-func (s *State) SubmitInput() {
+func (s *State) SubmitInput() string {
 	input := s.TextBox.GetContent()
 	if input != "" {
-		s.history = append(s.history, input)
+		s.messages = append(s.messages, Message{Role: "user", Content: input})
 		s.TextBox.SetContent("")
 		s.TextBox.SetCursor(0)
 		s.TextBox.ClearSelection()
 	}
+	return input
 }
 
 func (s *State) AppendAiOutput(b string) {
 	s.aioutput += b
 }
 
-func (s *State) History() []string {
-	return s.history
+func (s *State) ClearAiOutput() {
+	s.aioutput = ""
+}
+
+func (s *State) SetStreaming(v bool) {
+	s.isStreaming = v
+}
+
+func (s *State) FinalizeAiOutput() {
+	if s.aioutput != "" {
+		s.messages = append(s.messages, Message{Role: "ai", Content: s.aioutput})
+		s.aioutput = ""
+		s.isStreaming = false
+	}
+}
+
+func (s *State) Messages() []Message {
+	return s.messages
 }
 
 func (s *State) Resize(w, h int) {
