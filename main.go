@@ -51,7 +51,7 @@ func main() {
 				return
 			}
 			if handled {
-				if ev.Type == keyboard.KeyEnter && !ev.Alt {
+				if ev.Type == keyboard.KeyEnter && ev.Alt {
 					msgs := state.Messages()
 					if len(msgs) > 0 {
 						last := msgs[len(msgs)-1]
@@ -88,35 +88,61 @@ func main() {
 }
 
 func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
-	tb := state.TextBox
+	ed := state.Editor
 
 	switch ev.Type {
 	case keyboard.KeyCtrlC:
 		return false, true
 	case keyboard.KeyEnter:
-		if ev.Alt && tb.IsMultiline() {
-			tb.InsertNewline()
+		if !ev.Alt {
+			ed.InsertNewline()
 			return true, false
 		}
 		state.SubmitInput()
 		return true, false
 	case keyboard.KeyBackspace:
-		tb.DeleteBackward()
+		if ev.Alt || ev.Ctrl {
+			ed.DeleteWordBackward()
+		} else {
+			ed.DeleteBackward()
+		}
 		return true, false
 	case keyboard.KeyDelete:
-		tb.DeleteForward()
+		if ev.Alt || ev.Ctrl {
+			ed.DeleteWordForward()
+		} else {
+			ed.DeleteForward()
+		}
 		return true, false
 	case keyboard.KeyTab:
 		state.SwitchLayout()
 		return true, false
 	case keyboard.KeyEscape:
-		tb.ClearSelection()
+		ed.ClearSelection()
 		return true, false
 	case keyboard.KeyRune:
+		// Alt+b / Alt+f: readline-style word jump (emitted by Terminal.app and
+		// many other macOS terminals when the user presses Option+Left/Right).
+		if ev.Alt && !ev.Ctrl {
+			switch ev.Ch {
+			case 'b', 'B': // Option+Left in Terminal.app
+				ed.MoveWordLeft()
+				return true, false
+			case 'f', 'F': // Option+Right in Terminal.app
+				ed.MoveWordRight()
+				return true, false
+			case 'd', 'D': // Alt+d = delete word forward (readline)
+				ed.DeleteWordForward()
+				return true, false
+			}
+		}
 		if ev.Ctrl {
 			switch ev.Ch {
 			case 'a', 'A':
-				tb.SelectAll()
+				ed.SelectAll()
+				return true, false
+			case 'k', 'K':
+				ed.DeleteCurrentLine()
 				return true, false
 			case 's', 'S':
 				state.SubmitInput()
@@ -124,48 +150,62 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 			}
 			return false, false
 		}
-		tb.InsertRune(ev.Ch)
+		if ev.Alt {
+			// Don't insert Alt-modified characters into the editor.
+			return false, false
+		}
+		ed.InsertRune(ev.Ch)
 		return true, false
 	case keyboard.KeyArrowLeft:
-		if ev.Shift {
-			tb.SelectLeft()
-		} else {
-			tb.MoveCursorLeft()
+		switch {
+		case (ev.Ctrl || ev.Alt) && ev.Shift:
+			ed.SelectWordLeft()
+		case ev.Ctrl || ev.Alt:
+			ed.MoveWordLeft()
+		case ev.Shift:
+			ed.SelectLeft()
+		default:
+			ed.MoveCursorLeft()
 		}
 		return true, false
 	case keyboard.KeyArrowRight:
-		if ev.Shift {
-			tb.SelectRight()
-		} else {
-			tb.MoveCursorRight()
+		switch {
+		case (ev.Ctrl || ev.Alt) && ev.Shift:
+			ed.SelectWordRight()
+		case ev.Ctrl || ev.Alt:
+			ed.MoveWordRight()
+		case ev.Shift:
+			ed.SelectRight()
+		default:
+			ed.MoveCursorRight()
 		}
 		return true, false
 	case keyboard.KeyArrowUp:
 		if ev.Shift {
-			tb.SelectUp()
+			ed.SelectUp()
 		} else {
-			tb.MoveCursorUp()
+			ed.MoveCursorUp()
 		}
 		return true, false
 	case keyboard.KeyArrowDown:
 		if ev.Shift {
-			tb.SelectDown()
+			ed.SelectDown()
 		} else {
-			tb.MoveCursorDown()
+			ed.MoveCursorDown()
 		}
 		return true, false
 	case keyboard.KeyHome:
 		if ev.Shift {
-			tb.SelectHome()
+			ed.SelectHome()
 		} else {
-			tb.MoveCursorHome()
+			ed.MoveCursorHome()
 		}
 		return true, false
 	case keyboard.KeyEnd:
 		if ev.Shift {
-			tb.SelectEnd()
+			ed.SelectEnd()
 		} else {
-			tb.MoveCursorEnd()
+			ed.MoveCursorEnd()
 		}
 		return true, false
 	}

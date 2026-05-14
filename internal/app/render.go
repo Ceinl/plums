@@ -59,7 +59,7 @@ func newTextDiv(content string, w, h layout.Unit, bgR, bgG, bgB uint8) *componen
 	return div
 }
 
-func newTextBoxDiv(tb *components.TextBox, w, h layout.Unit, bgR, bgG, bgB uint8) *components.Div {
+func newTextBoxDiv(ed *components.Editor, w, h layout.Unit, bgR, bgG, bgB uint8) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(w, h)
 
@@ -67,7 +67,7 @@ func newTextBoxDiv(tb *components.TextBox, w, h layout.Unit, bgR, bgG, bgB uint8
 	style.SetBackground(bgR, bgG, bgB)
 	style.SetForeground(220, 220, 220)
 	div.SetStyle(style)
-	div.AppendChild(tb)
+	div.AppendChild(ed)
 	return div
 }
 
@@ -96,7 +96,7 @@ func Render(state *State) {
 	root.Render(scr)
 
 	scr.Flush()
-	cx, cy := state.TextBox.CursorScreenPos()
+	cx, cy := state.Editor.CursorScreenPos()
 	scr.SetCursor(cx, cy)
 	scr.ShowCursor()
 }
@@ -111,9 +111,9 @@ func CreateDefaultLayout(state *State) *components.Div {
 
 	sepDiv := newSeparatorDiv(state)
 
-	inputDiv := newTextBoxDiv(state.TextBox,
+	inputDiv := newTextBoxDiv(state.Editor,
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
-		layout.Unit{Type: layout.UnitPx, Value: 1},
+		layout.Unit{Type: layout.UnitPx, Value: 5},
 		30, 28, 35,
 	)
 
@@ -129,24 +129,24 @@ func CreateDefaultLayout(state *State) *components.Div {
 }
 
 func CreateSplitLayout(state *State) *components.Div {
-	leftDiv := newOutput()
-	leftDiv.SetSize(
-		layout.Unit{Type: layout.UnitPersent, Value: 50},
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
-	)
-	leftDiv.AppendChild(newChatLog(state))
-
-	rightDiv := newTextBoxDiv(state.TextBox,
+	leftDiv := newTextBoxDiv(state.Editor,
 		layout.Unit{Type: layout.UnitPersent, Value: 50},
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 		30, 28, 35,
 	)
-	rightDiv.SetPadding(
+	leftDiv.SetPadding(
 		layout.Padding{
 			Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
 			Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
 			Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
 			Bottom: layout.Unit{Type: layout.UnitPx, Value: 1}})
+
+	rightDiv := newOutput()
+	rightDiv.SetSize(
+		layout.Unit{Type: layout.UnitPersent, Value: 50},
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+	)
+	rightDiv.AppendChild(newChatLog(state))
 
 	root := components.NewDiv()
 	root.SetSize(
@@ -160,10 +160,9 @@ func CreateSplitLayout(state *State) *components.Div {
 }
 
 func CreateFullscreenLayout(state *State) *components.Div {
-	return newTextBoxDiv(state.TextBox,
+	return newTextBoxDiv(state.Editor,
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 		30, 28, 35,
 	)
 }
-

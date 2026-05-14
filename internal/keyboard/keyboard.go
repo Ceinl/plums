@@ -76,6 +76,16 @@ func Listen(ctx context.Context) <-chan Event {
 				continue
 			}
 
+			if b&0x80 != 0 {
+				ev := readUTF8Sequence(b)
+				select {
+				case <-ctx.Done():
+					return
+				case out <- ev:
+				}
+				continue
+			}
+
 			ev := parseSingleByte(b)
 			select {
 			case <-ctx.Done():
@@ -104,6 +114,41 @@ func readByteTimeout(timeout time.Duration) (byte, bool) {
 	}
 }
 
+func readUTF8Sequence(first byte) Event {
+	n := utf8Bytes(first)
+	if n == 1 {
+		r, _ := utf8.DecodeRune([]byte{first})
+		return Event{Type: KeyRune, Ch: r}
+	}
+	buf := make([]byte, n)
+	buf[0] = first
+	for i := 1; i < n; i++ {
+		b, ok := readByteTimeout(50 * time.Millisecond)
+		if !ok {
+			break
+		}
+		buf[i] = b
+	}
+	r, _ := utf8.DecodeRune(buf)
+	return Event{Type: KeyRune, Ch: r}
+}
+
+func utf8Bytes(first byte) int {
+	if first&0x80 == 0 {
+		return 1
+	}
+	if first&0xE0 == 0xC0 {
+		return 2
+	}
+	if first&0xF0 == 0xE0 {
+		return 3
+	}
+	if first&0xF8 == 0xF0 {
+		return 4
+	}
+	return 1
+}
+
 func readEscapeSequence(buf []byte) Event {
 	// We already read ESC. Read the next byte with timeout.
 	next, ok := readByteTimeout(50 * time.Millisecond)
@@ -114,6 +159,12 @@ func readEscapeSequence(buf []byte) Event {
 	if next == byteBracket {
 		// CSI sequence: ESC [ ... final_byte
 		return readCSI()
+	}
+
+	if next == byteEscape {
+		ev := readEscapeSequence(nil)
+		ev.Alt = true
+		return ev
 	}
 
 	if next == byteO {
@@ -131,6 +182,12 @@ func readEscapeSequence(buf []byte) Event {
 			return Event{Type: KeyEnter, Alt: true}
 		}
 		ev := parseSingleByte(next)
+		ev.Alt = true
+		return ev
+	}
+
+	if next&0x80 != 0 {
+		ev := readUTF8Sequence(next)
 		ev.Alt = true
 		return ev
 	}
