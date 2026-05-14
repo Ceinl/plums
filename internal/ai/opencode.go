@@ -80,6 +80,15 @@ type sessionIdleProperties struct {
 	SessionID string `json:"sessionID"`
 }
 
+// sessionStatusProperties is the payload of a "session.status" event.
+// The Status field can be "idle", "busy", or "retry".
+type sessionStatusProperties struct {
+	SessionID string `json:"sessionID"`
+	Status    struct {
+		Type string `json:"type"`
+	} `json:"status"`
+}
+
 // ── Constructors ──────────────────────────────────────────────────────────────
 
 func NewClient() *Client {
@@ -301,14 +310,25 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 					pendingDeltas[props.PartID] = append(pendingDeltas[props.PartID], props.Delta)
 				}
 
-			case "session.idle", "session.status":
-				// Both event types can signal completion.
+			case "session.idle":
 				var props sessionIdleProperties
 				if err := json.Unmarshal(env.Properties, &props); err != nil {
 					continue
 				}
 				if props.SessionID == sessionID {
 					return nil // generation complete
+				}
+
+			case "session.status":
+				// Only treat as completion when status.type == "idle".
+				// "busy" and "retry" fire at the start of generation – treating
+				// them as done would kill the stream before any tokens arrive.
+				var props sessionStatusProperties
+				if err := json.Unmarshal(env.Properties, &props); err != nil {
+					continue
+				}
+				if props.SessionID == sessionID && props.Status.Type == "idle" {
+					return nil
 				}
 			}
 		}
