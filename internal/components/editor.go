@@ -1,6 +1,10 @@
 package components
 
 import (
+	"fmt"
+	"strings"
+	"unicode"
+
 	"plums/internal/layout"
 	"plums/internal/screen"
 )
@@ -10,17 +14,28 @@ type CursorPos struct {
 	Col int
 }
 
+func (a CursorPos) Less(b CursorPos) bool {
+	if a.Row != b.Row {
+		return a.Row < b.Row
+	}
+	return a.Col < b.Col
+}
+
+func (a CursorPos) Equal(b CursorPos) bool {
+	return a.Row == b.Row && a.Col == b.Col
+}
+
 type Cursor struct {
-	// Position of cursor on grid
-	Pos CursorPos
+	Pos       CursorPos
+	selAnchor CursorPos
+	selActive bool
+	lastCol   uint
+}
 
-	// Use to track selection of text in the editor
-	SelStart           CursorPos
-	SelEnd             CursorPos
-	isSelectionStarted bool
-
-	// Use to remember cursor position on shorter lines
-	lastCol uint
+type editorVisualLine struct {
+	row   int
+	start int
+	end   int
 }
 
 type Editor struct {
@@ -36,21 +51,14 @@ type Editor struct {
 	w, h int
 
 	scrollY int
-	scrollX int
+
+	cursorScreenX int
+	cursorScreenY int
 }
 
 func NewTextEditor() *Editor {
 	return &Editor{
-		Content: [][]rune{},
-		Cursor:  Cursor{},
-		style:   layout.Style{},
-		parent:  nil,
-		x:       0,
-		y:       0,
-		w:       0,
-		h:       0,
-		scrollY: 0,
-		scrollX: 0,
+		Content: [][]rune{{}},
 	}
 }
 
@@ -64,40 +72,53 @@ func (e *Editor) SetStyle(s layout.Style)      { e.style = s }
 func (e *Editor) Layout(x, y, w, h int) {
 	e.x, e.y, e.w, e.h = x, y, w, h
 }
-func (e *Editor) Render(screen *screen.Screen) {}
 
-func (e *Editor) CursorMoveRowUp() {
-	if e.Cursor.Pos.Row == 0 {
+func (e *Editor) SetMultiline(v bool) {}
+func (e *Editor) IsMultiline() bool   { return true }
+
+func (e *Editor) clamp() {
+	if len(e.Content) == 0 {
+		e.Content = [][]rune{{}}
+	}
+	if e.Cursor.Pos.Row < 0 {
+		e.Cursor.Pos.Row = 0
+	}
+	if e.Cursor.Pos.Row >= len(e.Content) {
+		e.Cursor.Pos.Row = len(e.Content) - 1
+	}
+	if e.Cursor.Pos.Col < 0 {
 		e.Cursor.Pos.Col = 0
-	} else {
-		e.Cursor.Pos.Row--
-		e.Cursor.Pos.Col = int(e.LastCursorUpdate(e.Content[e.Cursor.Pos.Row]))
+	}
+	if e.Cursor.Pos.Col > len(e.Content[e.Cursor.Pos.Row]) {
+		e.Cursor.Pos.Col = len(e.Content[e.Cursor.Pos.Row])
 	}
 }
-func (e *Editor) CursorMoveRowDown() {
-	if e.Cursor.Pos.Row != len(e.Content)-1 {
-		e.Cursor.Pos.Row++
-		e.Cursor.Pos.Col = int(e.Cursor.lastCol)
-		e.Cursor.Pos.Col = int(e.LastCursorUpdate(e.Content[e.Cursor.Pos.Row]))
+
+func (e *Editor) SetContent(s string) {
+	if s == "" {
+		e.Content = [][]rune{{}}
+		e.Cursor.Pos = CursorPos{}
+		e.ClearSelection()
+		e.isDirty = true
+		return
 	}
+	rawLines := strings.Split(s, "\n")
+	e.Content = make([][]rune, len(rawLines))
+	for i, line := range rawLines {
+		e.Content[i] = []rune(line)
+	}
+	lastRow := len(e.Content) - 1
+	e.Cursor.Pos = CursorPos{Row: lastRow, Col: len(e.Content[lastRow])}
+	e.ClearSelection()
+	e.isDirty = true
 }
-func (e *Editor) CursorMoveColRight() {
-	if e.Cursor.Pos.Col == len(e.Content[e.Cursor.Pos.Row]) {
-		e.CursorMoveRowDown()
-		e.Cursor.Pos.Col = 0
-	} else {
-		e.Cursor.Pos.Col++
-		// Deal with the types ... Do i need lastCol to be uint or do i need pos to be ints
-		e.Cursor.lastCol = uint(e.Cursor.Pos.Col)
+
+func (e *Editor) GetContent() string {
+	lines := make([]string, len(e.Content))
+	for i, row := range e.Content {
+		lines[i] = string(row)
 	}
-}
-func (e *Editor) CursorMoveColLeft() {
-	if e.Cursor.Pos.Col == 0 {
-		e.CursorMoveRowUp()
-	} else {
-		e.Cursor.Pos.Col--
-		e.Cursor.lastCol = uint(e.Cursor.Pos.Col)
-	}
+	return strings.Join(lines, "\n")
 }
 
 func (e *Editor) LastCursorUpdate(nextRow []rune) uint {
@@ -107,34 +128,639 @@ func (e *Editor) LastCursorUpdate(nextRow []rune) uint {
 	return e.Cursor.lastCol
 }
 
-func (e *Editor) ShiftPress() {
-	e.Cursor.isSelectionStarted = true
-	e.Cursor.SelStart = e.Cursor.Pos
+func (e *Editor) selBounds() (CursorPos, CursorPos) {
+	if e.Cursor.Pos.Less(e.Cursor.selAnchor) {
+		return e.Cursor.Pos, e.Cursor.selAnchor
+	}
+	return e.Cursor.selAnchor, e.Cursor.Pos
 }
 
-func (e *Editor) ShiftRelease() {
-	e.Cursor.isSelectionStarted = false
+func (e *Editor) HasSelection() bool {
+	return e.Cursor.selActive && !e.Cursor.Pos.Equal(e.Cursor.selAnchor)
 }
 
-func (e *Editor) AppendAfterCursor(r rune) {
-	row := e.Content[e.Cursor.Pos.Row]
-	before := row[:e.Cursor.Pos.Col]
-	after := row[e.Cursor.Pos.Col:]
-	new := append(before, r)
-	new = append(new, after...)
-	e.Content[e.Cursor.Pos.Row] = new
-	e.Cursor.Pos.Col++
+func (e *Editor) ClearSelection() {
+	e.Cursor.selActive = false
 }
 
-func (e *Editor) RemoveBeforeCursor() {
-	if e.Cursor.Pos.Col > 0 {
-		e.Content[e.Cursor.Pos.Row] = append(e.Content[e.Cursor.Pos.Row][:e.Cursor.Pos.Col-1], e.Content[e.Cursor.Pos.Row][e.Cursor.Pos.Col:]...)
-		e.Cursor.Pos.Col--
+func (e *Editor) beginSelectionIfNeeded() {
+	if !e.Cursor.selActive {
+		e.Cursor.selActive = true
+		e.Cursor.selAnchor = e.Cursor.Pos
 	}
 }
 
-func (e *Editor) InsertNewLine() {
-	e.Content = append(e.Content, make([]rune, 0))
+func (e *Editor) isSelected(row, col int) bool {
+	if !e.HasSelection() {
+		return false
+	}
+	s, end := e.selBounds()
+	pos := CursorPos{Row: row, Col: col}
+	return !pos.Less(s) && pos.Less(end)
+}
+
+func (e *Editor) SelectedText() string {
+	if !e.HasSelection() {
+		return ""
+	}
+	s, end := e.selBounds()
+	if s.Row == end.Row {
+		return string(e.Content[s.Row][s.Col:end.Col])
+	}
+	var b strings.Builder
+	b.WriteString(string(e.Content[s.Row][s.Col:]))
+	for row := s.Row + 1; row < end.Row; row++ {
+		b.WriteRune('\n')
+		b.WriteString(string(e.Content[row]))
+	}
+	b.WriteRune('\n')
+	b.WriteString(string(e.Content[end.Row][:end.Col]))
+	return b.String()
+}
+
+func (e *Editor) DeleteSelection() {
+	if !e.HasSelection() {
+		return
+	}
+	s, end := e.selBounds()
+	if s.Row == end.Row {
+		e.Content[s.Row] = append(e.Content[s.Row][:s.Col], e.Content[s.Row][end.Col:]...)
+	} else {
+		e.Content[s.Row] = append(e.Content[s.Row][:s.Col], e.Content[end.Row][end.Col:]...)
+		e.Content = append(e.Content[:s.Row+1], e.Content[end.Row+1:]...)
+	}
+	e.Cursor.Pos = s
+	e.ClearSelection()
+	e.MakeDirty()
+}
+
+func (e *Editor) SelectAll() {
+	if len(e.Content) == 0 || (len(e.Content) == 1 && len(e.Content[0]) == 0) {
+		e.ClearSelection()
+		return
+	}
+	lastRow := len(e.Content) - 1
+	lastCol := len(e.Content[lastRow])
+	e.Cursor.selActive = true
+	e.Cursor.selAnchor = CursorPos{Row: 0, Col: 0}
+	e.Cursor.Pos = CursorPos{Row: lastRow, Col: lastCol}
+}
+
+// ── Plain cursor movement ──────────────────────────────────────────────────
+
+func (e *Editor) MoveCursorLeft() {
+	if e.HasSelection() {
+		s, _ := e.selBounds()
+		e.Cursor.Pos = s
+		e.ClearSelection()
+		return
+	}
+	if e.Cursor.Pos.Col > 0 {
+		e.Cursor.Pos.Col--
+	} else if e.Cursor.Pos.Row > 0 {
+		e.Cursor.Pos.Row--
+		e.Cursor.Pos.Col = len(e.Content[e.Cursor.Pos.Row])
+	}
+	e.Cursor.lastCol = uint(e.Cursor.Pos.Col)
+}
+
+func (e *Editor) MoveCursorRight() {
+	if e.HasSelection() {
+		_, end := e.selBounds()
+		e.Cursor.Pos = end
+		e.ClearSelection()
+		return
+	}
+	if e.Cursor.Pos.Col < len(e.Content[e.Cursor.Pos.Row]) {
+		e.Cursor.Pos.Col++
+	} else if e.Cursor.Pos.Row < len(e.Content)-1 {
+		e.Cursor.Pos.Row++
+		e.Cursor.Pos.Col = 0
+	}
+	e.Cursor.lastCol = uint(e.Cursor.Pos.Col)
+}
+
+func (e *Editor) MoveCursorUp() {
+	if e.HasSelection() {
+		s, _ := e.selBounds()
+		e.Cursor.Pos = s
+		e.ClearSelection()
+		return
+	}
+	if e.Cursor.Pos.Row == 0 {
+		e.Cursor.Pos.Col = 0
+	} else {
+		e.Cursor.Pos.Row--
+		e.Cursor.Pos.Col = int(e.LastCursorUpdate(e.Content[e.Cursor.Pos.Row]))
+	}
+}
+
+func (e *Editor) MoveCursorDown() {
+	if e.HasSelection() {
+		_, end := e.selBounds()
+		e.Cursor.Pos = end
+		e.ClearSelection()
+		return
+	}
+	if e.Cursor.Pos.Row < len(e.Content)-1 {
+		e.Cursor.Pos.Row++
+		e.Cursor.Pos.Col = int(e.LastCursorUpdate(e.Content[e.Cursor.Pos.Row]))
+	} else {
+		e.Cursor.Pos.Col = len(e.Content[e.Cursor.Pos.Row])
+	}
+}
+
+func (e *Editor) MoveCursorHome() {
+	if e.HasSelection() {
+		s, _ := e.selBounds()
+		e.Cursor.Pos = s
+		e.ClearSelection()
+		return
+	}
+	e.Cursor.Pos.Col = 0
+	e.Cursor.lastCol = 0
+}
+
+func (e *Editor) MoveCursorEnd() {
+	if e.HasSelection() {
+		_, end := e.selBounds()
+		e.Cursor.Pos = end
+		e.ClearSelection()
+		return
+	}
+	e.Cursor.Pos.Col = len(e.Content[e.Cursor.Pos.Row])
+	e.Cursor.lastCol = uint(e.Cursor.Pos.Col)
+}
+
+// ── Selection movement ─────────────────────────────────────────────────────
+
+func (e *Editor) SelectLeft() {
+	e.beginSelectionIfNeeded()
+	if e.Cursor.Pos.Col > 0 {
+		e.Cursor.Pos.Col--
+	} else if e.Cursor.Pos.Row > 0 {
+		e.Cursor.Pos.Row--
+		e.Cursor.Pos.Col = len(e.Content[e.Cursor.Pos.Row])
+	}
+	if e.Cursor.Pos.Equal(e.Cursor.selAnchor) {
+		e.ClearSelection()
+	}
+}
+
+func (e *Editor) SelectRight() {
+	e.beginSelectionIfNeeded()
+	if e.Cursor.Pos.Col < len(e.Content[e.Cursor.Pos.Row]) {
+		e.Cursor.Pos.Col++
+	} else if e.Cursor.Pos.Row < len(e.Content)-1 {
+		e.Cursor.Pos.Row++
+		e.Cursor.Pos.Col = 0
+	}
+	if e.Cursor.Pos.Equal(e.Cursor.selAnchor) {
+		e.ClearSelection()
+	}
+}
+
+func (e *Editor) SelectUp() {
+	e.beginSelectionIfNeeded()
+	if e.Cursor.Pos.Row == 0 {
+		e.Cursor.Pos.Col = 0
+	} else {
+		e.Cursor.Pos.Row--
+		e.Cursor.Pos.Col = int(e.LastCursorUpdate(e.Content[e.Cursor.Pos.Row]))
+	}
+	if e.Cursor.Pos.Equal(e.Cursor.selAnchor) {
+		e.ClearSelection()
+	}
+}
+
+func (e *Editor) SelectDown() {
+	e.beginSelectionIfNeeded()
+	if e.Cursor.Pos.Row < len(e.Content)-1 {
+		e.Cursor.Pos.Row++
+		e.Cursor.Pos.Col = int(e.LastCursorUpdate(e.Content[e.Cursor.Pos.Row]))
+	} else {
+		e.Cursor.Pos.Col = len(e.Content[e.Cursor.Pos.Row])
+	}
+	if e.Cursor.Pos.Equal(e.Cursor.selAnchor) {
+		e.ClearSelection()
+	}
+}
+
+func (e *Editor) SelectHome() {
+	e.beginSelectionIfNeeded()
+	e.Cursor.Pos.Col = 0
+	e.Cursor.lastCol = 0
+	if e.Cursor.Pos.Equal(e.Cursor.selAnchor) {
+		e.ClearSelection()
+	}
+}
+
+func (e *Editor) SelectEnd() {
+	e.beginSelectionIfNeeded()
+	e.Cursor.Pos.Col = len(e.Content[e.Cursor.Pos.Row])
+	e.Cursor.lastCol = uint(e.Cursor.Pos.Col)
+	if e.Cursor.Pos.Equal(e.Cursor.selAnchor) {
+		e.ClearSelection()
+	}
+}
+
+// ── Word movement ──────────────────────────────────────────────────────────
+
+func isWordRune(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+func (e *Editor) moveWordLeft() {
+	if e.Cursor.Pos.Col == 0 {
+		if e.Cursor.Pos.Row == 0 {
+			return
+		}
+		e.Cursor.Pos.Row--
+		e.Cursor.Pos.Col = len(e.Content[e.Cursor.Pos.Row])
+		if e.Cursor.Pos.Col == 0 {
+			return
+		}
+	}
+	row := e.Cursor.Pos.Row
+	col := e.Cursor.Pos.Col
+	line := e.Content[row]
+	for col > 0 && unicode.IsSpace(line[col-1]) {
+		col--
+	}
+	if col > 0 {
+		if isWordRune(line[col-1]) {
+			for col > 0 && isWordRune(line[col-1]) {
+				col--
+			}
+		} else {
+			for col > 0 && !isWordRune(line[col-1]) && !unicode.IsSpace(line[col-1]) {
+				col--
+			}
+		}
+	}
+	e.Cursor.Pos.Col = col
+}
+
+func (e *Editor) moveWordRight() {
+	row := e.Cursor.Pos.Row
+	line := e.Content[row]
+	col := e.Cursor.Pos.Col
+	if col == len(line) {
+		if row >= len(e.Content)-1 {
+			return
+		}
+		e.Cursor.Pos.Row++
+		e.Cursor.Pos.Col = 0
+		row = e.Cursor.Pos.Row
+		line = e.Content[row]
+		col = 0
+		if len(line) == 0 {
+			return
+		}
+	}
+	for col < len(line) && unicode.IsSpace(line[col]) {
+		col++
+	}
+	if col < len(line) {
+		if isWordRune(line[col]) {
+			for col < len(line) && isWordRune(line[col]) {
+				col++
+			}
+		} else {
+			for col < len(line) && !isWordRune(line[col]) && !unicode.IsSpace(line[col]) {
+				col++
+			}
+		}
+	}
+	e.Cursor.Pos.Col = col
+}
+
+func (e *Editor) MoveWordLeft() {
+	if e.HasSelection() {
+		s, _ := e.selBounds()
+		e.Cursor.Pos = s
+		e.ClearSelection()
+		return
+	}
+	e.moveWordLeft()
+	e.Cursor.lastCol = uint(e.Cursor.Pos.Col)
+}
+
+func (e *Editor) MoveWordRight() {
+	if e.HasSelection() {
+		_, end := e.selBounds()
+		e.Cursor.Pos = end
+		e.ClearSelection()
+		return
+	}
+	e.moveWordRight()
+	e.Cursor.lastCol = uint(e.Cursor.Pos.Col)
+}
+
+func (e *Editor) SelectWordLeft() {
+	e.beginSelectionIfNeeded()
+	e.moveWordLeft()
+	if e.Cursor.Pos.Equal(e.Cursor.selAnchor) {
+		e.ClearSelection()
+	}
+}
+
+func (e *Editor) SelectWordRight() {
+	e.beginSelectionIfNeeded()
+	e.moveWordRight()
+	if e.Cursor.Pos.Equal(e.Cursor.selAnchor) {
+		e.ClearSelection()
+	}
+}
+
+func (e *Editor) DeleteWordBackward() {
+	if e.HasSelection() {
+		e.DeleteSelection()
+		return
+	}
+	anchor := e.Cursor.Pos
+	e.moveWordLeft()
+	if e.Cursor.Pos.Equal(anchor) {
+		return
+	}
+	e.Cursor.selActive = true
+	e.Cursor.selAnchor = anchor
+	e.DeleteSelection()
+}
+
+func (e *Editor) DeleteWordForward() {
+	if e.HasSelection() {
+		e.DeleteSelection()
+		return
+	}
+	anchor := e.Cursor.Pos
+	e.moveWordRight()
+	if e.Cursor.Pos.Equal(anchor) {
+		return
+	}
+	e.Cursor.selActive = true
+	e.Cursor.selAnchor = anchor
+	e.DeleteSelection()
+}
+
+
+func (e *Editor) InsertRune(r rune) {
+	if e.HasSelection() {
+		e.DeleteSelection()
+	}
+	if r == '\n' {
+		e.insertNewline()
+		return
+	}
+	e.clamp()
+	row := e.Cursor.Pos.Row
+	col := e.Cursor.Pos.Col
+	e.Content[row] = append(e.Content[row][:col], append([]rune{r}, e.Content[row][col:]...)...)
+	e.Cursor.Pos.Col++
+	e.MakeDirty()
+}
+
+func (e *Editor) InsertNewline() {
+	if e.HasSelection() {
+		e.DeleteSelection()
+	}
+	e.insertNewline()
+}
+
+func (e *Editor) insertNewline() {
+	e.clamp()
+	row := e.Cursor.Pos.Row
+	col := e.Cursor.Pos.Col
+	right := make([]rune, len(e.Content[row])-col)
+	copy(right, e.Content[row][col:])
+	e.Content[row] = e.Content[row][:col]
+	e.Content = append(e.Content[:row+1], append([][]rune{right}, e.Content[row+1:]...)...)
 	e.Cursor.Pos.Row++
 	e.Cursor.Pos.Col = 0
+	e.MakeDirty()
+}
+
+func (e *Editor) DeleteBackward() {
+	if e.HasSelection() {
+		e.DeleteSelection()
+		return
+	}
+	e.clamp()
+	row := e.Cursor.Pos.Row
+	col := e.Cursor.Pos.Col
+	if col > 0 {
+		e.Content[row] = append(e.Content[row][:col-1], e.Content[row][col:]...)
+		e.Cursor.Pos.Col--
+	} else if row > 0 {
+		prevLen := len(e.Content[row-1])
+		e.Content[row-1] = append(e.Content[row-1], e.Content[row]...)
+		e.Content = append(e.Content[:row], e.Content[row+1:]...)
+		e.Cursor.Pos.Row--
+		e.Cursor.Pos.Col = prevLen
+	}
+	e.MakeDirty()
+}
+
+func (e *Editor) DeleteForward() {
+	if e.HasSelection() {
+		e.DeleteSelection()
+		return
+	}
+	e.clamp()
+	row := e.Cursor.Pos.Row
+	col := e.Cursor.Pos.Col
+	if col < len(e.Content[row]) {
+		e.Content[row] = append(e.Content[row][:col], e.Content[row][col+1:]...)
+	} else if row < len(e.Content)-1 {
+		e.Content[row] = append(e.Content[row], e.Content[row+1]...)
+		e.Content = append(e.Content[:row+1], e.Content[row+2:]...)
+	}
+	e.MakeDirty()
+}
+
+func (e *Editor) DeleteCurrentLine() {
+	e.clamp()
+	row := e.Cursor.Pos.Row
+	if len(e.Content) == 1 {
+		e.Content[0] = []rune{}
+	} else {
+		e.Content = append(e.Content[:row], e.Content[row+1:]...)
+	}
+	if e.Cursor.Pos.Row >= len(e.Content) {
+		e.Cursor.Pos.Row = len(e.Content) - 1
+	}
+	if e.Cursor.Pos.Col > len(e.Content[e.Cursor.Pos.Row]) {
+		e.Cursor.Pos.Col = len(e.Content[e.Cursor.Pos.Row])
+	}
+	e.ClearSelection()
+	e.MakeDirty()
+}
+
+// ── Layout / rendering ─────────────────────────────────────────────────────
+
+func (e *Editor) contentWidth() int {
+	w := e.w - 4
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+func (e *Editor) computeVisualLines() []editorVisualLine {
+	var vl []editorVisualLine
+	width := e.contentWidth()
+	for row, line := range e.Content {
+		lineLen := len(line)
+		if lineLen == 0 {
+			vl = append(vl, editorVisualLine{row: row, start: 0, end: 0})
+			continue
+		}
+		for col := 0; col < lineLen; col += width {
+			end := col + width
+			if end > lineLen {
+				end = lineLen
+			}
+			vl = append(vl, editorVisualLine{row: row, start: col, end: end})
+		}
+	}
+	return vl
+}
+
+func (e *Editor) visualLineForCursor() int {
+	width := e.contentWidth()
+	vl := 0
+	for row := 0; row < e.Cursor.Pos.Row; row++ {
+		lineLen := len(e.Content[row])
+		if lineLen == 0 {
+			vl++
+		} else {
+			vl += (lineLen + width - 1) / width
+		}
+	}
+	if width > 0 {
+		vl += e.Cursor.Pos.Col / width
+	}
+	return vl
+}
+
+func (e *Editor) Render(s *screen.Screen) {
+	fg := e.style.GetForeground()
+	bg := e.style.GetBackground()
+	decor := e.style.GetDecor()
+
+	if e.parent != nil {
+		ps := e.parent.GetStyle()
+		bg = ps.GetBackground()
+		fg = ps.GetForeground()
+		decor = ps.GetDecor()
+	}
+
+	gutterW := 4
+	contentW := e.contentWidth()
+
+	visLines := e.computeVisualLines()
+	cursorVL := e.visualLineForCursor()
+
+	if cursorVL < e.scrollY {
+		e.scrollY = cursorVL
+	}
+	if cursorVL >= e.scrollY+e.h {
+		e.scrollY = cursorVL - e.h + 1
+	}
+	if e.scrollY < 0 {
+		e.scrollY = 0
+	}
+	maxScroll := len(visLines) - e.h
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if e.scrollY > maxScroll {
+		e.scrollY = maxScroll
+	}
+
+	// ── Colour palette ──────────────────────────────────────────────────
+	// Selection
+	selFg := "\x1b[38;2;215;225;255m"
+	selBg := "\x1b[48;2;45;80;158m"
+	// Block cursor
+	cursorFg := "\x1b[38;2;14;14;20m"
+	cursorBg := "\x1b[48;2;165;188;255m"
+	// Current-line highlight
+	lineBg := "\x1b[48;2;40;38;50m"
+	// Gutter
+	gutterFg := "\x1b[38;2;72;70;84m"
+	numFg := "\x1b[38;2;95;93;108m"
+	activeNumFg := "\x1b[38;2;200;198;212m"
+
+	prevRow := -1
+	for i := 0; i < e.h; i++ {
+		vlIdx := i + e.scrollY
+		screenY := e.y + i
+
+		if vlIdx >= len(visLines) {
+			for x := 0; x < e.w; x++ {
+				s.Set(e.x+x, screenY, ' ', fg, bg, decor)
+			}
+			continue
+		}
+
+		vl := visLines[vlIdx]
+		line := e.Content[vl.row]
+		isCurrentLine := vl.row == e.Cursor.Pos.Row
+		isTheCursorVL := vlIdx == cursorVL
+		isFirstSegment := vl.row != prevRow
+		prevRow = vl.row
+
+		rowBg := bg
+		if isCurrentLine {
+			rowBg = lineBg
+		}
+
+		// ── Gutter ────────────────────────────────────────────────────
+		lineNumFg := numFg
+		if isCurrentLine {
+			lineNumFg = activeNumFg
+		}
+		if isFirstSegment {
+			num := fmt.Sprintf("%3d", vl.row+1)
+			for n, r := range num {
+				s.Set(e.x+n, screenY, r, lineNumFg, rowBg, decor)
+			}
+		} else {
+			for gx := 0; gx < 3; gx++ {
+				s.Set(e.x+gx, screenY, ' ', fg, rowBg, decor)
+			}
+		}
+		s.Set(e.x+3, screenY, '\u2502', gutterFg, rowBg, decor)
+
+		// ── Content ───────────────────────────────────────────────────
+		for x := 0; x < contentW; x++ {
+			col := vl.start + x
+			var ch rune = ' '
+			cellFg := fg
+			cellBg := rowBg
+
+			if col < vl.end {
+				ch = line[col]
+			}
+
+			if e.isSelected(vl.row, col) {
+				cellFg, cellBg = selFg, selBg
+			}
+
+			if isTheCursorVL && col == e.Cursor.Pos.Col {
+				cellFg, cellBg = cursorFg, cursorBg
+			}
+
+			s.Set(e.x+gutterW+x, screenY, ch, cellFg, cellBg, decor)
+		}
+	}
+
+	cursorScreenVL := cursorVL - e.scrollY
+	e.cursorScreenY = e.y + cursorScreenVL
+	e.cursorScreenX = e.x + gutterW + (e.Cursor.Pos.Col % contentW)
+}
+
+func (e *Editor) CursorScreenPos() (int, int) {
+	return e.cursorScreenX, e.cursorScreenY
 }
