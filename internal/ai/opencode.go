@@ -185,6 +185,10 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 	if err != nil {
 		return fmt.Errorf("SSE connect: %w", err)
 	}
+	if sseResp.StatusCode != http.StatusOK {
+		_ = sseResp.Body.Close()
+		return fmt.Errorf("SSE endpoint returned status %d", sseResp.StatusCode)
+	}
 	defer func() { _ = sseResp.Body.Close() }()
 
 	// 2. Send the prompt asynchronously.
@@ -217,7 +221,11 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 	}
 
 	// 3. Consume SSE events.
+	// textPartIDs tracks part IDs confirmed to belong to our session.
 	textPartIDs := make(map[string]bool)
+	// pendingDeltas holds deltas that arrived before their message.part.updated
+	// registration event (a known opencode race – see issue #26924).
+	pendingDeltas := make(map[string][]string)
 
 	scanner := bufio.NewScanner(sseResp.Body)
 	scanner.Buffer(make([]byte, 1<<20), 1<<20)
@@ -262,6 +270,15 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 				}
 				if props.Part.SessionID == sessionID && props.Part.Type == "text" {
 					textPartIDs[props.Part.ID] = true
+					// Flush any deltas that arrived before this registration.
+					for _, d := range pendingDeltas[props.Part.ID] {
+						select {
+						case <-ctx.Done():
+							return ctx.Err()
+						case out <- d:
+						}
+					}
+					delete(pendingDeltas, props.Part.ID)
 				}
 
 			case "message.part.delta":
@@ -269,15 +286,23 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 				if err := json.Unmarshal(env.Properties, &props); err != nil {
 					continue
 				}
-				if textPartIDs[props.PartID] && props.Field == "text" && props.Delta != "" {
+				if props.Field != "text" || props.Delta == "" {
+					continue
+				}
+				if textPartIDs[props.PartID] {
+					// Part already registered – emit immediately.
 					select {
 					case <-ctx.Done():
 						return ctx.Err()
 					case out <- props.Delta:
 					}
+				} else {
+					// Delta arrived before its part.updated – queue it.
+					pendingDeltas[props.PartID] = append(pendingDeltas[props.PartID], props.Delta)
 				}
 
-			case "session.idle":
+			case "session.idle", "session.status":
+				// Both event types can signal completion.
 				var props sessionIdleProperties
 				if err := json.Unmarshal(env.Properties, &props); err != nil {
 					continue

@@ -2,6 +2,7 @@ package components
 
 import (
 	"strings"
+	"time"
 
 	"plums/internal/layout"
 	"plums/internal/screen"
@@ -10,12 +11,22 @@ import (
 // ── Palette ───────────────────────────────────────────────────────────────────
 
 const (
-	fgContent  = "\x1b[38;2;200;198;212m"        // near-white for message body
-	fgDimRule  = "\x1b[38;2;72;70;84m"           // very dim, for the ─── rule
-	fgUserRole = "\x1b[1m\x1b[38;2;80;220;120m"  // bold green  – "you"
-	fgAiRole   = "\x1b[1m\x1b[38;2;100;190;255m" // bold blue   – "assistant"
-	fgCursor   = "\x1b[38;2;160;220;255m"        // streaming cursor colour
+	fgContent    = "\x1b[38;2;200;198;212m"        // near-white for message body
+	fgDimRule    = "\x1b[38;2;72;70;84m"           // very dim, for the ─── rule
+	fgUserRole   = "\x1b[1m\x1b[38;2;80;220;120m"  // bold green  – "you"
+	fgAiRole     = "\x1b[1m\x1b[38;2;100;190;255m" // bold blue  – "assistant"
+	fgCursor     = "\x1b[38;2;160;220;255m"        // streaming cursor colour
+	fgSystemRole = "\x1b[1m\x1b[38;2;220;160;50m"  // bold amber – system / error
+	fgSystemBody = "\x1b[38;2;200;145;60m"         // dim amber for system body
 )
+
+// spinnerFrames is the Braille spinner sequence.
+var spinnerFrames = []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
+
+func currentSpinner() rune {
+	frame := int(time.Now().UnixMilli()/80) % len(spinnerFrames)
+	return spinnerFrames[frame]
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,10 +46,12 @@ const (
 
 // renderLine is one terminal row worth of content.
 type renderLine struct {
-	kind   lineKind
-	text   string // for lineKindContent
-	role   string // for lineKindHeader – the role label
-	roleFg string // for lineKindHeader – ANSI fg of the label
+	kind        lineKind
+	text        string // for lineKindContent
+	role        string // for lineKindHeader – the role label
+	roleFg      string // for lineKindHeader – ANSI fg of the label
+	contentFg   string // for lineKindContent – overrides default if non-empty
+	showSpinner bool   // for lineKindHeader – animate the Braille spinner
 }
 
 // ── ChatLog component ─────────────────────────────────────────────────────────
@@ -123,46 +136,52 @@ func (cl *ChatLog) buildLines() []renderLine {
 		if i > 0 {
 			lines = append(lines, renderLine{kind: lineKindBlank})
 		}
-		roleFg, roleLabel := cl.roleStyle(msg.Role)
+		headerFg, bodyFg, roleLabel := cl.roleStyle(msg.Role)
 		lines = append(lines, renderLine{
 			kind:   lineKindHeader,
 			role:   roleLabel,
-			roleFg: roleFg,
+			roleFg: headerFg,
 		})
 		for _, l := range wrapText(msg.Content, cl.contentWidth()) {
-			lines = append(lines, renderLine{kind: lineKindContent, text: l})
+			lines = append(lines, renderLine{kind: lineKindContent, text: l, contentFg: bodyFg})
 		}
 	}
 
-	if cl.aioutput != "" {
+	// In-progress streaming response.
+	if cl.aioutput != "" || cl.isStreaming {
 		if len(cl.messages) > 0 {
 			lines = append(lines, renderLine{kind: lineKindBlank})
 		}
 		lines = append(lines, renderLine{
-			kind:   lineKindHeader,
-			role:   "assistant",
-			roleFg: fgAiRole,
+			kind:        lineKindHeader,
+			role:        "assistant",
+			roleFg:      fgAiRole,
+			showSpinner: cl.isStreaming,
 		})
-		content := cl.aioutput
-		if cl.isStreaming {
-			content += "▌"
-		}
-		for _, l := range wrapText(content, cl.contentWidth()) {
-			lines = append(lines, renderLine{kind: lineKindContent, text: l})
+		if cl.aioutput != "" {
+			content := cl.aioutput
+			if cl.isStreaming {
+				content += "▌"
+			}
+			for _, l := range wrapText(content, cl.contentWidth()) {
+				lines = append(lines, renderLine{kind: lineKindContent, text: l, contentFg: fgContent})
+			}
 		}
 	}
 
 	return lines
 }
 
-func (cl *ChatLog) roleStyle(role string) (fg string, label string) {
+func (cl *ChatLog) roleStyle(role string) (headerFg, bodyFg, label string) {
 	switch role {
 	case "user":
-		return fgUserRole, "you"
+		return fgUserRole, fgContent, "you"
 	case "ai":
-		return fgAiRole, "assistant"
+		return fgAiRole, fgContent, "assistant"
+	case "system":
+		return fgSystemRole, fgSystemBody, "!"
 	default:
-		return fgContent, role
+		return fgContent, fgContent, role
 	}
 }
 
@@ -181,20 +200,24 @@ func (cl *ChatLog) renderLine(s *screen.Screen, y int, line renderLine, bg strin
 	case lineKindBlank:
 		cl.clearRow(s, y, bg)
 	case lineKindHeader:
-		cl.renderHeader(s, y, line.role, line.roleFg, bg)
+		cl.renderHeader(s, y, line.role, line.roleFg, bg, line.showSpinner)
 	case lineKindContent:
-		cl.renderContent(s, y, line.text, bg)
+		fg := fgContent
+		if line.contentFg != "" {
+			fg = line.contentFg
+		}
+		cl.renderContent(s, y, line.text, fg, bg)
 	}
 }
 
-// renderHeader draws "role ─────────────────────────────" across the full row.
+// renderHeader draws "role [spinner] ─────────────────" across the full row.
 // The role name uses the coloured+bold fg; the separator uses the dim rule fg.
-func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg string, bg string) {
+// When showSpinner is true a Braille spinner character is inserted after the label.
+func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg string, bg string, showSpinner bool) {
 	x := cl.x
-	roleRunes := []rune(role)
 
 	// Role label.
-	for _, r := range roleRunes {
+	for _, r := range []rune(role) {
 		if x >= cl.x+cl.w {
 			break
 		}
@@ -202,7 +225,19 @@ func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg str
 		x++
 	}
 
-	// Space between label and rule.
+	// Braille spinner – only while streaming.
+	if showSpinner {
+		if x < cl.x+cl.w {
+			s.Set(x, y, ' ', fgDimRule, bg, "")
+			x++
+		}
+		if x < cl.x+cl.w {
+			s.Set(x, y, currentSpinner(), roleFg, bg, "")
+			x++
+		}
+	}
+
+	// Space between label (or spinner) and rule.
 	if x < cl.x+cl.w {
 		s.Set(x, y, ' ', fgDimRule, bg, "")
 		x++
@@ -215,33 +250,33 @@ func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg str
 	}
 }
 
-// renderContent draws "  <text><padding>" using the content foreground.
-func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, bg string) {
+// renderContent draws "  <text><padding>" using the given foreground colour.
+func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, fg string, bg string) {
 	x := cl.x
 
 	// 2-space indent.
 	for i := 0; i < 2 && x < cl.x+cl.w; i++ {
-		s.Set(x, y, ' ', fgContent, bg, "")
+		s.Set(x, y, ' ', fg, bg, "")
 		x++
 	}
 
-	// Text runes – detect the trailing cursor character and colour it.
+	// Text runes. The trailing block cursor ▌ gets its own highlight colour.
 	runes := []rune(text)
 	for i, r := range runes {
 		if x >= cl.x+cl.w {
 			break
 		}
-		fg := fgContent
+		cellFg := fg
 		if r == '▌' && i == len(runes)-1 {
-			fg = fgCursor
+			cellFg = fgCursor
 		}
-		s.Set(x, y, r, fg, bg, "")
+		s.Set(x, y, r, cellFg, bg, "")
 		x++
 	}
 
 	// Fill remainder.
 	for x < cl.x+cl.w {
-		s.Set(x, y, ' ', fgContent, bg, "")
+		s.Set(x, y, ' ', fg, bg, "")
 		x++
 	}
 }

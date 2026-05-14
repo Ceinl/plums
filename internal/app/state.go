@@ -25,6 +25,8 @@ type State struct {
 	aioutput    string
 	isStreaming bool
 
+	spinnerFrame int
+
 	Layout LayoutType
 
 	SessionID string
@@ -78,6 +80,20 @@ func (s *State) Resize(w, h int) {
 
 func (s *State) IsStreaming() bool {
 	return s.isStreaming
+}
+
+func (s *State) SpinnerFrame() int {
+	return s.spinnerFrame
+}
+
+func (s *State) TickSpinner() {
+	s.spinnerFrame = (s.spinnerFrame + 1) % 10
+}
+
+// AddMessage appends a message with the given role directly to the log.
+// Use role "system" for status / error notices.
+func (s *State) AddMessage(role, content string) {
+	s.messages = append(s.messages, Message{Role: role, Content: content})
 }
 
 func (s *State) SwitchLayout() {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"time"
+
 	"plums/internal/ai"
 	"plums/internal/app"
 	"plums/internal/keyboard"
@@ -27,14 +29,20 @@ func main() {
 	state := app.NewState(t.W, t.H)
 
 	client := ai.NewClient()
-	if err := client.Health(ctx); err == nil {
-		session, err := client.CreateSession(ctx)
-		if err == nil {
-			state.SessionID = session.ID
-		}
+	if err := client.Health(ctx); err != nil {
+		state.AddMessage("system", "opencode server not available – run: opencode serve")
+	} else if session, err := client.CreateSession(ctx); err != nil {
+		state.AddMessage("system", "failed to create session: "+err.Error())
+	} else {
+		state.SessionID = session.ID
 	}
 
 	app.Render(state)
+
+	// Spinner ticker: re-render at 80 ms so the Braille animation is smooth
+	// even while the model is thinking (no tokens arriving yet).
+	spinTicker := time.NewTicker(80 * time.Millisecond)
+	defer spinTicker.Stop()
 
 	var aiStream <-chan string
 	var cancelStream context.CancelFunc
@@ -64,6 +72,8 @@ func main() {
 							state.SetStreaming(true)
 							state.ClearAiOutput()
 							aiStream = client.SendMessage(sctx, state.SessionID, last.Content)
+						} else if last.Role == "user" {
+							state.AddMessage("system", "no active session – is opencode serve running?")
 						}
 					}
 				}
@@ -77,6 +87,10 @@ func main() {
 				state.FinalizeAiOutput()
 				aiStream = nil
 				cancelStream = nil
+				app.Render(state)
+			}
+		case <-spinTicker.C:
+			if state.IsStreaming() {
 				app.Render(state)
 			}
 		case <-sigCh:
