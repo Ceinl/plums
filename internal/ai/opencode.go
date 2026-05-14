@@ -1,24 +1,30 @@
 package ai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
+// Client communicates with a running `opencode serve` process.
 type Client struct {
 	baseURL    string
-	httpClient *http.Client
+	httpClient *http.Client // used for regular requests (300 s timeout)
+	sseClient  *http.Client // used for SSE streams (no timeout)
 }
 
+// Session represents an opencode session.
 type Session struct {
 	ID string `json:"id"`
 }
 
+// Part is a content part within a message.
 type Part struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
@@ -41,11 +47,49 @@ type sendMessageBody struct {
 	Parts []Part `json:"parts"`
 }
 
+// ── SSE event types ───────────────────────────────────────────────────────────
+
+// sseEnvelope is the top-level wrapper for every SSE event.
+type sseEnvelope struct {
+	Type       string          `json:"type"`
+	Properties json.RawMessage `json:"properties"`
+}
+
+// partUpdatedProperties is the payload of a "message.part.updated" event.
+type partUpdatedProperties struct {
+	Part partDetail `json:"part"`
+}
+
+// partDetail describes a single message part.
+type partDetail struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionID"`
+	Type      string `json:"type"`
+	Text      string `json:"text"`
+}
+
+// partDeltaProperties is the payload of a "message.part.delta" event.
+type partDeltaProperties struct {
+	PartID string `json:"partID"`
+	Field  string `json:"field"`
+	Delta  string `json:"delta"`
+}
+
+// sessionIdleProperties is the payload of a "session.idle" event.
+type sessionIdleProperties struct {
+	SessionID string `json:"sessionID"`
+}
+
+// ── Constructors ──────────────────────────────────────────────────────────────
+
 func NewClient() *Client {
 	return &Client{
 		baseURL: "http://127.0.0.1:4096",
 		httpClient: &http.Client{
 			Timeout: 300 * time.Second,
+		},
+		sseClient: &http.Client{
+			Timeout: 0, // no timeout – SSE streams run until the server signals idle
 		},
 	}
 }
@@ -56,8 +100,13 @@ func NewClientWithURL(baseURL string) *Client {
 		httpClient: &http.Client{
 			Timeout: 300 * time.Second,
 		},
+		sseClient: &http.Client{
+			Timeout: 0,
+		},
 	}
 }
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 func (c *Client) Health(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/global/health", nil)
@@ -101,69 +150,217 @@ func (c *Client) CreateSession(ctx context.Context) (*Session, error) {
 	return &session, nil
 }
 
+// SendMessage streams the assistant's reply token-by-token via the returned
+// channel. It first tries the SSE-based approach (prompt_async + /event); if
+// that fails (404 or connection error) it falls back to the synchronous
+// /session/{id}/message endpoint.
 func (c *Client) SendMessage(ctx context.Context, sessionID, text string) <-chan string {
 	out := make(chan string)
 	go func() {
 		defer close(out)
-		b := sendMessageBody{
-			Parts: []Part{{Type: "text", Text: text}},
-		}
-		data, err := json.Marshal(b)
-		if err != nil {
-			select {
-			case <-ctx.Done():
-			case out <- fmt.Sprintf("\n⚠️  marshal error: %v\n", err):
-			}
-			return
-		}
-		req, err := http.NewRequestWithContext(ctx, "POST",
-			c.baseURL+"/session/"+url.PathEscape(sessionID)+"/message",
-			bytes.NewReader(data))
-		if err != nil {
-			select {
-			case <-ctx.Done():
-			case out <- fmt.Sprintf("\n⚠️  request error: %v\n", err):
-			}
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			select {
-			case <-ctx.Done():
-				return
-			case out <- "\n⚠️  Opencode server not available (is `opencode serve` running?)\n":
-			}
-			return
-		}
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != http.StatusOK {
-			select {
-			case <-ctx.Done():
-			case out <- fmt.Sprintf("\n⚠️  opencode server returned status %d\n", resp.StatusCode):
-			}
-			return
-		}
-		var msgResp messageResponse
-		if err := json.NewDecoder(resp.Body).Decode(&msgResp); err != nil {
-			select {
-			case <-ctx.Done():
-			case out <- fmt.Sprintf("\n⚠️  decode error: %v\n", err):
-			}
-			return
-		}
-		for _, part := range msgResp.Parts {
-			if part.Type == "text" && part.Text != "" {
-				for _, r := range part.Text {
-					select {
-					case <-ctx.Done():
-						return
-					case out <- string(r):
-					}
-					time.Sleep(3 * time.Millisecond)
-				}
-			}
+		if err := c.sendWithSSE(ctx, sessionID, text, out); err != nil {
+			// SSE path unavailable – fall back to synchronous behaviour.
+			c.sendSync(ctx, sessionID, text, out)
 		}
 	}()
 	return out
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+// sendWithSSE opens a long-lived GET /event SSE connection, kicks off
+// generation via POST /session/{id}/prompt_async, then reads events until
+// session.idle arrives. It returns a non-nil error when the SSE path is
+// unavailable so the caller can fall back to sendSync.
+func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out chan<- string) error {
+	// 1. Open the SSE stream first so we don't miss any events.
+	sseReq, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/event", nil)
+	if err != nil {
+		return fmt.Errorf("build SSE request: %w", err)
+	}
+	sseReq.Header.Set("Accept", "text/event-stream")
+	sseReq.Header.Set("Cache-Control", "no-cache")
+
+	sseResp, err := c.sseClient.Do(sseReq)
+	if err != nil {
+		return fmt.Errorf("SSE connect: %w", err)
+	}
+	defer func() { _ = sseResp.Body.Close() }()
+
+	// 2. Send the prompt asynchronously.
+	b := sendMessageBody{
+		Parts: []Part{{Type: "text", Text: text}},
+	}
+	bodyData, err := json.Marshal(b)
+	if err != nil {
+		return fmt.Errorf("marshal prompt body: %w", err)
+	}
+	asyncReq, err := http.NewRequestWithContext(ctx, "POST",
+		c.baseURL+"/session/"+url.PathEscape(sessionID)+"/prompt_async",
+		bytes.NewReader(bodyData))
+	if err != nil {
+		return fmt.Errorf("build prompt_async request: %w", err)
+	}
+	asyncReq.Header.Set("Content-Type", "application/json")
+
+	asyncResp, err := c.httpClient.Do(asyncReq)
+	if err != nil {
+		return fmt.Errorf("prompt_async: %w", err)
+	}
+	defer func() { _ = asyncResp.Body.Close() }()
+
+	if asyncResp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("prompt_async: 404 – old server, falling back")
+	}
+	if asyncResp.StatusCode != http.StatusNoContent && asyncResp.StatusCode != http.StatusOK {
+		return fmt.Errorf("prompt_async returned status %d", asyncResp.StatusCode)
+	}
+
+	// 3. Consume SSE events.
+	textPartIDs := make(map[string]bool)
+
+	scanner := bufio.NewScanner(sseResp.Body)
+	scanner.Buffer(make([]byte, 1<<20), 1<<20)
+
+	var dataBuilder strings.Builder
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		line := scanner.Text()
+
+		switch {
+		case strings.HasPrefix(line, "data:"):
+			// Accumulate the data payload (trim the "data:" prefix and any
+			// single leading space as per the SSE spec).
+			payload := strings.TrimPrefix(line, "data:")
+			payload = strings.TrimPrefix(payload, " ")
+			dataBuilder.WriteString(payload)
+
+		case line == "":
+			// Empty line = end of event – process whatever we accumulated.
+			raw := dataBuilder.String()
+			dataBuilder.Reset()
+			if raw == "" {
+				continue
+			}
+
+			var env sseEnvelope
+			if err := json.Unmarshal([]byte(raw), &env); err != nil {
+				continue // skip malformed events
+			}
+
+			switch env.Type {
+			case "message.part.updated":
+				var props partUpdatedProperties
+				if err := json.Unmarshal(env.Properties, &props); err != nil {
+					continue
+				}
+				if props.Part.SessionID == sessionID && props.Part.Type == "text" {
+					textPartIDs[props.Part.ID] = true
+				}
+
+			case "message.part.delta":
+				var props partDeltaProperties
+				if err := json.Unmarshal(env.Properties, &props); err != nil {
+					continue
+				}
+				if textPartIDs[props.PartID] && props.Field == "text" && props.Delta != "" {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case out <- props.Delta:
+					}
+				}
+
+			case "session.idle":
+				var props sessionIdleProperties
+				if err := json.Unmarshal(env.Properties, &props); err != nil {
+					continue
+				}
+				if props.SessionID == sessionID {
+					return nil // generation complete
+				}
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("SSE scan: %w", err)
+	}
+
+	return nil
+}
+
+// sendSync is the legacy fallback: POSTs to /session/{id}/message, waits for
+// the full JSON response, then emits the text character by character.
+func (c *Client) sendSync(ctx context.Context, sessionID, text string, out chan<- string) {
+	b := sendMessageBody{
+		Parts: []Part{{Type: "text", Text: text}},
+	}
+	data, err := json.Marshal(b)
+	if err != nil {
+		select {
+		case <-ctx.Done():
+		case out <- fmt.Sprintf("\n⚠️  marshal error: %v\n", err):
+		}
+		return
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		c.baseURL+"/session/"+url.PathEscape(sessionID)+"/message",
+		bytes.NewReader(data))
+	if err != nil {
+		select {
+		case <-ctx.Done():
+		case out <- fmt.Sprintf("\n⚠️  request error: %v\n", err):
+		}
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		select {
+		case <-ctx.Done():
+			return
+		case out <- "\n⚠️  Opencode server not available (is `opencode serve` running?)\n":
+		}
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		select {
+		case <-ctx.Done():
+		case out <- fmt.Sprintf("\n⚠️  opencode server returned status %d\n", resp.StatusCode):
+		}
+		return
+	}
+
+	var msgResp messageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&msgResp); err != nil {
+		select {
+		case <-ctx.Done():
+		case out <- fmt.Sprintf("\n⚠️  decode error: %v\n", err):
+		}
+		return
+	}
+
+	for _, part := range msgResp.Parts {
+		if part.Type == "text" && part.Text != "" {
+			for _, r := range part.Text {
+				select {
+				case <-ctx.Done():
+					return
+				case out <- string(r):
+				}
+				time.Sleep(3 * time.Millisecond)
+			}
+		}
+	}
 }

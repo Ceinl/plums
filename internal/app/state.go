@@ -76,6 +76,10 @@ func (s *State) Resize(w, h int) {
 	s.height = h
 }
 
+func (s *State) IsStreaming() bool {
+	return s.isStreaming
+}
+
 func (s *State) SwitchLayout() {
 	switch s.Layout {
 	case LayoutDefault:

@@ -1,42 +1,63 @@
 package components
 
 import (
+	"strings"
+
 	"plums/internal/layout"
 	"plums/internal/screen"
 )
+
+// ── Palette ───────────────────────────────────────────────────────────────────
+
+const (
+	fgContent  = "\x1b[38;2;200;198;212m"        // near-white for message body
+	fgDimRule  = "\x1b[38;2;72;70;84m"           // very dim, for the ─── rule
+	fgUserRole = "\x1b[1m\x1b[38;2;80;220;120m"  // bold green  – "you"
+	fgAiRole   = "\x1b[1m\x1b[38;2;100;190;255m" // bold blue   – "assistant"
+	fgCursor   = "\x1b[38;2;160;220;255m"        // streaming cursor colour
+)
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 type ChatMessage struct {
 	Role    string
 	Content string
 }
 
+// lineKind tags a pre-rendered logical line.
+type lineKind int
+
+const (
+	lineKindBlank   lineKind = iota
+	lineKindHeader           // role name + ─── rule
+	lineKindContent          // indented body text
+)
+
+// renderLine is one terminal row worth of content.
+type renderLine struct {
+	kind   lineKind
+	text   string // for lineKindContent
+	role   string // for lineKindHeader – the role label
+	roleFg string // for lineKindHeader – ANSI fg of the label
+}
+
+// ── ChatLog component ─────────────────────────────────────────────────────────
+
 type ChatLog struct {
-	isDirty  bool
-	messages []ChatMessage
-	aioutput string
-	prefixW  int
+	isDirty     bool
+	messages    []ChatMessage
+	aioutput    string
+	isStreaming bool
 
 	style  layout.Style
 	parent layout.Component
 
 	x, y int
 	w, h int
-
-	userStyle layout.Style
-	aiStyle   layout.Style
 }
 
 func NewChatLog() *ChatLog {
-	userStyle := layout.Style{}
-	userStyle.SetForeground(80, 220, 120)
-	aiStyle := layout.Style{}
-	aiStyle.SetForeground(100, 190, 255)
-	aiStyle.SetBackground(30, 28, 35)
-	return &ChatLog{
-		prefixW:  1,
-		userStyle: userStyle,
-		aiStyle:   aiStyle,
-	}
+	return &ChatLog{}
 }
 
 func (cl *ChatLog) SetMessages(msgs []ChatMessage) {
@@ -46,6 +67,11 @@ func (cl *ChatLog) SetMessages(msgs []ChatMessage) {
 
 func (cl *ChatLog) SetAiOutput(s string) {
 	cl.aioutput = s
+	cl.isDirty = true
+}
+
+func (cl *ChatLog) SetStreaming(v bool) {
+	cl.isStreaming = v
 	cl.isDirty = true
 }
 
@@ -60,123 +86,236 @@ func (cl *ChatLog) Layout(x, y, w, h int) {
 	cl.x, cl.y, cl.w, cl.h = x, y, w, h
 }
 
+// ── Render ────────────────────────────────────────────────────────────────────
+
 func (cl *ChatLog) Render(s *screen.Screen) {
 	bg := cl.style.GetBackground()
 	if cl.parent != nil {
 		bg = cl.parent.GetStyle().GetBackground()
 	}
 
-	cy := cl.y
-	maxW := cl.w - cl.prefixW - 2
+	// Build the full list of logical lines (may be taller than cl.h).
+	lines := cl.buildLines()
 
-	for _, msg := range cl.messages {
-		if cy >= cl.y+cl.h {
-			break
-		}
-
-		var lineBg, decor string
-		var rightAlign bool
-		switch msg.Role {
-		case "user":
-			lineBg = bg
-			decor = cl.getUserDecor()
-			rightAlign = true
-		case "ai":
-			lineBg = cl.aiStyle.GetBackground()
-			decor = cl.getAiDecor()
-			rightAlign = false
-		default:
-			lineBg = bg
-			decor = ""
-			rightAlign = false
-		}
-
-		for _, line := range wrapRunes(msg.Content, maxW) {
-			if cy >= cl.y+cl.h {
-				break
-			}
-			cl.drawLine(s, cy, line, lineBg, rightAlign, decor)
-			cy++
-		}
-		cy++
+	// Auto-scroll: always pin to the bottom so new tokens are visible.
+	start := 0
+	if len(lines) > cl.h {
+		start = len(lines) - cl.h
 	}
 
-	if cl.aioutput != "" && cy < cl.y+cl.h {
-		for _, line := range wrapRunes(cl.aioutput, maxW) {
-			if cy >= cl.y+cl.h {
-				break
-			}
-			cl.drawLine(s, cy, line, cl.aiStyle.GetBackground(), false, cl.getAiDecor())
-			cy++
+	for row := 0; row < cl.h; row++ {
+		y := cl.y + row
+		idx := start + row
+		if idx < len(lines) {
+			cl.renderLine(s, y, lines[idx], bg)
+		} else {
+			cl.clearRow(s, y, bg)
 		}
-	}
-
-	for cy < cl.y+cl.h {
-		for x := cl.x; x < cl.x+cl.w; x++ {
-			s.Set(x, cy, ' ', "", bg, "")
-		}
-		cy++
 	}
 }
 
-func (cl *ChatLog) drawLine(s *screen.Screen, cy int, text string, bg string, rightAlign bool, decor string) {
-	runes := []rune(text)
-	contentW := 2 + len(runes)
-	if contentW > cl.w {
-		contentW = cl.w
+// buildLines converts all messages (and in-progress AI output) into a flat
+// slice of renderLine values that represent one terminal row each.
+func (cl *ChatLog) buildLines() []renderLine {
+	var lines []renderLine
+
+	for i, msg := range cl.messages {
+		if i > 0 {
+			lines = append(lines, renderLine{kind: lineKindBlank})
+		}
+		roleFg, roleLabel := cl.roleStyle(msg.Role)
+		lines = append(lines, renderLine{
+			kind:   lineKindHeader,
+			role:   roleLabel,
+			roleFg: roleFg,
+		})
+		for _, l := range wrapText(msg.Content, cl.contentWidth()) {
+			lines = append(lines, renderLine{kind: lineKindContent, text: l})
+		}
 	}
 
-	startX := cl.x
-	if rightAlign {
-		startX = cl.x + cl.w - contentW
+	if cl.aioutput != "" {
+		if len(cl.messages) > 0 {
+			lines = append(lines, renderLine{kind: lineKindBlank})
+		}
+		lines = append(lines, renderLine{
+			kind:   lineKindHeader,
+			role:   "assistant",
+			roleFg: fgAiRole,
+		})
+		content := cl.aioutput
+		if cl.isStreaming {
+			content += "▌"
+		}
+		for _, l := range wrapText(content, cl.contentWidth()) {
+			lines = append(lines, renderLine{kind: lineKindContent, text: l})
+		}
 	}
 
+	return lines
+}
+
+func (cl *ChatLog) roleStyle(role string) (fg string, label string) {
+	switch role {
+	case "user":
+		return fgUserRole, "you"
+	case "ai":
+		return fgAiRole, "assistant"
+	default:
+		return fgContent, role
+	}
+}
+
+func (cl *ChatLog) contentWidth() int {
+	w := cl.w - 2 // 2-space indent for body lines
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+// ── Per-row rendering ─────────────────────────────────────────────────────────
+
+func (cl *ChatLog) renderLine(s *screen.Screen, y int, line renderLine, bg string) {
+	switch line.kind {
+	case lineKindBlank:
+		cl.clearRow(s, y, bg)
+	case lineKindHeader:
+		cl.renderHeader(s, y, line.role, line.roleFg, bg)
+	case lineKindContent:
+		cl.renderContent(s, y, line.text, bg)
+	}
+}
+
+// renderHeader draws "role ─────────────────────────────" across the full row.
+// The role name uses the coloured+bold fg; the separator uses the dim rule fg.
+func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg string, bg string) {
 	x := cl.x
-	for ; x < startX; x++ {
-		s.Set(x, cy, ' ', "", bg, "")
-	}
-	if x < cl.x+cl.w {
-		s.Set(x, cy, '\u2502', "", bg, decor)
-		x++
-	}
-	if x < cl.x+cl.w {
-		s.Set(x, cy, ' ', "", bg, "")
-		x++
-	}
-	for _, r := range runes {
+	roleRunes := []rune(role)
+
+	// Role label.
+	for _, r := range roleRunes {
 		if x >= cl.x+cl.w {
 			break
 		}
-		s.Set(x, cy, r, "", bg, "")
+		s.Set(x, y, r, roleFg, bg, "")
 		x++
 	}
+
+	// Space between label and rule.
+	if x < cl.x+cl.w {
+		s.Set(x, y, ' ', fgDimRule, bg, "")
+		x++
+	}
+
+	// Horizontal rule filling the rest.
 	for x < cl.x+cl.w {
-		s.Set(x, cy, ' ', "", bg, "")
+		s.Set(x, y, '─', fgDimRule, bg, "")
 		x++
 	}
 }
 
-func (cl *ChatLog) getUserDecor() string {
-	return "\x1b[1m" + cl.userStyle.GetForeground()
+// renderContent draws "  <text><padding>" using the content foreground.
+func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, bg string) {
+	x := cl.x
+
+	// 2-space indent.
+	for i := 0; i < 2 && x < cl.x+cl.w; i++ {
+		s.Set(x, y, ' ', fgContent, bg, "")
+		x++
+	}
+
+	// Text runes – detect the trailing cursor character and colour it.
+	runes := []rune(text)
+	for i, r := range runes {
+		if x >= cl.x+cl.w {
+			break
+		}
+		fg := fgContent
+		if r == '▌' && i == len(runes)-1 {
+			fg = fgCursor
+		}
+		s.Set(x, y, r, fg, bg, "")
+		x++
+	}
+
+	// Fill remainder.
+	for x < cl.x+cl.w {
+		s.Set(x, y, ' ', fgContent, bg, "")
+		x++
+	}
 }
 
-func (cl *ChatLog) getAiDecor() string {
-	return "\x1b[1m" + cl.aiStyle.GetForeground()
+func (cl *ChatLog) clearRow(s *screen.Screen, y int, bg string) {
+	for x := cl.x; x < cl.x+cl.w; x++ {
+		s.Set(x, y, ' ', fgContent, bg, "")
+	}
 }
 
-func wrapRunes(text string, width int) []string {
+// ── Text wrapping ─────────────────────────────────────────────────────────────
+
+// wrapText breaks text at word boundaries, preserving newlines.
+func wrapText(text string, width int) []string {
 	if width <= 0 {
 		return []string{text}
 	}
+	var out []string
+	for _, para := range strings.Split(text, "\n") {
+		out = append(out, wrapParagraph(para, width)...)
+	}
+	return out
+}
+
+// wrapParagraph wraps a single line of text (no embedded newlines) at word
+// boundaries. Words longer than width are hard-split.
+func wrapParagraph(text string, width int) []string {
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{""}
+	}
+
 	var lines []string
-	runes := []rune(text)
-	for len(runes) > 0 {
-		if len(runes) <= width {
-			lines = append(lines, string(runes))
-			break
+	var cur []rune
+
+	flush := func() {
+		if len(cur) > 0 {
+			lines = append(lines, string(cur))
+			cur = nil
 		}
-		lines = append(lines, string(runes[:width]))
-		runes = runes[width:]
+	}
+
+	for _, word := range words {
+		wr := []rune(word)
+
+		// Word is too long to fit on any line – hard-split it.
+		if len(wr) > width {
+			flush()
+			for len(wr) > 0 {
+				take := width
+				if take > len(wr) {
+					take = len(wr)
+				}
+				lines = append(lines, string(wr[:take]))
+				wr = wr[take:]
+			}
+			continue
+		}
+
+		switch {
+		case len(cur) == 0:
+			cur = append(cur, wr...)
+		case len(cur)+1+len(wr) <= width:
+			cur = append(cur, ' ')
+			cur = append(cur, wr...)
+		default:
+			flush()
+			cur = append(cur, wr...)
+		}
+	}
+	flush()
+
+	if len(lines) == 0 {
+		return []string{""}
 	}
 	return lines
 }

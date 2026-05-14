@@ -10,17 +10,29 @@ import (
 
 var scr *screen.Screen
 
+// ── Colour palette ────────────────────────────────────────────────────────────
+//
+// Default / fullscreen layout
+//   bgOutput  – the chat / output area
+//   bgEditor  – the editor area
+//
+// Split layout
+//   bgSplitEditor – left pane (slightly lighter, warm)
+//   bgSplitOutput – right pane (darker, more contrast)
+//   bgSeparator   – 1-column vertical divider
+
+// ── Factory helpers ───────────────────────────────────────────────────────────
+
 func newOutput() *components.Div {
 	outputDiv := components.NewDiv()
-	outputDiv.SetPadding(
-		layout.Padding{
-			Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
-			Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
-			Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
-			Bottom: layout.Unit{Type: layout.UnitPx, Value: 1}})
-
+	outputDiv.SetPadding(layout.Padding{
+		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+		Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
+		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
+	})
 	style := layout.Style{}
-	style.SetBackground(25, 23, 29)
+	style.SetBackground(22, 20, 27)
 	outputDiv.SetStyle(style)
 	return outputDiv
 }
@@ -33,15 +45,29 @@ func newChatLog(state *State) *components.ChatLog {
 	}
 	chatLog.SetMessages(msgs)
 	chatLog.SetAiOutput(state.aioutput)
+	chatLog.SetStreaming(state.IsStreaming())
 	return chatLog
 }
 
-func newSeparatorDiv(state *State) *components.Div {
-	return newTextDiv(strings.Repeat("\u2500", state.width),
+func newHorizontalRule(state *State) *components.Div {
+	return newTextDiv(
+		strings.Repeat("\u2500", state.width),
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 1},
-		40, 38, 45,
+		40, 38, 48,
 	)
+}
+
+func newVerticalSeparator() *components.Div {
+	sep := components.NewDiv()
+	sep.SetSize(
+		layout.Unit{Type: layout.UnitPx, Value: 1},
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+	)
+	style := layout.Style{}
+	style.SetBackground(52, 50, 63)
+	sep.SetStyle(style)
+	return sep
 }
 
 func newTextDiv(content string, w, h layout.Unit, bgR, bgG, bgB uint8) *components.Div {
@@ -50,7 +76,7 @@ func newTextDiv(content string, w, h layout.Unit, bgR, bgG, bgB uint8) *componen
 
 	style := layout.Style{}
 	style.SetBackground(bgR, bgG, bgB)
-	style.SetForeground(150, 148, 155)
+	style.SetForeground(100, 98, 112)
 	div.SetStyle(style)
 
 	text := components.NewText()
@@ -59,17 +85,19 @@ func newTextDiv(content string, w, h layout.Unit, bgR, bgG, bgB uint8) *componen
 	return div
 }
 
-func newTextBoxDiv(ed *components.Editor, w, h layout.Unit, bgR, bgG, bgB uint8) *components.Div {
+func newEditorDiv(ed *components.Editor, w, h layout.Unit) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(w, h)
 
 	style := layout.Style{}
-	style.SetBackground(bgR, bgG, bgB)
-	style.SetForeground(220, 220, 220)
+	style.SetBackground(32, 30, 40)
+	style.SetForeground(220, 218, 230)
 	div.SetStyle(style)
 	div.AppendChild(ed)
 	return div
 }
+
+// ── Main render entry point ───────────────────────────────────────────────────
 
 func Render(state *State) {
 	if scr == nil || scr.Width() != state.width || scr.Height() != state.height {
@@ -101,6 +129,8 @@ func Render(state *State) {
 	scr.ShowCursor()
 }
 
+// ── Layout builders ───────────────────────────────────────────────────────────
+
 func CreateDefaultLayout(state *State) *components.Div {
 	outputDiv := newOutput()
 	outputDiv.SetSize(
@@ -109,13 +139,19 @@ func CreateDefaultLayout(state *State) *components.Div {
 	)
 	outputDiv.AppendChild(newChatLog(state))
 
-	sepDiv := newSeparatorDiv(state)
+	sepDiv := newHorizontalRule(state)
 
-	inputDiv := newTextBoxDiv(state.Editor,
+	inputDiv := newEditorDiv(
+		state.Editor,
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 5},
-		30, 28, 35,
 	)
+	inputDiv.SetPadding(layout.Padding{
+		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+		Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
+		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
+	})
 
 	root := components.NewDiv()
 	root.SetSize(
@@ -129,21 +165,26 @@ func CreateDefaultLayout(state *State) *components.Div {
 }
 
 func CreateSplitLayout(state *State) *components.Div {
-	leftDiv := newTextBoxDiv(state.Editor,
+	// Left pane: editor (50 %)
+	leftDiv := newEditorDiv(
+		state.Editor,
 		layout.Unit{Type: layout.UnitPersent, Value: 50},
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
-		30, 28, 35,
 	)
-	leftDiv.SetPadding(
-		layout.Padding{
-			Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
-			Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
-			Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
-			Bottom: layout.Unit{Type: layout.UnitPx, Value: 1}})
+	leftDiv.SetPadding(layout.Padding{
+		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+		Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
+		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
+	})
 
+	// 1-column accent separator
+	sep := newVerticalSeparator()
+
+	// Right pane: chat output (fills remaining space)
 	rightDiv := newOutput()
 	rightDiv.SetSize(
-		layout.Unit{Type: layout.UnitPersent, Value: 50},
+		layout.Unit{Type: layout.UnitGrow, Value: 1},
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 	)
 	rightDiv.AppendChild(newChatLog(state))
@@ -155,14 +196,22 @@ func CreateSplitLayout(state *State) *components.Div {
 	)
 	root.SetDirection(layout.Row)
 	root.AppendChild(leftDiv)
+	root.AppendChild(sep)
 	root.AppendChild(rightDiv)
 	return root
 }
 
 func CreateFullscreenLayout(state *State) *components.Div {
-	return newTextBoxDiv(state.Editor,
+	div := newEditorDiv(
+		state.Editor,
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
-		30, 28, 35,
 	)
+	div.SetPadding(layout.Padding{
+		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+		Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
+		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
+	})
+	return div
 }
