@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"time"
@@ -12,6 +13,12 @@ import (
 	"plums/internal/ui"
 	"syscall"
 )
+
+type startupResult struct {
+	sessionID string
+	server    *ai.ServerProcess
+	err       error
+}
 
 func main() {
 	t := ui.NewTerminal(int(os.Stdin.Fd()))
@@ -29,13 +36,12 @@ func main() {
 	state := app.NewState(t.W, t.H)
 
 	client := ai.NewClient()
-	if err := client.Health(ctx); err != nil {
-		state.AddMessage("system", "opencode server not available – run: opencode serve")
-	} else if session, err := client.CreateSession(ctx); err != nil {
-		state.AddMessage("system", "failed to create session: "+err.Error())
-	} else {
-		state.SessionID = session.ID
-	}
+	var serverProc *ai.ServerProcess
+	defer func() { serverProc.Stop() }()
+
+	startupCh := make(chan startupResult, 1)
+	state.SetServerStarting(true)
+	go startOpencode(ctx, client, startupCh)
 
 	app.Render(state)
 
@@ -93,12 +99,47 @@ func main() {
 			if state.IsStreaming() {
 				app.Render(state)
 			}
+		case result := <-startupCh:
+			state.SetServerStarting(false)
+			if result.err != nil {
+				state.AddMessage("system", result.err.Error())
+			} else {
+				serverProc = result.server
+				state.SetServerReady(true)
+				state.SessionID = result.sessionID
+			}
+			app.Render(state)
 		case <-sigCh:
 			t.RefreshSize()
 			state.Resize(t.W, t.H)
 			app.Render(state)
 		}
 	}
+}
+
+func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupResult) {
+	var serverProc *ai.ServerProcess
+	if err := client.Health(ctx); err != nil {
+		proc, err := ai.StartServer(ctx)
+		if err != nil {
+			out <- startupResult{err: fmt.Errorf("failed to start opencode server: %w", err)}
+			return
+		}
+		serverProc = proc
+		if err := ai.WaitForHealth(ctx, client, 10*time.Second); err != nil {
+			serverProc.Stop()
+			out <- startupResult{err: fmt.Errorf("failed to start opencode server: %w", err)}
+			return
+		}
+	}
+
+	session, err := client.CreateSession(ctx)
+	if err != nil {
+		serverProc.Stop()
+		out <- startupResult{err: fmt.Errorf("failed to create session: %w", err)}
+		return
+	}
+	out <- startupResult{sessionID: session.ID, server: serverProc}
 }
 
 func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
@@ -153,7 +194,10 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		if ev.Ctrl {
 			switch ev.Ch {
 			case 'a', 'A':
-				ed.SelectAll()
+				ed.MoveCursorHome()
+				return true, false
+			case 'e', 'E':
+				ed.MoveCursorEnd()
 				return true, false
 			case 'k', 'K':
 				ed.DeleteCurrentLine()

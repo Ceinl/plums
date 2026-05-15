@@ -1,8 +1,6 @@
 package app
 
 import (
-	"strings"
-
 	"plums/internal/components"
 	"plums/internal/layout"
 	"plums/internal/screen"
@@ -50,24 +48,24 @@ func newChatLog(state *State) *components.ChatLog {
 }
 
 func newHorizontalRule(state *State) *components.Div {
-	return newTextDiv(
-		strings.Repeat("\u2500", state.width),
+	div := components.NewDiv()
+	div.SetSize(
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 1},
-		40, 38, 48,
 	)
+	sep := components.NewSeparator()
+	sep.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
+	div.AppendChild(sep)
+	return div
 }
 
 func newVerticalSeparator() *components.Div {
-	sep := components.NewDiv()
-	sep.SetSize(
+	div := components.NewDiv()
+	div.SetSize(
 		layout.Unit{Type: layout.UnitPx, Value: 1},
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 	)
-	style := layout.Style{}
-	style.SetBackground(52, 50, 63)
-	sep.SetStyle(style)
-	return sep
+	return div
 }
 
 func newTextDiv(content string, w, h layout.Unit, bgR, bgG, bgB uint8) *components.Div {
@@ -180,6 +178,9 @@ func CreateSplitLayout(state *State) *components.Div {
 
 	// 1-column accent separator
 	sep := newVerticalSeparator()
+	statusSep := components.NewSeparator()
+	statusSep.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
+	sep.AppendChild(statusSep)
 
 	// Right pane: chat output (fills remaining space)
 	rightDiv := newOutput()

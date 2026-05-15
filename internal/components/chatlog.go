@@ -2,7 +2,6 @@ package components
 
 import (
 	"strings"
-	"time"
 
 	"plums/internal/layout"
 	"plums/internal/screen"
@@ -11,22 +10,13 @@ import (
 // ── Palette ───────────────────────────────────────────────────────────────────
 
 const (
-	fgContent    = "\x1b[38;2;200;198;212m"        // near-white for message body
-	fgDimRule    = "\x1b[38;2;72;70;84m"           // very dim, for the ─── rule
-	fgUserRole   = "\x1b[1m\x1b[38;2;80;220;120m"  // bold green  – "you"
-	fgAiRole     = "\x1b[1m\x1b[38;2;100;190;255m" // bold blue  – "assistant"
-	fgCursor     = "\x1b[38;2;160;220;255m"        // streaming cursor colour
-	fgSystemRole = "\x1b[1m\x1b[38;2;220;160;50m"  // bold amber – system / error
-	fgSystemBody = "\x1b[38;2;200;145;60m"         // dim amber for system body
+	fgContent    = "\x1b[38;2;200;198;212m"       // near-white for message body
+	fgDimRule    = "\x1b[38;2;72;70;84m"          // very dim, for the system rule
+	fgCursor     = "\x1b[38;2;160;220;255m"       // streaming cursor colour
+	fgSystemRole = "\x1b[1m\x1b[38;2;220;160;50m" // bold amber – system / error
+	fgSystemBody = "\x1b[38;2;200;145;60m"        // dim amber for system body
+	bgAiMessage  = "\x1b[48;2;34;32;42m"          // lighter panel for AI responses
 )
-
-// spinnerFrames is the Braille spinner sequence.
-var spinnerFrames = []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
-
-func currentSpinner() rune {
-	frame := int(time.Now().UnixMilli()/80) % len(spinnerFrames)
-	return spinnerFrames[frame]
-}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,12 +36,12 @@ const (
 
 // renderLine is one terminal row worth of content.
 type renderLine struct {
-	kind        lineKind
-	text        string // for lineKindContent
-	role        string // for lineKindHeader – the role label
-	roleFg      string // for lineKindHeader – ANSI fg of the label
-	contentFg   string // for lineKindContent – overrides default if non-empty
-	showSpinner bool   // for lineKindHeader – animate the Braille spinner
+	kind      lineKind
+	text      string // for lineKindContent
+	role      string // for lineKindHeader – the role label
+	roleFg    string // for lineKindHeader – ANSI fg of the label
+	contentFg string // for lineKindContent – overrides default if non-empty
+	contentBg string // for lineKindContent – overrides parent background if non-empty
 }
 
 // ── ChatLog component ─────────────────────────────────────────────────────────
@@ -136,14 +126,12 @@ func (cl *ChatLog) buildLines() []renderLine {
 		if i > 0 {
 			lines = append(lines, renderLine{kind: lineKindBlank})
 		}
-		headerFg, bodyFg, roleLabel := cl.roleStyle(msg.Role)
-		lines = append(lines, renderLine{
-			kind:   lineKindHeader,
-			role:   roleLabel,
-			roleFg: headerFg,
-		})
+		bodyFg, bodyBg := cl.roleStyle(msg.Role)
+		if msg.Role == "system" {
+			lines = append(lines, renderLine{kind: lineKindHeader, role: "!", roleFg: fgSystemRole})
+		}
 		for _, l := range wrapText(msg.Content, cl.contentWidth()) {
-			lines = append(lines, renderLine{kind: lineKindContent, text: l, contentFg: bodyFg})
+			lines = append(lines, renderLine{kind: lineKindContent, text: l, contentFg: bodyFg, contentBg: bodyBg})
 		}
 	}
 
@@ -152,19 +140,13 @@ func (cl *ChatLog) buildLines() []renderLine {
 		if len(cl.messages) > 0 {
 			lines = append(lines, renderLine{kind: lineKindBlank})
 		}
-		lines = append(lines, renderLine{
-			kind:        lineKindHeader,
-			role:        "assistant",
-			roleFg:      fgAiRole,
-			showSpinner: cl.isStreaming,
-		})
 		if cl.aioutput != "" {
 			content := cl.aioutput
 			if cl.isStreaming {
 				content += "▌"
 			}
 			for _, l := range wrapText(content, cl.contentWidth()) {
-				lines = append(lines, renderLine{kind: lineKindContent, text: l, contentFg: fgContent})
+				lines = append(lines, renderLine{kind: lineKindContent, text: l, contentFg: fgContent, contentBg: bgAiMessage})
 			}
 		}
 	}
@@ -172,16 +154,16 @@ func (cl *ChatLog) buildLines() []renderLine {
 	return lines
 }
 
-func (cl *ChatLog) roleStyle(role string) (headerFg, bodyFg, label string) {
+func (cl *ChatLog) roleStyle(role string) (bodyFg, bodyBg string) {
 	switch role {
 	case "user":
-		return fgUserRole, fgContent, "you"
+		return fgContent, ""
 	case "ai":
-		return fgAiRole, fgContent, "assistant"
+		return fgContent, bgAiMessage
 	case "system":
-		return fgSystemRole, fgSystemBody, "!"
+		return fgSystemBody, ""
 	default:
-		return fgContent, fgContent, role
+		return fgContent, ""
 	}
 }
 
@@ -200,20 +182,22 @@ func (cl *ChatLog) renderLine(s *screen.Screen, y int, line renderLine, bg strin
 	case lineKindBlank:
 		cl.clearRow(s, y, bg)
 	case lineKindHeader:
-		cl.renderHeader(s, y, line.role, line.roleFg, bg, line.showSpinner)
+		cl.renderHeader(s, y, line.role, line.roleFg, bg)
 	case lineKindContent:
 		fg := fgContent
 		if line.contentFg != "" {
 			fg = line.contentFg
 		}
-		cl.renderContent(s, y, line.text, fg, bg)
+		lineBg := bg
+		if line.contentBg != "" {
+			lineBg = line.contentBg
+		}
+		cl.renderContent(s, y, line.text, fg, lineBg)
 	}
 }
 
-// renderHeader draws "role [spinner] ─────────────────" across the full row.
-// The role name uses the coloured+bold fg; the separator uses the dim rule fg.
-// When showSpinner is true a Braille spinner character is inserted after the label.
-func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg string, bg string, showSpinner bool) {
+// renderHeader draws system markers across the full row.
+func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg string, bg string) {
 	x := cl.x
 
 	// Role label.
@@ -225,19 +209,7 @@ func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg str
 		x++
 	}
 
-	// Braille spinner – only while streaming.
-	if showSpinner {
-		if x < cl.x+cl.w {
-			s.Set(x, y, ' ', fgDimRule, bg, "")
-			x++
-		}
-		if x < cl.x+cl.w {
-			s.Set(x, y, currentSpinner(), roleFg, bg, "")
-			x++
-		}
-	}
-
-	// Space between label (or spinner) and rule.
+	// Space between marker and rule.
 	if x < cl.x+cl.w {
 		s.Set(x, y, ' ', fgDimRule, bg, "")
 		x++

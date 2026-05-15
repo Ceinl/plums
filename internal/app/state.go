@@ -29,7 +29,9 @@ type State struct {
 
 	Layout LayoutType
 
-	SessionID string
+	SessionID      string
+	ServerStarting bool
+	ServerReady    bool
 }
 
 func NewState(width int, height int) *State {
@@ -37,6 +39,7 @@ func NewState(width int, height int) *State {
 		width:  width,
 		height: height,
 		Editor: components.NewTextEditor(),
+		Layout: LayoutSplit,
 	}
 }
 
@@ -61,11 +64,19 @@ func (s *State) SetStreaming(v bool) {
 	s.isStreaming = v
 }
 
+func (s *State) SetServerStarting(v bool) {
+	s.ServerStarting = v
+}
+
+func (s *State) SetServerReady(v bool) {
+	s.ServerReady = v
+}
+
 func (s *State) FinalizeAiOutput() {
+	s.isStreaming = false
 	if s.aioutput != "" {
 		s.messages = append(s.messages, Message{Role: "ai", Content: s.aioutput})
 		s.aioutput = ""
-		s.isStreaming = false
 	}
 }
 
