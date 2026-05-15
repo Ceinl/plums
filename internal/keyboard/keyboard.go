@@ -17,17 +17,17 @@ type Event struct {
 }
 
 const (
-	byteEnter      = 13
-	byteBackspace  = 127
-	byteCtrlC      = 3
-	byteTab        = 9
-	byteEscape     = 27
-	byteBracket    = 91
-	byteO          = 79
-	byteTilde      = 126
-	byteSemicolon  = 59
-	byteNum2       = 50
-	byteNum5       = 53
+	byteEnter     = 13
+	byteBackspace = 127
+	byteCtrlC     = 3
+	byteTab       = 9
+	byteEscape    = 27
+	byteBracket   = 91
+	byteO         = 79
+	byteTilde     = 126
+	byteSemicolon = 59
+	byteNum2      = 50
+	byteNum5      = 53
 )
 
 type EventType int
@@ -45,7 +45,11 @@ const (
 	KeyArrowLeft
 	KeyHome
 	KeyEnd
+	KeyPageUp
+	KeyPageDown
 	KeyDelete
+	KeyMouseWheelUp
+	KeyMouseWheelDown
 	KeyUnknown
 )
 
@@ -216,6 +220,10 @@ func readCSI() Event {
 }
 
 func parseCSI(params []byte, final byte) Event {
+	if len(params) > 0 && params[0] == '<' {
+		return parseSGRMouse(params[1:], final)
+	}
+
 	var paramNums []int
 	var current int
 	for _, b := range params {
@@ -264,10 +272,46 @@ func parseCSI(params []byte, final byte) Event {
 			return Event{Type: KeyDelete, Shift: shift, Ctrl: ctrl, Alt: alt}
 		case 4:
 			return Event{Type: KeyEnd, Shift: shift, Ctrl: ctrl, Alt: alt}
+		case 5:
+			return Event{Type: KeyPageUp, Shift: shift, Ctrl: ctrl, Alt: alt}
+		case 6:
+			return Event{Type: KeyPageDown, Shift: shift, Ctrl: ctrl, Alt: alt}
 		}
 	}
 
 	return Event{Type: KeyUnknown}
+}
+
+func parseSGRMouse(params []byte, final byte) Event {
+	if final != 'M' && final != 'm' {
+		return Event{Type: KeyUnknown}
+	}
+
+	var nums []int
+	current := 0
+	for _, b := range params {
+		if b == byteSemicolon {
+			nums = append(nums, current)
+			current = 0
+			continue
+		}
+		if b >= '0' && b <= '9' {
+			current = current*10 + int(b-'0')
+		}
+	}
+	nums = append(nums, current)
+	if len(nums) < 1 {
+		return Event{Type: KeyUnknown}
+	}
+
+	switch nums[0] {
+	case 64:
+		return Event{Type: KeyMouseWheelUp}
+	case 65:
+		return Event{Type: KeyMouseWheelDown}
+	default:
+		return Event{Type: KeyUnknown}
+	}
 }
 
 func parseSS3(b byte) Event {

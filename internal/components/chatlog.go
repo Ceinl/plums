@@ -1,42 +1,80 @@
 package components
 
 import (
+	"fmt"
+	"strings"
+
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
+
 	"plums/internal/layout"
 	"plums/internal/screen"
 )
+
+// ── Palette ───────────────────────────────────────────────────────────────────
+
+const (
+	fgContent    = "\x1b[38;2;200;198;212m"       // near-white for message body
+	fgDimRule    = "\x1b[38;2;72;70;84m"          // very dim, for the system rule
+	fgCursor     = "\x1b[38;2;160;220;255m"       // streaming cursor colour
+	fgSystemRole = "\x1b[1m\x1b[38;2;220;160;50m" // bold amber – system / error
+	fgSystemBody = "\x1b[38;2;200;145;60m"        // dim amber for system body
+	fgCodeFence  = "\x1b[38;2;120;118;140m"       // dim purple for code fences
+	bgAiMessage  = "\x1b[48;2;34;32;42m"          // lighter panel for AI responses
+)
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 type ChatMessage struct {
 	Role    string
 	Content string
 }
 
+// lineKind tags a pre-rendered logical line.
+type lineKind int
+
+const (
+	lineKindBlank   lineKind = iota
+	lineKindHeader           // role name + ─── rule
+	lineKindContent          // indented body text
+)
+
+// renderLine is one terminal row worth of content.
+type renderLine struct {
+	kind      lineKind
+	text      string // for lineKindContent
+	spans     []textSpan
+	role      string // for lineKindHeader – the role label
+	roleFg    string // for lineKindHeader – ANSI fg of the label
+	contentFg string // for lineKindContent – overrides default if non-empty
+	contentBg string // for lineKindContent – overrides parent background if non-empty
+}
+
+type textSpan struct {
+	text  string
+	fg    string
+	decor string
+}
+
+// ── ChatLog component ─────────────────────────────────────────────────────────
+
 type ChatLog struct {
-	isDirty  bool
-	messages []ChatMessage
-	aioutput string
-	prefixW  int
+	isDirty      bool
+	messages     []ChatMessage
+	aioutput     string
+	isStreaming  bool
+	scrollOffset int
 
 	style  layout.Style
 	parent layout.Component
 
 	x, y int
 	w, h int
-
-	userStyle layout.Style
-	aiStyle   layout.Style
 }
 
 func NewChatLog() *ChatLog {
-	userStyle := layout.Style{}
-	userStyle.SetForeground(80, 220, 120)
-	aiStyle := layout.Style{}
-	aiStyle.SetForeground(100, 190, 255)
-	aiStyle.SetBackground(30, 28, 35)
-	return &ChatLog{
-		prefixW:  1,
-		userStyle: userStyle,
-		aiStyle:   aiStyle,
-	}
+	return &ChatLog{}
 }
 
 func (cl *ChatLog) SetMessages(msgs []ChatMessage) {
@@ -46,6 +84,19 @@ func (cl *ChatLog) SetMessages(msgs []ChatMessage) {
 
 func (cl *ChatLog) SetAiOutput(s string) {
 	cl.aioutput = s
+	cl.isDirty = true
+}
+
+func (cl *ChatLog) SetStreaming(v bool) {
+	cl.isStreaming = v
+	cl.isDirty = true
+}
+
+func (cl *ChatLog) SetScrollOffset(offset int) {
+	if offset < 0 {
+		offset = 0
+	}
+	cl.scrollOffset = offset
 	cl.isDirty = true
 }
 
@@ -60,123 +111,455 @@ func (cl *ChatLog) Layout(x, y, w, h int) {
 	cl.x, cl.y, cl.w, cl.h = x, y, w, h
 }
 
+// ── Render ────────────────────────────────────────────────────────────────────
+
 func (cl *ChatLog) Render(s *screen.Screen) {
 	bg := cl.style.GetBackground()
 	if cl.parent != nil {
 		bg = cl.parent.GetStyle().GetBackground()
 	}
 
-	cy := cl.y
-	maxW := cl.w - cl.prefixW - 2
+	// Build the full list of logical lines (may be taller than cl.h).
+	lines := cl.buildLines()
 
-	for _, msg := range cl.messages {
-		if cy >= cl.y+cl.h {
-			break
-		}
-
-		var lineBg, decor string
-		var rightAlign bool
-		switch msg.Role {
-		case "user":
-			lineBg = bg
-			decor = cl.getUserDecor()
-			rightAlign = true
-		case "ai":
-			lineBg = cl.aiStyle.GetBackground()
-			decor = cl.getAiDecor()
-			rightAlign = false
-		default:
-			lineBg = bg
-			decor = ""
-			rightAlign = false
-		}
-
-		for _, line := range wrapRunes(msg.Content, maxW) {
-			if cy >= cl.y+cl.h {
-				break
-			}
-			cl.drawLine(s, cy, line, lineBg, rightAlign, decor)
-			cy++
-		}
-		cy++
-	}
-
-	if cl.aioutput != "" && cy < cl.y+cl.h {
-		for _, line := range wrapRunes(cl.aioutput, maxW) {
-			if cy >= cl.y+cl.h {
-				break
-			}
-			cl.drawLine(s, cy, line, cl.aiStyle.GetBackground(), false, cl.getAiDecor())
-			cy++
+	// scrollOffset is the distance from the bottom. Zero preserves auto-scroll.
+	start := 0
+	if len(lines) > cl.h {
+		maxStart := len(lines) - cl.h
+		start = maxStart - cl.scrollOffset
+		if start < 0 {
+			start = 0
 		}
 	}
 
-	for cy < cl.y+cl.h {
-		for x := cl.x; x < cl.x+cl.w; x++ {
-			s.Set(x, cy, ' ', "", bg, "")
+	for row := 0; row < cl.h; row++ {
+		y := cl.y + row
+		idx := start + row
+		if idx < len(lines) {
+			cl.renderLine(s, y, lines[idx], bg)
+		} else {
+			cl.clearRow(s, y, bg)
 		}
-		cy++
 	}
 }
 
-func (cl *ChatLog) drawLine(s *screen.Screen, cy int, text string, bg string, rightAlign bool, decor string) {
-	runes := []rune(text)
-	contentW := 2 + len(runes)
-	if contentW > cl.w {
-		contentW = cl.w
+// buildLines converts all messages (and in-progress AI output) into a flat
+// slice of renderLine values that represent one terminal row each.
+func (cl *ChatLog) buildLines() []renderLine {
+	var lines []renderLine
+
+	for i, msg := range cl.messages {
+		if i > 0 {
+			lines = append(lines, renderLine{kind: lineKindBlank})
+		}
+		bodyFg, bodyBg := cl.roleStyle(msg.Role)
+		if msg.Role == "system" {
+			lines = append(lines, renderLine{kind: lineKindHeader, role: "!", roleFg: fgSystemRole})
+		}
+		lines = append(lines, cl.buildContentLines(msg.Content, bodyFg, bodyBg)...)
 	}
 
-	startX := cl.x
-	if rightAlign {
-		startX = cl.x + cl.w - contentW
+	// In-progress streaming response.
+	if cl.aioutput != "" || cl.isStreaming {
+		if len(cl.messages) > 0 {
+			lines = append(lines, renderLine{kind: lineKindBlank})
+		}
+		if cl.aioutput != "" {
+			content := cl.aioutput
+			if cl.isStreaming {
+				content += "▌"
+			}
+			lines = append(lines, cl.buildContentLines(content, fgContent, bgAiMessage)...)
+		}
 	}
 
+	return lines
+}
+
+func (cl *ChatLog) buildContentLines(content, fg, bg string) []renderLine {
+	blocks := parseMarkdownBlocks(content)
+	var lines []renderLine
+
+	for _, block := range blocks {
+		if block.isCode {
+			fence := "```" + block.lang
+			lines = append(lines, renderLine{kind: lineKindContent, text: fence, contentFg: fgCodeFence, contentBg: bg})
+
+			for _, spans := range wrapSpanLines(highlightCode(block.lang, block.text, fg), cl.contentWidth()) {
+				lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
+			}
+
+			lines = append(lines, renderLine{kind: lineKindContent, text: "```", contentFg: fgCodeFence, contentBg: bg})
+			continue
+		}
+
+		for _, l := range wrapText(block.text, cl.contentWidth()) {
+			lines = append(lines, renderLine{kind: lineKindContent, text: l, contentFg: fg, contentBg: bg})
+		}
+	}
+
+	return lines
+}
+
+func (cl *ChatLog) roleStyle(role string) (bodyFg, bodyBg string) {
+	switch role {
+	case "user":
+		return fgContent, ""
+	case "ai":
+		return fgContent, bgAiMessage
+	case "system":
+		return fgSystemBody, ""
+	default:
+		return fgContent, ""
+	}
+}
+
+func (cl *ChatLog) contentWidth() int {
+	w := cl.w - 2 // 2-space indent for body lines
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+// ── Per-row rendering ─────────────────────────────────────────────────────────
+
+func (cl *ChatLog) renderLine(s *screen.Screen, y int, line renderLine, bg string) {
+	switch line.kind {
+	case lineKindBlank:
+		cl.clearRow(s, y, bg)
+	case lineKindHeader:
+		cl.renderHeader(s, y, line.role, line.roleFg, bg)
+	case lineKindContent:
+		fg := fgContent
+		if line.contentFg != "" {
+			fg = line.contentFg
+		}
+		lineBg := bg
+		if line.contentBg != "" {
+			lineBg = line.contentBg
+		}
+		cl.renderContent(s, y, line.text, line.spans, fg, lineBg)
+	}
+}
+
+// renderHeader draws system markers across the full row.
+func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg string, bg string) {
 	x := cl.x
-	for ; x < startX; x++ {
-		s.Set(x, cy, ' ', "", bg, "")
-	}
-	if x < cl.x+cl.w {
-		s.Set(x, cy, '\u2502', "", bg, decor)
-		x++
-	}
-	if x < cl.x+cl.w {
-		s.Set(x, cy, ' ', "", bg, "")
-		x++
-	}
-	for _, r := range runes {
+
+	// Role label.
+	for _, r := range []rune(role) {
 		if x >= cl.x+cl.w {
 			break
 		}
-		s.Set(x, cy, r, "", bg, "")
+		s.Set(x, y, r, roleFg, bg, "")
 		x++
 	}
+
+	// Space between marker and rule.
+	if x < cl.x+cl.w {
+		s.Set(x, y, ' ', fgDimRule, bg, "")
+		x++
+	}
+
+	// Horizontal rule filling the rest.
 	for x < cl.x+cl.w {
-		s.Set(x, cy, ' ', "", bg, "")
+		s.Set(x, y, '─', fgDimRule, bg, "")
 		x++
 	}
 }
 
-func (cl *ChatLog) getUserDecor() string {
-	return "\x1b[1m" + cl.userStyle.GetForeground()
+// renderContent draws "  <text><padding>" using the given foreground colour.
+func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []textSpan, fg string, bg string) {
+	x := cl.x
+
+	// 2-space indent.
+	for i := 0; i < 2 && x < cl.x+cl.w; i++ {
+		s.Set(x, y, ' ', fg, bg, "")
+		x++
+	}
+
+	if len(spans) == 0 {
+		spans = []textSpan{{text: text, fg: fg}}
+	}
+
+	for spanIdx, span := range spans {
+		cellFg := span.fg
+		if cellFg == "" {
+			cellFg = fg
+		}
+
+		runes := []rune(span.text)
+		for i, r := range runes {
+			if x >= cl.x+cl.w {
+				break
+			}
+			if r == '▌' && spanIdx == len(spans)-1 && i == len(runes)-1 {
+				cellFg = fgCursor
+			}
+			s.Set(x, y, sanitizeRenderableRune(r), cellFg, bg, span.decor)
+			x++
+		}
+		if x >= cl.x+cl.w {
+			break
+		}
+	}
+
+	// Fill remainder.
+	for x < cl.x+cl.w {
+		s.Set(x, y, ' ', fg, bg, "")
+		x++
+	}
 }
 
-func (cl *ChatLog) getAiDecor() string {
-	return "\x1b[1m" + cl.aiStyle.GetForeground()
+func sanitizeRenderableRune(r rune) rune {
+	if r == 0x7f || (r >= 0x00 && r <= 0x1f) {
+		return '�'
+	}
+	return r
 }
 
-func wrapRunes(text string, width int) []string {
+func (cl *ChatLog) clearRow(s *screen.Screen, y int, bg string) {
+	for x := cl.x; x < cl.x+cl.w; x++ {
+		s.Set(x, y, ' ', fgContent, bg, "")
+	}
+}
+
+// ── Markdown/code highlighting ───────────────────────────────────────────────
+
+type markdownBlock struct {
+	isCode bool
+	lang   string
+	text   string
+}
+
+func parseMarkdownBlocks(content string) []markdownBlock {
+	var blocks []markdownBlock
+	var textLines []string
+	var codeLines []string
+	var codeLang string
+	inCode := false
+
+	flushText := func() {
+		if len(textLines) == 0 {
+			return
+		}
+		blocks = append(blocks, markdownBlock{text: strings.Join(textLines, "\n")})
+		textLines = nil
+	}
+	flushCode := func() {
+		blocks = append(blocks, markdownBlock{isCode: true, lang: codeLang, text: strings.Join(codeLines, "\n")})
+		codeLines = nil
+		codeLang = ""
+	}
+
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			if inCode {
+				flushCode()
+				inCode = false
+			} else {
+				flushText()
+				codeLang = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+				inCode = true
+			}
+			continue
+		}
+
+		if inCode {
+			codeLines = append(codeLines, line)
+		} else {
+			textLines = append(textLines, line)
+		}
+	}
+
+	if inCode {
+		flushCode()
+	} else {
+		flushText()
+	}
+
+	return blocks
+}
+
+func highlightCode(lang, code, fallbackFg string) [][]textSpan {
+	lexer := lexers.Get(lang)
+	if lexer == nil {
+		lexer = lexers.Analyse(code)
+	}
+	if lexer == nil {
+		return plainCodeLines(code, fallbackFg)
+	}
+	lexer = chroma.Coalesce(lexer)
+
+	iterator, err := lexer.Tokenise(nil, code)
+	if err != nil {
+		return plainCodeLines(code, fallbackFg)
+	}
+
+	style := styles.Get("monokai")
+	if style == nil {
+		style = styles.Fallback
+	}
+
+	lines := [][]textSpan{{}}
+	for token := iterator(); token != chroma.EOF; token = iterator() {
+		entry := style.Get(token.Type)
+		fg := chromaColourToANSI(entry.Colour)
+		if fg == "" {
+			fg = fallbackFg
+		}
+		decor := ""
+		if entry.Bold == chroma.Yes {
+			decor = "\x1b[1m"
+		}
+
+		parts := strings.Split(token.Value, "\n")
+		for i, part := range parts {
+			if i > 0 {
+				lines = append(lines, []textSpan{})
+			}
+			if part != "" {
+				last := len(lines) - 1
+				lines[last] = append(lines[last], textSpan{text: part, fg: fg, decor: decor})
+			}
+		}
+	}
+
+	return lines
+}
+
+func chromaColourToANSI(c chroma.Colour) string {
+	if !c.IsSet() {
+		return ""
+	}
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", c.Red(), c.Green(), c.Blue())
+}
+
+func plainCodeLines(code, fg string) [][]textSpan {
+	parts := strings.Split(code, "\n")
+	lines := make([][]textSpan, len(parts))
+	for i, part := range parts {
+		if part != "" {
+			lines[i] = []textSpan{{text: part, fg: fg}}
+		}
+	}
+	return lines
+}
+
+func wrapSpanLines(lines [][]textSpan, width int) [][]textSpan {
+	if width <= 0 {
+		return lines
+	}
+
+	var out [][]textSpan
+	for _, line := range lines {
+		out = append(out, wrapSpansHard(line, width)...)
+	}
+	return out
+}
+
+func wrapSpansHard(spans []textSpan, width int) [][]textSpan {
+	if len(spans) == 0 {
+		return [][]textSpan{{}}
+	}
+
+	var out [][]textSpan
+	var cur []textSpan
+	curWidth := 0
+	appendRune := func(r rune, span textSpan) {
+		if curWidth >= width {
+			out = append(out, cur)
+			cur = nil
+			curWidth = 0
+		}
+		if len(cur) > 0 && cur[len(cur)-1].fg == span.fg && cur[len(cur)-1].decor == span.decor {
+			cur[len(cur)-1].text += string(r)
+		} else {
+			cur = append(cur, textSpan{text: string(r), fg: span.fg, decor: span.decor})
+		}
+		curWidth++
+	}
+
+	for _, span := range spans {
+		for _, r := range span.text {
+			appendRune(r, span)
+		}
+	}
+	if cur != nil {
+		out = append(out, cur)
+	}
+	if len(out) == 0 {
+		out = append(out, []textSpan{})
+	}
+	return out
+}
+
+// ── Text wrapping ─────────────────────────────────────────────────────────────
+
+// wrapText breaks text at word boundaries, preserving newlines.
+func wrapText(text string, width int) []string {
 	if width <= 0 {
 		return []string{text}
 	}
+	var out []string
+	for _, para := range strings.Split(text, "\n") {
+		out = append(out, wrapParagraph(para, width)...)
+	}
+	return out
+}
+
+// wrapParagraph wraps a single line of text (no embedded newlines) at word
+// boundaries. Words longer than width are hard-split.
+func wrapParagraph(text string, width int) []string {
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{""}
+	}
+
 	var lines []string
-	runes := []rune(text)
-	for len(runes) > 0 {
-		if len(runes) <= width {
-			lines = append(lines, string(runes))
-			break
+	var cur []rune
+
+	flush := func() {
+		if len(cur) > 0 {
+			lines = append(lines, string(cur))
+			cur = nil
 		}
-		lines = append(lines, string(runes[:width]))
-		runes = runes[width:]
+	}
+
+	for _, word := range words {
+		wr := []rune(word)
+
+		// Word is too long to fit on any line – hard-split it.
+		if len(wr) > width {
+			flush()
+			for len(wr) > 0 {
+				take := width
+				if take > len(wr) {
+					take = len(wr)
+				}
+				lines = append(lines, string(wr[:take]))
+				wr = wr[take:]
+			}
+			continue
+		}
+
+		switch {
+		case len(cur) == 0:
+			cur = append(cur, wr...)
+		case len(cur)+1+len(wr) <= width:
+			cur = append(cur, ' ')
+			cur = append(cur, wr...)
+		default:
+			flush()
+			cur = append(cur, wr...)
+		}
+	}
+	flush()
+
+	if len(lines) == 0 {
+		return []string{""}
 	}
 	return lines
 }

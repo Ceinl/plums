@@ -7,12 +7,14 @@ import (
 )
 
 const (
-	OPEN_ALT     = "\x1b[?1049h"
-	CLOSE_ALT    = "\x1b[?1049l"
-	HIDE_CURSOR  = "\x1b[?25l"
-	SHOW_CURSOR  = "\x1b[?25h"
-	CLEAR_SCREEN = "\x1b[2J"
-	MOVE_CURSOR  = "\x1b[H"
+	OPEN_ALT      = "\x1b[?1049h"
+	CLOSE_ALT     = "\x1b[?1049l"
+	HIDE_CURSOR   = "\x1b[?25l"
+	SHOW_CURSOR   = "\x1b[?25h"
+	ENABLE_MOUSE  = "\x1b[?1000h\x1b[?1006h"
+	DISABLE_MOUSE = "\x1b[?1006l\x1b[?1000l"
+	CLEAR_SCREEN  = "\x1b[2J"
+	MOVE_CURSOR   = "\x1b[H"
 )
 
 type Terminal struct {
@@ -34,7 +36,7 @@ func (t *Terminal) Enter() {
 	}
 	t.RefreshSize()
 	t.oldstate = oldstate
-	fmt.Print(HIDE_CURSOR, OPEN_ALT, MOVE_CURSOR, CLEAR_SCREEN)
+	fmt.Print(HIDE_CURSOR, OPEN_ALT, ENABLE_MOUSE, MOVE_CURSOR, CLEAR_SCREEN)
 }
 
 func (t *Terminal) Exit() {
@@ -42,7 +44,7 @@ func (t *Terminal) Exit() {
 		return
 	}
 
-	fmt.Print(SHOW_CURSOR + CLOSE_ALT)
+	fmt.Print(DISABLE_MOUSE + SHOW_CURSOR + CLOSE_ALT)
 	term.Restore(t.fd, t.oldstate)
 }
 

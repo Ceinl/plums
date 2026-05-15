@@ -4,6 +4,8 @@ import "plums/internal/components"
 
 type LayoutType int
 
+const MinSplitLayoutWidth = 100
+
 const (
 	LayoutDefault LayoutType = iota
 	LayoutFullscreen
@@ -22,12 +24,17 @@ type State struct {
 	messages []Message
 	Editor   *components.Editor
 
-	aioutput    string
-	isStreaming bool
+	aioutput     string
+	isStreaming  bool
+	outputScroll int
+
+	spinnerFrame int
 
 	Layout LayoutType
 
-	SessionID string
+	SessionID      string
+	ServerStarting bool
+	ServerReady    bool
 }
 
 func NewState(width int, height int) *State {
@@ -35,6 +42,7 @@ func NewState(width int, height int) *State {
 		width:  width,
 		height: height,
 		Editor: components.NewTextEditor(),
+		Layout: LayoutSplit,
 	}
 }
 
@@ -59,11 +67,19 @@ func (s *State) SetStreaming(v bool) {
 	s.isStreaming = v
 }
 
+func (s *State) SetServerStarting(v bool) {
+	s.ServerStarting = v
+}
+
+func (s *State) SetServerReady(v bool) {
+	s.ServerReady = v
+}
+
 func (s *State) FinalizeAiOutput() {
+	s.isStreaming = false
 	if s.aioutput != "" {
 		s.messages = append(s.messages, Message{Role: "ai", Content: s.aioutput})
 		s.aioutput = ""
-		s.isStreaming = false
 	}
 }
 
@@ -74,6 +90,54 @@ func (s *State) Messages() []Message {
 func (s *State) Resize(w, h int) {
 	s.width = w
 	s.height = h
+}
+
+func (s *State) EffectiveLayout() LayoutType {
+	if s.Layout == LayoutSplit && s.width < MinSplitLayoutWidth {
+		return LayoutDefault
+	}
+	return s.Layout
+}
+
+func (s *State) IsStreaming() bool {
+	return s.isStreaming
+}
+
+func (s *State) SpinnerFrame() int {
+	return s.spinnerFrame
+}
+
+func (s *State) TickSpinner() {
+	s.spinnerFrame = (s.spinnerFrame + 1) % 10
+}
+
+func (s *State) OutputScroll() int {
+	return s.outputScroll
+}
+
+func (s *State) ScrollOutput(delta int) {
+	s.outputScroll += delta
+	if s.outputScroll < 0 {
+		s.outputScroll = 0
+	}
+}
+
+func (s *State) ScrollOutputPage(direction int) {
+	page := s.height - 4
+	if page < 1 {
+		page = 1
+	}
+	s.ScrollOutput(direction * page)
+}
+
+func (s *State) ScrollOutputBottom() {
+	s.outputScroll = 0
+}
+
+// AddMessage appends a message with the given role directly to the log.
+// Use role "system" for status / error notices.
+func (s *State) AddMessage(role, content string) {
+	s.messages = append(s.messages, Message{Role: role, Content: content})
 }
 
 func (s *State) SwitchLayout() {

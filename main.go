@@ -2,16 +2,28 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
+	"syscall"
+	"time"
+
 	"plums/internal/ai"
 	"plums/internal/app"
+	"plums/internal/debuglog"
 	"plums/internal/keyboard"
 	"plums/internal/ui"
-	"syscall"
 )
 
+type startupResult struct {
+	sessionID string
+	server    *ai.ServerProcess
+	err       error
+}
+
 func main() {
+	defer debuglog.Close()
+
 	t := ui.NewTerminal(int(os.Stdin.Fd()))
 	t.Enter()
 	defer t.Exit()
@@ -27,14 +39,19 @@ func main() {
 	state := app.NewState(t.W, t.H)
 
 	client := ai.NewClient()
-	if err := client.Health(ctx); err == nil {
-		session, err := client.CreateSession(ctx)
-		if err == nil {
-			state.SessionID = session.ID
-		}
-	}
+	var serverProc *ai.ServerProcess
+	defer func() { serverProc.Stop() }()
+
+	startupCh := make(chan startupResult, 1)
+	state.SetServerStarting(true)
+	go startOpencode(ctx, client, startupCh)
 
 	app.Render(state)
+
+	// Spinner ticker: re-render at 80 ms so the Braille animation is smooth
+	// even while the model is thinking (no tokens arriving yet).
+	spinTicker := time.NewTicker(80 * time.Millisecond)
+	defer spinTicker.Stop()
 
 	var aiStream <-chan string
 	var cancelStream context.CancelFunc
@@ -64,6 +81,8 @@ func main() {
 							state.SetStreaming(true)
 							state.ClearAiOutput()
 							aiStream = client.SendMessage(sctx, state.SessionID, last.Content)
+						} else if last.Role == "user" {
+							state.AddMessage("system", "no active session – is opencode serve running?")
 						}
 					}
 				}
@@ -79,12 +98,61 @@ func main() {
 				cancelStream = nil
 				app.Render(state)
 			}
+		case <-spinTicker.C:
+			if state.IsStreaming() {
+				app.Render(state)
+			}
+		case result := <-startupCh:
+			state.SetServerStarting(false)
+			if result.err != nil {
+				state.AddMessage("system", result.err.Error())
+			} else {
+				serverProc = result.server
+				state.SetServerReady(true)
+				state.SessionID = result.sessionID
+			}
+			app.Render(state)
 		case <-sigCh:
 			t.RefreshSize()
 			state.Resize(t.W, t.H)
 			app.Render(state)
 		}
 	}
+}
+
+func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupResult) {
+	var serverProc *ai.ServerProcess
+	debuglog.Printf("startup: checking opencode health")
+	if err := client.Health(ctx); err != nil {
+		debuglog.Printf("startup: health check failed: %v", err)
+		proc, err := ai.StartServer(ctx)
+		if err != nil {
+			debuglog.Printf("startup: start server failed: %v", err)
+			out <- startupResult{err: fmt.Errorf("failed to start opencode server: %w", err)}
+			return
+		}
+		serverProc = proc
+		debuglog.Printf("startup: started opencode server process")
+		if err := ai.WaitForHealth(ctx, client, 10*time.Second); err != nil {
+			debuglog.Printf("startup: wait for health failed: %v", err)
+			serverProc.Stop()
+			out <- startupResult{err: fmt.Errorf("failed to start opencode server: %w", err)}
+			return
+		}
+	} else {
+		debuglog.Printf("startup: existing opencode server is healthy")
+	}
+
+	debuglog.Printf("startup: creating session")
+	session, err := client.CreateSession(ctx)
+	if err != nil {
+		debuglog.Printf("startup: create session failed: %v", err)
+		serverProc.Stop()
+		out <- startupResult{err: fmt.Errorf("failed to create session: %w", err)}
+		return
+	}
+	debuglog.Printf("startup: session ready: %s", session.ID)
+	out <- startupResult{sessionID: session.ID, server: serverProc}
 }
 
 func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
@@ -139,7 +207,10 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		if ev.Ctrl {
 			switch ev.Ch {
 			case 'a', 'A':
-				ed.SelectAll()
+				ed.MoveCursorHome()
+				return true, false
+			case 'e', 'E':
+				ed.MoveCursorEnd()
 				return true, false
 			case 'k', 'K':
 				ed.DeleteCurrentLine()
@@ -181,6 +252,10 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		}
 		return true, false
 	case keyboard.KeyArrowUp:
+		if ev.Alt && !ev.Shift && !ev.Ctrl {
+			state.ScrollOutput(1)
+			return true, false
+		}
 		if ev.Shift {
 			ed.SelectUp()
 		} else {
@@ -188,13 +263,33 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		}
 		return true, false
 	case keyboard.KeyArrowDown:
+		if ev.Alt && !ev.Shift && !ev.Ctrl {
+			state.ScrollOutput(-1)
+			return true, false
+		}
 		if ev.Shift {
 			ed.SelectDown()
 		} else {
 			ed.MoveCursorDown()
 		}
 		return true, false
+	case keyboard.KeyPageUp:
+		state.ScrollOutputPage(1)
+		return true, false
+	case keyboard.KeyPageDown:
+		state.ScrollOutputPage(-1)
+		return true, false
+	case keyboard.KeyMouseWheelUp:
+		state.ScrollOutput(3)
+		return true, false
+	case keyboard.KeyMouseWheelDown:
+		state.ScrollOutput(-3)
+		return true, false
 	case keyboard.KeyHome:
+		if ev.Ctrl {
+			state.ScrollOutputPage(1 << 20)
+			return true, false
+		}
 		if ev.Shift {
 			ed.SelectHome()
 		} else {
@@ -202,6 +297,10 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		}
 		return true, false
 	case keyboard.KeyEnd:
+		if ev.Ctrl {
+			state.ScrollOutputBottom()
+			return true, false
+		}
 		if ev.Shift {
 			ed.SelectEnd()
 		} else {
