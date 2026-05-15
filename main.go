@@ -22,6 +22,8 @@ type startupResult struct {
 }
 
 func main() {
+	defer debuglog.Close()
+
 	t := ui.NewTerminal(int(os.Stdin.Fd()))
 	t.Enter()
 	defer t.Exit()
@@ -250,6 +252,10 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		}
 		return true, false
 	case keyboard.KeyArrowUp:
+		if ev.Alt && !ev.Shift && !ev.Ctrl {
+			state.ScrollOutput(1)
+			return true, false
+		}
 		if ev.Shift {
 			ed.SelectUp()
 		} else {
@@ -257,13 +263,33 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		}
 		return true, false
 	case keyboard.KeyArrowDown:
+		if ev.Alt && !ev.Shift && !ev.Ctrl {
+			state.ScrollOutput(-1)
+			return true, false
+		}
 		if ev.Shift {
 			ed.SelectDown()
 		} else {
 			ed.MoveCursorDown()
 		}
 		return true, false
+	case keyboard.KeyPageUp:
+		state.ScrollOutputPage(1)
+		return true, false
+	case keyboard.KeyPageDown:
+		state.ScrollOutputPage(-1)
+		return true, false
+	case keyboard.KeyMouseWheelUp:
+		state.ScrollOutput(3)
+		return true, false
+	case keyboard.KeyMouseWheelDown:
+		state.ScrollOutput(-3)
+		return true, false
 	case keyboard.KeyHome:
+		if ev.Ctrl {
+			state.ScrollOutputPage(1 << 20)
+			return true, false
+		}
 		if ev.Shift {
 			ed.SelectHome()
 		} else {
@@ -271,6 +297,10 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		}
 		return true, false
 	case keyboard.KeyEnd:
+		if ev.Ctrl {
+			state.ScrollOutputBottom()
+			return true, false
+		}
 		if ev.Shift {
 			ed.SelectEnd()
 		} else {

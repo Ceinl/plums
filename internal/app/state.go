@@ -24,8 +24,9 @@ type State struct {
 	messages []Message
 	Editor   *components.Editor
 
-	aioutput    string
-	isStreaming bool
+	aioutput     string
+	isStreaming  bool
+	outputScroll int
 
 	spinnerFrame int
 
@@ -108,6 +109,29 @@ func (s *State) SpinnerFrame() int {
 
 func (s *State) TickSpinner() {
 	s.spinnerFrame = (s.spinnerFrame + 1) % 10
+}
+
+func (s *State) OutputScroll() int {
+	return s.outputScroll
+}
+
+func (s *State) ScrollOutput(delta int) {
+	s.outputScroll += delta
+	if s.outputScroll < 0 {
+		s.outputScroll = 0
+	}
+}
+
+func (s *State) ScrollOutputPage(direction int) {
+	page := s.height - 4
+	if page < 1 {
+		page = 1
+	}
+	s.ScrollOutput(direction * page)
+}
+
+func (s *State) ScrollOutputBottom() {
+	s.outputScroll = 0
 }
 
 // AddMessage appends a message with the given role directly to the log.

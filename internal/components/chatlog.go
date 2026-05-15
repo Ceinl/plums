@@ -1,7 +1,12 @@
 package components
 
 import (
+	"fmt"
 	"strings"
+
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
 
 	"plums/internal/layout"
 	"plums/internal/screen"
@@ -15,6 +20,7 @@ const (
 	fgCursor     = "\x1b[38;2;160;220;255m"       // streaming cursor colour
 	fgSystemRole = "\x1b[1m\x1b[38;2;220;160;50m" // bold amber – system / error
 	fgSystemBody = "\x1b[38;2;200;145;60m"        // dim amber for system body
+	fgCodeFence  = "\x1b[38;2;120;118;140m"       // dim purple for code fences
 	bgAiMessage  = "\x1b[48;2;34;32;42m"          // lighter panel for AI responses
 )
 
@@ -38,19 +44,27 @@ const (
 type renderLine struct {
 	kind      lineKind
 	text      string // for lineKindContent
+	spans     []textSpan
 	role      string // for lineKindHeader – the role label
 	roleFg    string // for lineKindHeader – ANSI fg of the label
 	contentFg string // for lineKindContent – overrides default if non-empty
 	contentBg string // for lineKindContent – overrides parent background if non-empty
 }
 
+type textSpan struct {
+	text  string
+	fg    string
+	decor string
+}
+
 // ── ChatLog component ─────────────────────────────────────────────────────────
 
 type ChatLog struct {
-	isDirty     bool
-	messages    []ChatMessage
-	aioutput    string
-	isStreaming bool
+	isDirty      bool
+	messages     []ChatMessage
+	aioutput     string
+	isStreaming  bool
+	scrollOffset int
 
 	style  layout.Style
 	parent layout.Component
@@ -78,6 +92,14 @@ func (cl *ChatLog) SetStreaming(v bool) {
 	cl.isDirty = true
 }
 
+func (cl *ChatLog) SetScrollOffset(offset int) {
+	if offset < 0 {
+		offset = 0
+	}
+	cl.scrollOffset = offset
+	cl.isDirty = true
+}
+
 func (cl *ChatLog) IsDirty() bool                { return cl.isDirty }
 func (cl *ChatLog) MakeDirty()                   { cl.isDirty = true }
 func (cl *ChatLog) ClearDirty()                  { cl.isDirty = false }
@@ -100,10 +122,14 @@ func (cl *ChatLog) Render(s *screen.Screen) {
 	// Build the full list of logical lines (may be taller than cl.h).
 	lines := cl.buildLines()
 
-	// Auto-scroll: always pin to the bottom so new tokens are visible.
+	// scrollOffset is the distance from the bottom. Zero preserves auto-scroll.
 	start := 0
 	if len(lines) > cl.h {
-		start = len(lines) - cl.h
+		maxStart := len(lines) - cl.h
+		start = maxStart - cl.scrollOffset
+		if start < 0 {
+			start = 0
+		}
 	}
 
 	for row := 0; row < cl.h; row++ {
@@ -130,9 +156,7 @@ func (cl *ChatLog) buildLines() []renderLine {
 		if msg.Role == "system" {
 			lines = append(lines, renderLine{kind: lineKindHeader, role: "!", roleFg: fgSystemRole})
 		}
-		for _, l := range wrapText(msg.Content, cl.contentWidth()) {
-			lines = append(lines, renderLine{kind: lineKindContent, text: l, contentFg: bodyFg, contentBg: bodyBg})
-		}
+		lines = append(lines, cl.buildContentLines(msg.Content, bodyFg, bodyBg)...)
 	}
 
 	// In-progress streaming response.
@@ -145,9 +169,32 @@ func (cl *ChatLog) buildLines() []renderLine {
 			if cl.isStreaming {
 				content += "▌"
 			}
-			for _, l := range wrapText(content, cl.contentWidth()) {
-				lines = append(lines, renderLine{kind: lineKindContent, text: l, contentFg: fgContent, contentBg: bgAiMessage})
+			lines = append(lines, cl.buildContentLines(content, fgContent, bgAiMessage)...)
+		}
+	}
+
+	return lines
+}
+
+func (cl *ChatLog) buildContentLines(content, fg, bg string) []renderLine {
+	blocks := parseMarkdownBlocks(content)
+	var lines []renderLine
+
+	for _, block := range blocks {
+		if block.isCode {
+			fence := "```" + block.lang
+			lines = append(lines, renderLine{kind: lineKindContent, text: fence, contentFg: fgCodeFence, contentBg: bg})
+
+			for _, spans := range wrapSpanLines(highlightCode(block.lang, block.text, fg), cl.contentWidth()) {
+				lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
 			}
+
+			lines = append(lines, renderLine{kind: lineKindContent, text: "```", contentFg: fgCodeFence, contentBg: bg})
+			continue
+		}
+
+		for _, l := range wrapText(block.text, cl.contentWidth()) {
+			lines = append(lines, renderLine{kind: lineKindContent, text: l, contentFg: fg, contentBg: bg})
 		}
 	}
 
@@ -192,7 +239,7 @@ func (cl *ChatLog) renderLine(s *screen.Screen, y int, line renderLine, bg strin
 		if line.contentBg != "" {
 			lineBg = line.contentBg
 		}
-		cl.renderContent(s, y, line.text, fg, lineBg)
+		cl.renderContent(s, y, line.text, line.spans, fg, lineBg)
 	}
 }
 
@@ -223,7 +270,7 @@ func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg str
 }
 
 // renderContent draws "  <text><padding>" using the given foreground colour.
-func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, fg string, bg string) {
+func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []textSpan, fg string, bg string) {
 	x := cl.x
 
 	// 2-space indent.
@@ -232,18 +279,30 @@ func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, fg string
 		x++
 	}
 
-	// Text runes. The trailing block cursor ▌ gets its own highlight colour.
-	runes := []rune(text)
-	for i, r := range runes {
+	if len(spans) == 0 {
+		spans = []textSpan{{text: text, fg: fg}}
+	}
+
+	for spanIdx, span := range spans {
+		cellFg := span.fg
+		if cellFg == "" {
+			cellFg = fg
+		}
+
+		runes := []rune(span.text)
+		for i, r := range runes {
+			if x >= cl.x+cl.w {
+				break
+			}
+			if r == '▌' && spanIdx == len(spans)-1 && i == len(runes)-1 {
+				cellFg = fgCursor
+			}
+			s.Set(x, y, r, cellFg, bg, span.decor)
+			x++
+		}
 		if x >= cl.x+cl.w {
 			break
 		}
-		cellFg := fg
-		if r == '▌' && i == len(runes)-1 {
-			cellFg = fgCursor
-		}
-		s.Set(x, y, r, cellFg, bg, "")
-		x++
 	}
 
 	// Fill remainder.
@@ -257,6 +316,177 @@ func (cl *ChatLog) clearRow(s *screen.Screen, y int, bg string) {
 	for x := cl.x; x < cl.x+cl.w; x++ {
 		s.Set(x, y, ' ', fgContent, bg, "")
 	}
+}
+
+// ── Markdown/code highlighting ───────────────────────────────────────────────
+
+type markdownBlock struct {
+	isCode bool
+	lang   string
+	text   string
+}
+
+func parseMarkdownBlocks(content string) []markdownBlock {
+	var blocks []markdownBlock
+	var textLines []string
+	var codeLines []string
+	var codeLang string
+	inCode := false
+
+	flushText := func() {
+		if len(textLines) == 0 {
+			return
+		}
+		blocks = append(blocks, markdownBlock{text: strings.Join(textLines, "\n")})
+		textLines = nil
+	}
+	flushCode := func() {
+		blocks = append(blocks, markdownBlock{isCode: true, lang: codeLang, text: strings.Join(codeLines, "\n")})
+		codeLines = nil
+		codeLang = ""
+	}
+
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			if inCode {
+				flushCode()
+				inCode = false
+			} else {
+				flushText()
+				codeLang = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+				inCode = true
+			}
+			continue
+		}
+
+		if inCode {
+			codeLines = append(codeLines, line)
+		} else {
+			textLines = append(textLines, line)
+		}
+	}
+
+	if inCode {
+		flushCode()
+	} else {
+		flushText()
+	}
+
+	return blocks
+}
+
+func highlightCode(lang, code, fallbackFg string) [][]textSpan {
+	lexer := lexers.Get(lang)
+	if lexer == nil {
+		lexer = lexers.Analyse(code)
+	}
+	if lexer == nil {
+		return plainCodeLines(code, fallbackFg)
+	}
+	lexer = chroma.Coalesce(lexer)
+
+	iterator, err := lexer.Tokenise(nil, code)
+	if err != nil {
+		return plainCodeLines(code, fallbackFg)
+	}
+
+	style := styles.Get("monokai")
+	if style == nil {
+		style = styles.Fallback
+	}
+
+	lines := [][]textSpan{{}}
+	for token := iterator(); token != chroma.EOF; token = iterator() {
+		entry := style.Get(token.Type)
+		fg := chromaColourToANSI(entry.Colour)
+		if fg == "" {
+			fg = fallbackFg
+		}
+		decor := ""
+		if entry.Bold == chroma.Yes {
+			decor = "\x1b[1m"
+		}
+
+		parts := strings.Split(token.Value, "\n")
+		for i, part := range parts {
+			if i > 0 {
+				lines = append(lines, []textSpan{})
+			}
+			if part != "" {
+				last := len(lines) - 1
+				lines[last] = append(lines[last], textSpan{text: part, fg: fg, decor: decor})
+			}
+		}
+	}
+
+	return lines
+}
+
+func chromaColourToANSI(c chroma.Colour) string {
+	if !c.IsSet() {
+		return ""
+	}
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", c.Red(), c.Green(), c.Blue())
+}
+
+func plainCodeLines(code, fg string) [][]textSpan {
+	parts := strings.Split(code, "\n")
+	lines := make([][]textSpan, len(parts))
+	for i, part := range parts {
+		if part != "" {
+			lines[i] = []textSpan{{text: part, fg: fg}}
+		}
+	}
+	return lines
+}
+
+func wrapSpanLines(lines [][]textSpan, width int) [][]textSpan {
+	if width <= 0 {
+		return lines
+	}
+
+	var out [][]textSpan
+	for _, line := range lines {
+		out = append(out, wrapSpansHard(line, width)...)
+	}
+	return out
+}
+
+func wrapSpansHard(spans []textSpan, width int) [][]textSpan {
+	if len(spans) == 0 {
+		return [][]textSpan{{}}
+	}
+
+	var out [][]textSpan
+	var cur []textSpan
+	curWidth := 0
+	appendRune := func(r rune, span textSpan) {
+		if curWidth >= width {
+			out = append(out, cur)
+			cur = nil
+			curWidth = 0
+		}
+		if len(cur) > 0 && cur[len(cur)-1].fg == span.fg && cur[len(cur)-1].decor == span.decor {
+			cur[len(cur)-1].text += string(r)
+		} else {
+			cur = append(cur, textSpan{text: string(r), fg: span.fg, decor: span.decor})
+		}
+		curWidth++
+	}
+
+	for _, span := range spans {
+		for _, r := range span.text {
+			appendRune(r, span)
+		}
+	}
+	if cur != nil {
+		out = append(out, cur)
+	}
+	if len(out) == 0 {
+		out = append(out, []textSpan{})
+	}
+	return out
 }
 
 // ── Text wrapping ─────────────────────────────────────────────────────────────
