@@ -109,7 +109,7 @@ func Render(state *State) {
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 	)
 
-	switch state.Layout {
+	switch state.EffectiveLayout() {
 	case LayoutDefault:
 		root.AppendChild(CreateDefaultLayout(state))
 	case LayoutSplit:

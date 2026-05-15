@@ -6,6 +6,8 @@ import (
 	"io"
 	"os/exec"
 	"time"
+
+	"plums/internal/debuglog"
 )
 
 // ServerProcess owns an opencode server process started by plums.
@@ -21,6 +23,7 @@ func StartServer(ctx context.Context) (*ServerProcess, error) {
 		return nil, fmt.Errorf("opencode executable not found: %w", err)
 	}
 
+	debuglog.Printf("server: exec opencode serve")
 	cmd := exec.CommandContext(ctx, "opencode", "serve")
 	cmd.Stdin = nil
 	cmd.Stdout = io.Discard
@@ -29,13 +32,16 @@ func StartServer(ctx context.Context) (*ServerProcess, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start opencode serve: %w", err)
 	}
+	debuglog.Printf("server: opencode serve pid=%d", cmd.Process.Pid)
 
 	proc := &ServerProcess{
 		cmd:  cmd,
 		done: make(chan error, 1),
 	}
 	go func() {
-		proc.done <- cmd.Wait()
+		err := cmd.Wait()
+		debuglog.Printf("server: opencode serve exited: %v", err)
+		proc.done <- err
 	}()
 
 	return proc, nil
@@ -46,6 +52,7 @@ func (p *ServerProcess) Stop() {
 	if p == nil || p.cmd == nil || p.cmd.Process == nil {
 		return
 	}
+	debuglog.Printf("server: stopping opencode serve pid=%d", p.cmd.Process.Pid)
 	_ = p.cmd.Process.Kill()
 	select {
 	case <-p.done:
@@ -56,6 +63,7 @@ func (p *ServerProcess) Stop() {
 // WaitForHealth polls the opencode health endpoint until it is ready or the
 // timeout expires.
 func WaitForHealth(ctx context.Context, client *Client, timeout time.Duration) error {
+	debuglog.Printf("server: waiting for health timeout=%s", timeout)
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 
@@ -64,6 +72,7 @@ func WaitForHealth(ctx context.Context, client *Client, timeout time.Duration) e
 
 	for {
 		if err := client.Health(ctx); err == nil {
+			debuglog.Printf("server: health ready")
 			return nil
 		}
 

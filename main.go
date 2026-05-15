@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"plums/internal/ai"
 	"plums/internal/app"
+	"plums/internal/debuglog"
 	"plums/internal/keyboard"
 	"plums/internal/ui"
-	"syscall"
 )
 
 type startupResult struct {
@@ -119,26 +120,36 @@ func main() {
 
 func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupResult) {
 	var serverProc *ai.ServerProcess
+	debuglog.Printf("startup: checking opencode health")
 	if err := client.Health(ctx); err != nil {
+		debuglog.Printf("startup: health check failed: %v", err)
 		proc, err := ai.StartServer(ctx)
 		if err != nil {
+			debuglog.Printf("startup: start server failed: %v", err)
 			out <- startupResult{err: fmt.Errorf("failed to start opencode server: %w", err)}
 			return
 		}
 		serverProc = proc
+		debuglog.Printf("startup: started opencode server process")
 		if err := ai.WaitForHealth(ctx, client, 10*time.Second); err != nil {
+			debuglog.Printf("startup: wait for health failed: %v", err)
 			serverProc.Stop()
 			out <- startupResult{err: fmt.Errorf("failed to start opencode server: %w", err)}
 			return
 		}
+	} else {
+		debuglog.Printf("startup: existing opencode server is healthy")
 	}
 
+	debuglog.Printf("startup: creating session")
 	session, err := client.CreateSession(ctx)
 	if err != nil {
+		debuglog.Printf("startup: create session failed: %v", err)
 		serverProc.Stop()
 		out <- startupResult{err: fmt.Errorf("failed to create session: %w", err)}
 		return
 	}
+	debuglog.Printf("startup: session ready: %s", session.ID)
 	out <- startupResult{sessionID: session.ID, server: serverProc}
 }
 

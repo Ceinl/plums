@@ -4,6 +4,8 @@ import "plums/internal/components"
 
 type LayoutType int
 
+const MinSplitLayoutWidth = 100
+
 const (
 	LayoutDefault LayoutType = iota
 	LayoutFullscreen
@@ -87,6 +89,13 @@ func (s *State) Messages() []Message {
 func (s *State) Resize(w, h int) {
 	s.width = w
 	s.height = h
+}
+
+func (s *State) EffectiveLayout() LayoutType {
+	if s.Layout == LayoutSplit && s.width < MinSplitLayoutWidth {
+		return LayoutDefault
+	}
+	return s.Layout
 }
 
 func (s *State) IsStreaming() bool {
