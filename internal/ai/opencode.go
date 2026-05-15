@@ -90,6 +90,11 @@ type sessionStatusProperties struct {
 	} `json:"status"`
 }
 
+type sseResult struct {
+	emitted   bool
+	completed bool
+}
+
 // ── Constructors ──────────────────────────────────────────────────────────────
 
 func NewClient() *Client {
@@ -168,9 +173,21 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text string) <-chan
 	out := make(chan string)
 	go func() {
 		defer close(out)
-		if err := c.sendWithSSE(ctx, sessionID, text, out); err != nil {
-			// SSE path unavailable – fall back to synchronous behaviour.
+		result, err := c.sendWithSSE(ctx, sessionID, text, out)
+		if err == nil {
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if !result.emitted {
+			// SSE path unavailable before streaming tokens; fall back safely.
 			c.sendSync(ctx, sessionID, text, out)
+			return
+		}
+		select {
+		case <-ctx.Done():
+		case out <- fmt.Sprintf("\n⚠️  SSE stream ended before completion: %v\n", err):
 		}
 	}()
 	return out
@@ -180,24 +197,26 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text string) <-chan
 
 // sendWithSSE opens a long-lived GET /event SSE connection, kicks off
 // generation via POST /session/{id}/prompt_async, then reads events until
-// session.idle arrives. It returns a non-nil error when the SSE path is
-// unavailable so the caller can fall back to sendSync.
-func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out chan<- string) error {
+// session.idle arrives. It reports whether tokens were emitted so the caller
+// only falls back to sendSync when doing so cannot duplicate output.
+func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out chan<- string) (sseResult, error) {
+	var result sseResult
+
 	// 1. Open the SSE stream first so we don't miss any events.
 	sseReq, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/event", nil)
 	if err != nil {
-		return fmt.Errorf("build SSE request: %w", err)
+		return result, fmt.Errorf("build SSE request: %w", err)
 	}
 	sseReq.Header.Set("Accept", "text/event-stream")
 	sseReq.Header.Set("Cache-Control", "no-cache")
 
 	sseResp, err := c.sseClient.Do(sseReq)
 	if err != nil {
-		return fmt.Errorf("SSE connect: %w", err)
+		return result, fmt.Errorf("SSE connect: %w", err)
 	}
 	if sseResp.StatusCode != http.StatusOK {
 		_ = sseResp.Body.Close()
-		return fmt.Errorf("SSE endpoint returned status %d", sseResp.StatusCode)
+		return result, fmt.Errorf("SSE endpoint returned status %d", sseResp.StatusCode)
 	}
 	defer func() { _ = sseResp.Body.Close() }()
 
@@ -207,27 +226,27 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 	}
 	bodyData, err := json.Marshal(b)
 	if err != nil {
-		return fmt.Errorf("marshal prompt body: %w", err)
+		return result, fmt.Errorf("marshal prompt body: %w", err)
 	}
 	asyncReq, err := http.NewRequestWithContext(ctx, "POST",
 		c.baseURL+"/session/"+url.PathEscape(sessionID)+"/prompt_async",
 		bytes.NewReader(bodyData))
 	if err != nil {
-		return fmt.Errorf("build prompt_async request: %w", err)
+		return result, fmt.Errorf("build prompt_async request: %w", err)
 	}
 	asyncReq.Header.Set("Content-Type", "application/json")
 
 	asyncResp, err := c.httpClient.Do(asyncReq)
 	if err != nil {
-		return fmt.Errorf("prompt_async: %w", err)
+		return result, fmt.Errorf("prompt_async: %w", err)
 	}
 	defer func() { _ = asyncResp.Body.Close() }()
 
 	if asyncResp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("prompt_async: 404 – old server, falling back")
+		return result, fmt.Errorf("prompt_async: 404 – old server, falling back")
 	}
 	if asyncResp.StatusCode != http.StatusNoContent && asyncResp.StatusCode != http.StatusOK {
-		return fmt.Errorf("prompt_async returned status %d", asyncResp.StatusCode)
+		return result, fmt.Errorf("prompt_async returned status %d", asyncResp.StatusCode)
 	}
 
 	// 3. Consume SSE events.
@@ -245,7 +264,7 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return result, ctx.Err()
 		default:
 		}
 
@@ -284,8 +303,9 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 					for _, d := range pendingDeltas[props.Part.ID] {
 						select {
 						case <-ctx.Done():
-							return ctx.Err()
+							return result, ctx.Err()
 						case out <- d:
+							result.emitted = true
 						}
 					}
 					delete(pendingDeltas, props.Part.ID)
@@ -307,8 +327,9 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 					// immediately instead of waiting for a part registration event.
 					select {
 					case <-ctx.Done():
-						return ctx.Err()
+						return result, ctx.Err()
 					case out <- props.Delta:
+						result.emitted = true
 					}
 				} else {
 					// Delta arrived before its part.updated – queue it.
@@ -321,7 +342,8 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 					continue
 				}
 				if props.SessionID == sessionID {
-					return nil // generation complete
+					result.completed = true
+					return result, nil // generation complete
 				}
 
 			case "session.status":
@@ -333,17 +355,18 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 					continue
 				}
 				if props.SessionID == sessionID && props.Status.Type == "idle" {
-					return nil
+					result.completed = true
+					return result, nil
 				}
 			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("SSE scan: %w", err)
+		return result, fmt.Errorf("SSE scan: %w", err)
 	}
 
-	return nil
+	return result, fmt.Errorf("SSE stream ended before session idle")
 }
 
 // sendSync is the legacy fallback: POSTs to /session/{id}/message, waits for

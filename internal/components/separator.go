@@ -64,14 +64,16 @@ func (s *Separator) Render(scr *screen.Screen) {
 
 	if s.w == 0 || s.h == 0 || s.serverStarting {
 		if s.w > 0 && s.h > 0 && s.serverStarting {
-			frame := separatorSpinnerFrames[int(time.Now().UnixMilli()/80)%len(separatorSpinnerFrames)]
+			idx := (time.Now().UnixMilli() / 80) % int64(len(separatorSpinnerFrames))
+			frame := separatorSpinnerFrames[int(idx)]
 			scr.Set(s.x, s.y, frame, sepFgStarting, bg, "")
 		}
 		return
 	}
 
 	if s.aiThinking {
-		frame := separatorSpinnerFrames[int(time.Now().UnixMilli()/80)%len(separatorSpinnerFrames)]
+		idx := (time.Now().UnixMilli() / 80) % int64(len(separatorSpinnerFrames))
+		frame := separatorSpinnerFrames[int(idx)]
 		scr.Set(s.x, s.y, frame, sepFgThinking, bg, "")
 		return
 	}

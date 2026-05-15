@@ -297,7 +297,7 @@ func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []t
 			if r == '▌' && spanIdx == len(spans)-1 && i == len(runes)-1 {
 				cellFg = fgCursor
 			}
-			s.Set(x, y, r, cellFg, bg, span.decor)
+			s.Set(x, y, sanitizeRenderableRune(r), cellFg, bg, span.decor)
 			x++
 		}
 		if x >= cl.x+cl.w {
@@ -310,6 +310,13 @@ func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []t
 		s.Set(x, y, ' ', fg, bg, "")
 		x++
 	}
+}
+
+func sanitizeRenderableRune(r rune) rune {
+	if r == 0x7f || (r >= 0x00 && r <= 0x1f) {
+		return '�'
+	}
+	return r
 }
 
 func (cl *ChatLog) clearRow(s *screen.Screen, y int, bg string) {
