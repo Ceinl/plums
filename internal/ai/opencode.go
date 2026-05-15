@@ -70,9 +70,10 @@ type partDetail struct {
 
 // partDeltaProperties is the payload of a "message.part.delta" event.
 type partDeltaProperties struct {
-	PartID string `json:"partID"`
-	Field  string `json:"field"`
-	Delta  string `json:"delta"`
+	SessionID string `json:"sessionID"`
+	PartID    string `json:"partID"`
+	Field     string `json:"field"`
+	Delta     string `json:"delta"`
 }
 
 // sessionIdleProperties is the payload of a "session.idle" event.
@@ -298,8 +299,12 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 				if props.Field != "text" || props.Delta == "" {
 					continue
 				}
-				if textPartIDs[props.PartID] {
-					// Part already registered – emit immediately.
+				if props.SessionID != "" && props.SessionID != sessionID {
+					continue
+				}
+				if props.SessionID == sessionID || textPartIDs[props.PartID] {
+					// Newer opencode delta events include sessionID, so we can emit
+					// immediately instead of waiting for a part registration event.
 					select {
 					case <-ctx.Done():
 						return ctx.Err()
