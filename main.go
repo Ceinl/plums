@@ -67,6 +67,9 @@ func main() {
 				cancel()
 				return
 			}
+			if action := state.ConsumePendingAction(); action != app.PaletteActionNone {
+				handlePaletteAction(ctx, state, client, action)
+			}
 			if handled {
 				if ev.Type == keyboard.KeyEnter && ev.Alt {
 					msgs := state.Messages()
@@ -157,6 +160,28 @@ func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupRes
 
 func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 	ed := state.Editor
+	if state.PopupOpen {
+		switch ev.Type {
+		case keyboard.KeyEscape:
+			state.ClosePalette()
+			return true, false
+		case keyboard.KeyArrowUp:
+			state.MovePalette(-1)
+			return true, false
+		case keyboard.KeyArrowDown:
+			state.MovePalette(1)
+			return true, false
+		case keyboard.KeyEnter:
+			state.SelectPaletteItem()
+			return true, false
+		case keyboard.KeyRune:
+			if ev.Ctrl && (ev.Ch == 'P' || ev.Ch == 'p') {
+				state.ClosePalette()
+				return true, false
+			}
+		}
+		return true, false
+	}
 
 	switch ev.Type {
 	case keyboard.KeyCtrlC:
@@ -186,9 +211,17 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		state.SwitchLayout()
 		return true, false
 	case keyboard.KeyEscape:
+		if state.PopupOpen {
+			state.TogglePopup()
+			return true, false
+		}
 		ed.ClearSelection()
 		return true, false
 	case keyboard.KeyRune:
+		if ev.Ctrl && (ev.Ch == 'P' || ev.Ch == 'p') {
+			state.TogglePopup()
+			return true, false
+		}
 		// Alt+b / Alt+f: readline-style word jump (emitted by Terminal.app and
 		// many other macOS terminals when the user presses Option+Left/Right).
 		if ev.Alt && !ev.Ctrl {
@@ -309,4 +342,25 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		return true, false
 	}
 	return false, false
+}
+
+func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Client, action app.PaletteAction) {
+	switch action {
+	case app.PaletteActionNewSession:
+		session, err := client.CreateSession(ctx)
+		if err != nil {
+			state.AddMessage("system", fmt.Sprintf("failed to create session: %v", err))
+			return
+		}
+		state.SetSessionID(session.ID)
+		state.ClearConversation()
+		state.AddMessage("system", "started new session "+session.ID)
+	case app.PaletteActionSwitchMode:
+		state.ToggleMode()
+		state.AddMessage("system", "switched to "+state.Mode+" mode")
+	case app.PaletteActionChangeModel:
+		state.AddMessage("system", "model switching needs opencode model API wiring")
+	case app.PaletteActionSessionsList:
+		state.AddMessage("system", "sessions list will be added after session listing API is wired")
+	}
 }

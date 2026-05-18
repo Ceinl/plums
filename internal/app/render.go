@@ -121,8 +121,17 @@ func Render(state *State) {
 
 	root.Layout(0, 0, state.width, state.height)
 	root.Render(scr)
+	if state.PopupOpen {
+		popup := components.NewPopup()
+		popup.SetItems(state.PaletteItems(), state.PaletteIndex)
+		popup.Layout(0, 0, state.width, state.height)
+		popup.Render(scr)
+	}
 
 	scr.Flush()
+	if state.PopupOpen {
+		return
+	}
 	cx, cy := state.Editor.CursorScreenPos()
 	scr.SetCursor(cx, cy)
 	scr.ShowCursor()

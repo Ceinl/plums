@@ -1,6 +1,20 @@
 package app
 
-import "plums/internal/components"
+import (
+	"strings"
+
+	"plums/internal/components"
+)
+
+type PaletteAction int
+
+const (
+	PaletteActionNone PaletteAction = iota
+	PaletteActionChangeModel
+	PaletteActionNewSession
+	PaletteActionSwitchMode
+	PaletteActionSessionsList
+)
 
 type LayoutType int
 
@@ -35,6 +49,10 @@ type State struct {
 	SessionID      string
 	ServerStarting bool
 	ServerReady    bool
+	PopupOpen      bool
+	PaletteIndex   int
+	PendingAction  PaletteAction
+	Mode           string
 }
 
 func NewState(width int, height int) *State {
@@ -43,11 +61,15 @@ func NewState(width int, height int) *State {
 		height: height,
 		Editor: components.NewTextEditor(),
 		Layout: LayoutSplit,
+		Mode:   "build",
 	}
 }
 
 func (s *State) SubmitInput() string {
 	input := s.Editor.GetContent()
+	if s.runEditorCommand(input) {
+		return ""
+	}
 	if input != "" {
 		s.messages = append(s.messages, Message{Role: "user", Content: input})
 		s.Editor.SetContent("")
@@ -150,5 +172,105 @@ func (s *State) SwitchLayout() {
 		s.Layout = LayoutDefault
 	default:
 		s.Layout = LayoutDefault
+	}
+}
+
+func (s *State) TogglePopup() {
+	if s.PopupOpen {
+		s.ClosePalette()
+		return
+	}
+	s.OpenPalette()
+}
+
+func (s *State) OpenPalette() {
+	s.PopupOpen = true
+	s.PendingAction = PaletteActionNone
+	if s.PaletteIndex >= len(s.PaletteItems()) {
+		s.PaletteIndex = 0
+	}
+}
+
+func (s *State) ClosePalette() {
+	s.PopupOpen = false
+	s.PendingAction = PaletteActionNone
+}
+
+func (s *State) PaletteItems() []components.PopupItem {
+	modeLabel := "Switch to plan mode"
+	if s.Mode == "plan" {
+		modeLabel = "Switch to build mode"
+	}
+	return []components.PopupItem{
+		{Title: "Change model", Detail: "Requires model API wiring", Disabled: true},
+		{Title: "Start new session", Detail: "Create a fresh opencode session"},
+		{Title: modeLabel, Detail: "Current mode: " + s.Mode},
+		{Title: "Sessions list", Detail: "Later: attach to older sessions", Disabled: true},
+	}
+}
+
+func (s *State) MovePalette(delta int) {
+	items := s.PaletteItems()
+	if len(items) == 0 {
+		return
+	}
+	for range items {
+		s.PaletteIndex = (s.PaletteIndex + delta + len(items)) % len(items)
+		if !items[s.PaletteIndex].Disabled {
+			return
+		}
+	}
+}
+
+func (s *State) SelectPaletteItem() {
+	items := s.PaletteItems()
+	if s.PaletteIndex < 0 || s.PaletteIndex >= len(items) || items[s.PaletteIndex].Disabled {
+		return
+	}
+	s.PendingAction = []PaletteAction{
+		PaletteActionChangeModel,
+		PaletteActionNewSession,
+		PaletteActionSwitchMode,
+		PaletteActionSessionsList,
+	}[s.PaletteIndex]
+	s.PopupOpen = false
+}
+
+func (s *State) ConsumePendingAction() PaletteAction {
+	action := s.PendingAction
+	s.PendingAction = PaletteActionNone
+	return action
+}
+
+func (s *State) SetSessionID(id string) {
+	s.SessionID = id
+}
+
+func (s *State) ClearConversation() {
+	s.messages = nil
+	s.aioutput = ""
+	s.outputScroll = 0
+}
+
+func (s *State) ToggleMode() {
+	if s.Mode == "plan" {
+		s.Mode = "build"
+	} else {
+		s.Mode = "plan"
+	}
+}
+
+func (s *State) runEditorCommand(input string) bool {
+	line := strings.TrimSpace(input)
+	if !strings.HasPrefix(line, ">") {
+		return false
+	}
+	command := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, ">")))
+	switch command {
+	case "clear":
+		s.Editor.SetContent("")
+		return true
+	default:
+		return false
 	}
 }

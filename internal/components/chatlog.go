@@ -294,6 +294,14 @@ func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []t
 			if x >= cl.x+cl.w {
 				break
 			}
+			if r == '\t' {
+				spaces := 4 - ((x - cl.x - 2) % 4)
+				for ; spaces > 0 && x < cl.x+cl.w; spaces-- {
+					s.Set(x, y, ' ', cellFg, bg, span.decor)
+					x++
+				}
+				continue
+			}
 			if r == '▌' && spanIdx == len(spans)-1 && i == len(runes)-1 {
 				cellFg = fgCursor
 			}
