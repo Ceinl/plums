@@ -2,11 +2,16 @@ package harness
 
 // Bitmask for Agent permissions, two states, allow or no.
 // No to annoying "asking"
-type Permision uint64
+type Permission uint64
 
 const (
+
+	// PermissionAll is a bitmask that allows all permissions
+	// Permission(0) = 0000...000, and ^ is revering it, so each bit is set to 1
+	PermissionAll = ^Permission(0)
+
 	//Allow Agent to read files from session root and downwards
-	PermissionRead Permision = 1 << iota
+	PermissionRead Permission = 1 << iota
 
 	//Allow Agent to read files from user root folder
 	PermissionLocalSearch
@@ -27,14 +32,14 @@ const (
 	PermissionWebSearch
 )
 
-func (p Permision) IsAllowed(required Permision) bool {
+func (p Permission) IsAllowed(required Permission) bool {
 	return p&required == required
 }
 
-func (p *Permision) Allow(required Permision) {
+func (p *Permission) Allow(required Permission) {
 	*p |= required
 }
 
-func (p *Permision) Deny(required Permision) {
+func (p *Permission) Deny(required Permission) {
 	*p &^= required
 }
