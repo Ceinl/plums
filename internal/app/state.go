@@ -18,7 +18,7 @@ const (
 
 type LayoutType int
 
-const MinSplitLayoutWidth = 100
+const MinSplitLayoutWidth = 90
 
 const (
 	LayoutDefault LayoutType = iota
@@ -115,9 +115,6 @@ func (s *State) Resize(w, h int) {
 }
 
 func (s *State) EffectiveLayout() LayoutType {
-	if s.Layout == LayoutSplit && s.width < MinSplitLayoutWidth {
-		return LayoutDefault
-	}
 	return s.Layout
 }
 
