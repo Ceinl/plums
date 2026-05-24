@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -23,6 +24,14 @@ type startupResult struct {
 
 func main() {
 	defer debuglog.Close()
+
+	configPath := flag.String("config", "", "path to plums config file")
+	flag.Parse()
+	if *configPath != "" {
+		debuglog.Printf("config: using %s", *configPath)
+	} else {
+		debuglog.Printf("config: no config file specified")
+	}
 
 	t := ui.NewTerminal(int(os.Stdin.Fd()))
 	t.Enter()
