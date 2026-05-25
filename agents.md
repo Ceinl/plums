@@ -1,6 +1,6 @@
 Do not edit anything unless you were direcltly asked to
 
-Produce plans in html format for user to read
+Produce plans in html websites for user to read is plan is robust and multistep
 
 If this is first prompt in session, evaluate complexity of task and offer one off 
     1) Stay on current branch
