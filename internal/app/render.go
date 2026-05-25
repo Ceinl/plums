@@ -311,7 +311,7 @@ func outputViewportSize(state *State) (int, int) {
 		if state.width < MinSplitLayoutWidth {
 			return state.width - 4, int(float64(state.height)*0.5) - 2
 		}
-		leftW := int(float64(state.width) * 0.5)
+		leftW := state.SplitLeftWidth()
 		rightW := state.width - leftW - 1
 		return rightW - 4, state.height - 4
 	case LayoutFullscreen:
@@ -366,13 +366,13 @@ func CreateSplitLayout(state *State) *components.Div {
 	if state.PopupOpen {
 		leftDiv = newPalettePanel(
 			state,
-			layout.Unit{Type: layout.UnitPersent, Value: 50},
+			layout.Unit{Type: layout.UnitPersent, Value: float64(state.SplitLeftPercent())},
 			layout.Unit{Type: layout.UnitPersent, Value: 100},
 		)
 	} else {
 		leftDiv = newEditorDiv(
 			state.Editor,
-			layout.Unit{Type: layout.UnitPersent, Value: 50},
+			layout.Unit{Type: layout.UnitPersent, Value: float64(state.SplitLeftPercent())},
 			layout.Unit{Type: layout.UnitPersent, Value: 100},
 		)
 		leftDiv.SetPadding(layout.Padding{

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,13 @@ type LayoutType int
 type InfoView int
 
 const MinSplitLayoutWidth = 90
+
+const (
+	minOutputPercentage     = 25
+	maxOutputPercentage     = 75
+	defaultOutputPercentage = 50
+	outputPercentageStep    = 5
+)
 
 const (
 	LayoutDefault LayoutType = iota
@@ -95,16 +103,18 @@ type State struct {
 	ModelID        string
 	InfoView       InfoView
 	GitDiff        string
+	OutputPercent  int
 	submittedInput string
 }
 
 func NewState(width int, height int) *State {
 	return &State{
-		width:  width,
-		height: height,
-		Editor: components.NewTextEditor(),
-		Layout: LayoutSplit,
-		Mode:   "build",
+		width:         width,
+		height:        height,
+		Editor:        components.NewTextEditor(),
+		Layout:        LayoutSplit,
+		Mode:          "build",
+		OutputPercent: defaultOutputPercentage,
 	}
 }
 
@@ -218,7 +228,7 @@ func (s *State) isEditorPoint(x, y int) bool {
 		return true
 	case LayoutSplit:
 		if s.width >= MinSplitLayoutWidth {
-			leftW := int(float64(s.width) * 0.5)
+			leftW := s.SplitLeftWidth()
 			return x < leftW && !s.PopupOpen
 		}
 		outputH := int(float64(s.height) * 0.5)
@@ -365,8 +375,51 @@ func (s *State) PaletteItems() []components.PopupItem {
 		{Title: "Change model", Detail: "Requires model API wiring", Disabled: true},
 		{Title: "Start new session", Detail: "Create a fresh opencode session"},
 		{Title: modeLabel, Detail: "Current mode: " + s.Mode},
+		{Title: "Output percentage", Detail: "Left/Right adjust - current: " + strconv.Itoa(s.SplitOutputPercent()) + "%"},
 		{Title: "Sessions list", Detail: "Open existing opencode sessions"},
 	}
+}
+
+func (s *State) SplitOutputPercent() int {
+	if s.OutputPercent == 0 {
+		return defaultOutputPercentage
+	}
+	return clampInt(s.OutputPercent, minOutputPercentage, maxOutputPercentage)
+}
+
+func (s *State) SplitLeftPercent() int {
+	return 100 - s.SplitOutputPercent()
+}
+
+func (s *State) SplitLeftWidth() int {
+	return int(float64(s.width) * float64(s.SplitLeftPercent()) / 100)
+}
+
+func (s *State) AdjustOutputPercentage(delta int) bool {
+	before := s.SplitOutputPercent()
+	s.OutputPercent = clampInt(before+delta, minOutputPercentage, maxOutputPercentage)
+	return s.OutputPercent != before
+}
+
+func (s *State) AdjustSelectedPaletteItem(delta int) bool {
+	if !s.IsOutputPercentageSelected() {
+		return false
+	}
+	return s.AdjustOutputPercentage(delta * outputPercentageStep)
+}
+
+func (s *State) IsOutputPercentageSelected() bool {
+	return s.PaletteView == PaletteViewCommands && s.PaletteIndex == 3
+}
+
+func clampInt(v, min, max int) int {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
 
 func (s *State) SlashCommands() []SlashCommand {
@@ -411,8 +464,12 @@ func (s *State) SelectPaletteItem() {
 		PaletteActionChangeModel,
 		PaletteActionNewSession,
 		PaletteActionSwitchMode,
+		PaletteActionNone,
 		PaletteActionSessionsList,
 	}[s.PaletteIndex]
+	if s.PendingAction == PaletteActionNone {
+		return
+	}
 	if s.PendingAction != PaletteActionSessionsList {
 		s.PopupOpen = false
 	}
