@@ -15,6 +15,14 @@ const (
 	PaletteActionNewSession
 	PaletteActionSwitchMode
 	PaletteActionSessionsList
+	PaletteActionSelectSession
+)
+
+type PaletteView int
+
+const (
+	PaletteViewCommands PaletteView = iota
+	PaletteViewSessions
 )
 
 type LayoutType int
@@ -39,6 +47,12 @@ type Message struct {
 	Content string
 }
 
+type SessionListItem struct {
+	ID      string
+	Title   string
+	Current bool
+}
+
 type State struct {
 	width  int
 	height int
@@ -55,11 +69,14 @@ type State struct {
 	Layout LayoutType
 
 	SessionID      string
+	SessionTitle   string
 	ServerStarting bool
 	ServerReady    bool
 	PopupOpen      bool
 	PaletteIndex   int
+	PaletteView    PaletteView
 	PendingAction  PaletteAction
+	SessionItems   []SessionListItem
 	Mode           string
 	ModelProvider  string
 	ModelID        string
@@ -215,6 +232,7 @@ func (s *State) TogglePopup() {
 
 func (s *State) OpenPalette() {
 	s.PopupOpen = true
+	s.PaletteView = PaletteViewCommands
 	s.PendingAction = PaletteActionNone
 	items := s.PaletteItems()
 	if s.PaletteIndex >= len(items) {
@@ -227,10 +245,36 @@ func (s *State) OpenPalette() {
 
 func (s *State) ClosePalette() {
 	s.PopupOpen = false
+	s.PaletteView = PaletteViewCommands
 	s.PendingAction = PaletteActionNone
 }
 
+func (s *State) PaletteTitle() string {
+	if s.PaletteView == PaletteViewSessions {
+		return "Sessions"
+	}
+	return "Command Palette"
+}
+
 func (s *State) PaletteItems() []components.PopupItem {
+	if s.PaletteView == PaletteViewSessions {
+		if len(s.SessionItems) == 0 {
+			return []components.PopupItem{{Title: "No sessions", Detail: "No opencode sessions found", Disabled: true}}
+		}
+		items := make([]components.PopupItem, len(s.SessionItems))
+		for i, session := range s.SessionItems {
+			title := session.Title
+			if title == "" {
+				title = session.ID
+			}
+			detail := session.ID
+			if session.Current {
+				detail = "current - " + session.ID
+			}
+			items[i] = components.PopupItem{Title: title, Detail: detail}
+		}
+		return items
+	}
 	modeLabel := "Switch to plan mode"
 	if s.Mode == "plan" {
 		modeLabel = "Switch to build mode"
@@ -239,7 +283,7 @@ func (s *State) PaletteItems() []components.PopupItem {
 		{Title: "Change model", Detail: "Requires model API wiring", Disabled: true},
 		{Title: "Start new session", Detail: "Create a fresh opencode session"},
 		{Title: modeLabel, Detail: "Current mode: " + s.Mode},
-		{Title: "Sessions list", Detail: "Later: attach to older sessions", Disabled: true},
+		{Title: "Sessions list", Detail: "Open existing opencode sessions"},
 	}
 }
 
@@ -261,13 +305,20 @@ func (s *State) SelectPaletteItem() {
 	if s.PaletteIndex < 0 || s.PaletteIndex >= len(items) || items[s.PaletteIndex].Disabled {
 		return
 	}
+	if s.PaletteView == PaletteViewSessions {
+		s.PendingAction = PaletteActionSelectSession
+		s.PopupOpen = false
+		return
+	}
 	s.PendingAction = []PaletteAction{
 		PaletteActionChangeModel,
 		PaletteActionNewSession,
 		PaletteActionSwitchMode,
 		PaletteActionSessionsList,
 	}[s.PaletteIndex]
-	s.PopupOpen = false
+	if s.PendingAction != PaletteActionSessionsList {
+		s.PopupOpen = false
+	}
 }
 
 func (s *State) ConsumePendingAction() PaletteAction {
@@ -280,6 +331,32 @@ func (s *State) SetSessionID(id string) {
 	s.SessionID = id
 }
 
+func (s *State) SetSessionTitle(title string) {
+	s.SessionTitle = title
+}
+
+func (s *State) SetSessionItems(items []SessionListItem) {
+	s.SessionItems = items
+	s.PaletteView = PaletteViewSessions
+	s.PaletteIndex = 0
+	if len(items) > 0 {
+		for i, item := range items {
+			if item.ID == s.SessionID {
+				s.PaletteIndex = i
+				break
+			}
+		}
+	}
+	s.PopupOpen = true
+}
+
+func (s *State) SelectedSessionID() string {
+	if s.PaletteView != PaletteViewSessions || s.PaletteIndex < 0 || s.PaletteIndex >= len(s.SessionItems) {
+		return ""
+	}
+	return s.SessionItems[s.PaletteIndex].ID
+}
+
 func (s *State) SetModel(providerID, modelID string) {
 	s.ModelProvider = providerID
 	s.ModelID = modelID
@@ -287,6 +364,12 @@ func (s *State) SetModel(providerID, modelID string) {
 
 func (s *State) ClearConversation() {
 	s.messages = nil
+	s.aioutput = ""
+	s.outputScroll = 0
+}
+
+func (s *State) SetConversation(messages []Message) {
+	s.messages = messages
 	s.aioutput = ""
 	s.outputScroll = 0
 }

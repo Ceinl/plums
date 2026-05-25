@@ -115,6 +115,7 @@ func newSplitStatusBar(state *State) *components.Div {
 
 	bar := components.NewStatusBar()
 	bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
+	bar.SetSession(state.SessionTitle)
 	bar.SetModel(state.ModelProvider, state.ModelID)
 	div.AppendChild(bar)
 	return div
@@ -164,6 +165,7 @@ func newPalettePanel(state *State, w, h layout.Unit) *components.Div {
 
 	popup := components.NewPopup()
 	popup.SetPanel(true)
+	popup.SetTitle(state.PaletteTitle())
 	popup.SetItems(state.PaletteItems(), state.PaletteIndex)
 	div.AppendChild(popup)
 	return div
@@ -196,6 +198,7 @@ func Render(state *State) {
 	root.Render(scr)
 	if state.PopupOpen && (state.EffectiveLayout() != LayoutSplit || state.width < MinSplitLayoutWidth) {
 		popup := components.NewPopup()
+		popup.SetTitle(state.PaletteTitle())
 		popup.SetItems(state.PaletteItems(), state.PaletteIndex)
 		popup.Layout(0, 0, state.width, state.height)
 		popup.Render(scr)

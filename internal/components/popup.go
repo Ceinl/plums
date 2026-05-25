@@ -10,6 +10,7 @@ type Popup struct {
 	x, y   int
 	w, h   int
 	style  layout.Style
+	title  string
 	items  []PopupItem
 	active int
 	panel  bool
@@ -25,7 +26,11 @@ func NewPopup() *Popup {
 	style := layout.Style{}
 	style.SetBackground(30, 27, 38)
 	style.SetForeground(232, 229, 241)
-	return &Popup{style: style}
+	return &Popup{style: style, title: "Command Palette"}
+}
+
+func (p *Popup) SetTitle(title string) {
+	p.title = title
 }
 
 func (p *Popup) SetItems(items []PopupItem, active int) {
@@ -88,7 +93,7 @@ func (p *Popup) Render(s *screen.Screen) {
 	s.Set(mx, my+modalH-1, '└', muted, bg, "")
 	s.Set(mx+modalW-1, my+modalH-1, '┘', muted, bg, "")
 
-	drawText(s, mx+3, my+1, modalW-6, "Command Palette", accent, bg)
+	drawText(s, mx+3, my+1, modalW-6, p.title, accent, bg)
 
 	row := my + 3
 	for i, item := range p.items {
@@ -121,7 +126,7 @@ func (p *Popup) renderPanel(s *screen.Screen) {
 		}
 	}
 
-	drawText(s, p.x, p.y, p.w, "Command Palette", accent, bg)
+	drawText(s, p.x, p.y, p.w, p.title, accent, bg)
 
 	row := p.y + 2
 	for i, item := range p.items {

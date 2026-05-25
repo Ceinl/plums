@@ -123,6 +123,7 @@ func main() {
 				serverProc = result.server
 				state.SetServerReady(true)
 				applySession(state, result.session)
+				applyRecentModel(ctx, state, client)
 			}
 			app.Render(state)
 		case <-sigCh:
@@ -173,9 +174,44 @@ func applySession(state *app.State, session *ai.Session) {
 		return
 	}
 	state.SetSessionID(session.ID)
+	state.SetSessionTitle(session.Title)
 	if session.Model != nil {
 		state.SetModel(session.Model.ProviderID, session.Model.ID)
 	}
+}
+
+func applyRecentModel(ctx context.Context, state *app.State, client *ai.Client) {
+	if state.ModelID != "" {
+		return
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	sessions, err := client.ListSessions(lookupCtx)
+	if err != nil {
+		debuglog.Printf("session: recent model lookup failed: %v", err)
+		return
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		debuglog.Printf("session: recent model working directory failed: %v", err)
+		return
+	}
+	for _, session := range sessions {
+		if session.Model != nil && session.Directory == wd {
+			state.SetModel(session.Model.ProviderID, session.Model.ID)
+			return
+		}
+	}
+}
+
+func sessionDisplayName(session *ai.Session) string {
+	if session == nil || session.Title == "" {
+		if session == nil {
+			return ""
+		}
+		return session.ID
+	}
+	return session.Title
 }
 
 func refreshSessionModel(ctx context.Context, state *app.State, client *ai.Client) {
@@ -203,15 +239,59 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 		applySession(state, session)
 		if session.Model == nil {
 			state.SetModel("", "")
+			applyRecentModel(ctx, state, client)
 		}
 		state.ClearConversation()
-		state.AddMessage("system", "started new session "+session.ID)
+		state.AddMessage("system", "started new session "+sessionDisplayName(session))
 	case app.PaletteActionSwitchMode:
 		state.ToggleMode()
 		state.AddMessage("system", "switched to "+state.Mode+" mode")
 	case app.PaletteActionChangeModel:
 		state.AddMessage("system", "model switching needs opencode model API wiring")
 	case app.PaletteActionSessionsList:
-		state.AddMessage("system", "sessions list will be added after session listing API is wired")
+		sessions, err := client.ListSessions(ctx)
+		if err != nil {
+			state.AddMessage("system", fmt.Sprintf("failed to list sessions: %v", err))
+			return
+		}
+		items := make([]app.SessionListItem, len(sessions))
+		for i, session := range sessions {
+			items[i] = app.SessionListItem{ID: session.ID, Title: session.Title, Current: session.ID == state.SessionID}
+		}
+		state.SetSessionItems(items)
+	case app.PaletteActionSelectSession:
+		sessionID := state.SelectedSessionID()
+		if sessionID == "" {
+			return
+		}
+		session, err := client.GetSession(ctx, sessionID)
+		if err != nil {
+			state.AddMessage("system", fmt.Sprintf("failed to get session: %v", err))
+			return
+		}
+		applySession(state, session)
+		messages, err := client.ListMessages(ctx, sessionID)
+		if err != nil {
+			state.ClearConversation()
+			state.AddMessage("system", fmt.Sprintf("attached session %s; failed to load messages: %v", sessionDisplayName(session), err))
+			return
+		}
+		conversation := make([]app.Message, 0, len(messages))
+		for _, message := range messages {
+			content := ""
+			for _, part := range message.Parts {
+				if part.Type == "text" {
+					content += part.Text
+				}
+			}
+			if content != "" {
+				role := message.Info.Role
+				if role == "assistant" {
+					role = "ai"
+				}
+				conversation = append(conversation, app.Message{Role: role, Content: content})
+			}
+		}
+		state.SetConversation(conversation)
 	}
 }
