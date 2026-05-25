@@ -53,6 +53,8 @@ type State struct {
 	PaletteIndex   int
 	PendingAction  PaletteAction
 	Mode           string
+	ModelProvider  string
+	ModelID        string
 }
 
 func NewState(width int, height int) *State {
@@ -241,6 +243,11 @@ func (s *State) ConsumePendingAction() PaletteAction {
 
 func (s *State) SetSessionID(id string) {
 	s.SessionID = id
+}
+
+func (s *State) SetModel(providerID, modelID string) {
+	s.ModelProvider = providerID
+	s.ModelID = modelID
 }
 
 func (s *State) ClearConversation() {

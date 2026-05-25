@@ -17,9 +17,9 @@ import (
 )
 
 type startupResult struct {
-	sessionID string
-	server    *ai.ServerProcess
-	err       error
+	session *ai.Session
+	server  *ai.ServerProcess
+	err     error
 }
 
 func main() {
@@ -106,6 +106,7 @@ func main() {
 				app.Render(state)
 			} else {
 				state.FinalizeAiOutput()
+				refreshSessionModel(ctx, state, client)
 				aiStream = nil
 				cancelStream = nil
 				app.Render(state)
@@ -121,7 +122,7 @@ func main() {
 			} else {
 				serverProc = result.server
 				state.SetServerReady(true)
-				state.SessionID = result.sessionID
+				applySession(state, result.session)
 			}
 			app.Render(state)
 		case <-sigCh:
@@ -164,7 +165,31 @@ func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupRes
 		return
 	}
 	debuglog.Printf("startup: session ready: %s", session.ID)
-	out <- startupResult{sessionID: session.ID, server: serverProc}
+	out <- startupResult{session: session, server: serverProc}
+}
+
+func applySession(state *app.State, session *ai.Session) {
+	if session == nil {
+		return
+	}
+	state.SetSessionID(session.ID)
+	if session.Model != nil {
+		state.SetModel(session.Model.ProviderID, session.Model.ID)
+	}
+}
+
+func refreshSessionModel(ctx context.Context, state *app.State, client *ai.Client) {
+	if state.SessionID == "" {
+		return
+	}
+	refreshCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	session, err := client.GetSession(refreshCtx, state.SessionID)
+	if err != nil {
+		debuglog.Printf("session: refresh model failed: %v", err)
+		return
+	}
+	applySession(state, session)
 }
 
 func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Client, action app.PaletteAction) {
@@ -175,7 +200,10 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 			state.AddMessage("system", fmt.Sprintf("failed to create session: %v", err))
 			return
 		}
-		state.SetSessionID(session.ID)
+		applySession(state, session)
+		if session.Model == nil {
+			state.SetModel("", "")
+		}
 		state.ClearConversation()
 		state.AddMessage("system", "started new session "+session.ID)
 	case app.PaletteActionSwitchMode:

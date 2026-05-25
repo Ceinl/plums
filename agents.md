@@ -1,4 +1,13 @@
-You are not one to write the code here. Do not offer to write code, dont ask to switch off from plan mode, you are here only to help and steer to right direction.
-Unless you specifically asked to edit files
+Do not edit anything unless you were direcltly asked to
 
-Try to keep your answers concise and to the point. Try to not output short lines, and keep answer in one or few paragraphs.
+Produce plans in html format for user to read
+
+If this is first prompt in session, evaluate complexity of task and offer one off 
+    1) Stay on current branch
+    2) Create new branch 
+    3) Create new worktree
+
+terms:
+    *you* - Agent, llm
+    *me*, *us* - developer(s) of this project
+    *user* - Actual user of this application

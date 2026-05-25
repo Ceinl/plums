@@ -69,6 +69,24 @@ func newVerticalSeparator() *components.Div {
 	return div
 }
 
+func newSplitStatusBar(state *State) *components.Div {
+	div := components.NewDiv()
+	div.SetSize(
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPx, Value: 1},
+	)
+	style := layout.Style{}
+	style.SetBackground(22, 20, 27)
+	style.SetForeground(100, 98, 112)
+	div.SetStyle(style)
+
+	bar := components.NewStatusBar()
+	bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
+	bar.SetModel(state.ModelProvider, state.ModelID)
+	div.AppendChild(bar)
+	return div
+}
+
 func newTextDiv(content string, w, h layout.Unit, bgR, bgG, bgB uint8) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(w, h)
@@ -193,7 +211,6 @@ func CreateSplitLayout(state *State) *components.Div {
 	// 1-column accent separator
 	sep := newVerticalSeparator()
 	statusSep := components.NewSeparator()
-	statusSep.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
 	sep.AppendChild(statusSep)
 
 	// Right pane: chat output (fills remaining space)
@@ -203,6 +220,7 @@ func CreateSplitLayout(state *State) *components.Div {
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 	)
 	rightDiv.AppendChild(newChatLog(state))
+	rightDiv.AppendChild(newSplitStatusBar(state))
 
 	root := components.NewDiv()
 	root.SetSize(

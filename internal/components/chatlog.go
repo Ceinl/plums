@@ -182,14 +182,9 @@ func (cl *ChatLog) buildContentLines(content, fg, bg string) []renderLine {
 
 	for _, block := range blocks {
 		if block.isCode {
-			fence := "```" + block.lang
-			lines = append(lines, renderLine{kind: lineKindContent, text: fence, contentFg: fgCodeFence, contentBg: bg})
-
 			for _, spans := range wrapSpanLines(highlightCode(block.lang, block.text, fg), cl.contentWidth()) {
 				lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
 			}
-
-			lines = append(lines, renderLine{kind: lineKindContent, text: "```", contentFg: fgCodeFence, contentBg: bg})
 			continue
 		}
 

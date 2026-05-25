@@ -21,7 +21,14 @@ type Client struct {
 
 // Session represents an opencode session.
 type Session struct {
-	ID string `json:"id"`
+	ID    string    `json:"id"`
+	Model *ModelRef `json:"model"`
+}
+
+type ModelRef struct {
+	ID         string `json:"id"`
+	ProviderID string `json:"providerID"`
+	Variant    string `json:"variant"`
 }
 
 // Part is a content part within a message.
@@ -156,6 +163,26 @@ func (c *Client) CreateSession(ctx context.Context) (*Session, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("opencode server returned status %d", resp.StatusCode)
+	}
+	var session Session
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (c *Client) GetSession(ctx context.Context, sessionID string) (*Session, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session/"+url.PathEscape(sessionID), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("opencode server: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("opencode server returned status %d", resp.StatusCode)
 	}
 	var session Session
