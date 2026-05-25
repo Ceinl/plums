@@ -111,6 +111,14 @@ func (cl *ChatLog) Layout(x, y, w, h int) {
 	cl.x, cl.y, cl.w, cl.h = x, y, w, h
 }
 
+func (cl *ChatLog) MaxScrollOffset() int {
+	maxOffset := len(cl.buildLines()) - cl.h
+	if maxOffset < 0 {
+		return 0
+	}
+	return maxOffset
+}
+
 // ── Render ────────────────────────────────────────────────────────────────────
 
 func (cl *ChatLog) Render(s *screen.Screen) {

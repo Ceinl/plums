@@ -8,12 +8,15 @@ import (
 )
 
 type Event struct {
-	Type  EventType
-	Ch    rune
-	Shift bool
-	Ctrl  bool
-	Alt   bool
-	Raw   []byte
+	Type   EventType
+	Ch     rune
+	Shift  bool
+	Ctrl   bool
+	Alt    bool
+	Mouse  bool
+	MouseX int
+	MouseY int
+	Raw    []byte
 }
 
 const (
@@ -300,18 +303,20 @@ func parseSGRMouse(params []byte, final byte) Event {
 		}
 	}
 	nums = append(nums, current)
-	if len(nums) < 1 {
+	if len(nums) < 3 {
 		return Event{Type: KeyUnknown}
 	}
 
-	switch nums[0] {
-	case 64:
-		return Event{Type: KeyMouseWheelUp}
-	case 65:
-		return Event{Type: KeyMouseWheelDown}
-	default:
+	button := nums[0]
+	x := nums[1] - 1
+	y := nums[2] - 1
+	if button&64 == 0 {
 		return Event{Type: KeyUnknown}
 	}
+	if button&1 == 0 {
+		return Event{Type: KeyMouseWheelUp, Mouse: true, MouseX: x, MouseY: y}
+	}
+	return Event{Type: KeyMouseWheelDown, Mouse: true, MouseX: x, MouseY: y}
 }
 
 func parseSS3(b byte) Event {

@@ -54,6 +54,14 @@ func (d *DiffLog) Layout(x, y, w, h int) {
 	d.x, d.y, d.w, d.h = x, y, w, h
 }
 
+func (d *DiffLog) MaxScrollOffset() int {
+	maxOffset := len(d.lines()) - d.h
+	if maxOffset < 0 {
+		return 0
+	}
+	return maxOffset
+}
+
 func (d *DiffLog) Render(scr *screen.Screen) {
 	if d.w <= 0 || d.h <= 0 {
 		return

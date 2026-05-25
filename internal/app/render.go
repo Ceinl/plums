@@ -177,6 +177,7 @@ func Render(state *State) {
 	if scr == nil || scr.Width() != state.width || scr.Height() != state.height {
 		scr = screen.NewScreen(state.width, state.height)
 	}
+	state.ClampOutputScroll(maxOutputScroll(state))
 	scr.Clear()
 
 	root := components.NewDiv()
@@ -285,6 +286,39 @@ func ansiBg(r, g, b uint8) string {
 	style := layout.Style{}
 	style.SetBackground(r, g, b)
 	return style.GetBackground()
+}
+
+func maxOutputScroll(state *State) int {
+	w, h := outputViewportSize(state)
+	if w <= 0 || h <= 0 {
+		return 0
+	}
+	if state.EffectiveLayout() == LayoutSplit && state.width >= MinSplitLayoutWidth && state.InfoView == InfoViewGitDiff {
+		diffLog := newGitDiffLog(state)
+		diffLog.Layout(0, 0, w, h)
+		return diffLog.MaxScrollOffset()
+	}
+	chatLog := newChatLog(state)
+	chatLog.Layout(0, 0, w, h)
+	return chatLog.MaxScrollOffset()
+}
+
+func outputViewportSize(state *State) (int, int) {
+	switch state.EffectiveLayout() {
+	case LayoutDefault:
+		return state.width - 4, state.height - 8
+	case LayoutSplit:
+		if state.width < MinSplitLayoutWidth {
+			return state.width - 4, int(float64(state.height)*0.5) - 2
+		}
+		leftW := int(float64(state.width) * 0.5)
+		rightW := state.width - leftW - 1
+		return rightW - 4, state.height - 4
+	case LayoutFullscreen:
+		return 0, 0
+	default:
+		return 0, 0
+	}
 }
 
 // ── Layout builders ───────────────────────────────────────────────────────────

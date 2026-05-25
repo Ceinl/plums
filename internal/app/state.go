@@ -185,23 +185,77 @@ func (s *State) OutputScroll() int {
 	return s.outputScroll
 }
 
-func (s *State) ScrollOutput(delta int) {
+func (s *State) ScrollOutput(delta int) bool {
+	before := s.outputScroll
 	s.outputScroll += delta
 	if s.outputScroll < 0 {
 		s.outputScroll = 0
 	}
+	return s.outputScroll != before
 }
 
-func (s *State) ScrollOutputPage(direction int) {
+func (s *State) ScrollOutputVisible(delta int) bool {
+	before := s.outputScroll
+	s.ScrollOutput(delta)
+	s.ClampOutputScroll(maxOutputScroll(s))
+	return s.outputScroll != before
+}
+
+func (s *State) ScrollAt(x, y, delta int) bool {
+	if s.isEditorPoint(x, y) {
+		return s.Editor.Scroll(delta)
+	}
+	return s.ScrollOutputVisible(delta)
+}
+
+func (s *State) isEditorPoint(x, y int) bool {
+	if x < 0 || y < 0 || x >= s.width || y >= s.height {
+		return false
+	}
+
+	switch s.EffectiveLayout() {
+	case LayoutFullscreen:
+		return true
+	case LayoutSplit:
+		if s.width >= MinSplitLayoutWidth {
+			leftW := int(float64(s.width) * 0.5)
+			return x < leftW && !s.PopupOpen
+		}
+		outputH := int(float64(s.height) * 0.5)
+		return y > outputH
+	case LayoutDefault:
+		return y >= s.height-5
+	default:
+		return false
+	}
+}
+
+func (s *State) ScrollOutputPage(direction int) bool {
 	page := s.height - 4
 	if page < 1 {
 		page = 1
 	}
-	s.ScrollOutput(direction * page)
+	return s.ScrollOutputVisible(direction * page)
 }
 
-func (s *State) ScrollOutputBottom() {
+func (s *State) ScrollOutputBottom() bool {
+	if s.outputScroll == 0 {
+		return false
+	}
 	s.outputScroll = 0
+	return true
+}
+
+func (s *State) ClampOutputScroll(maxOffset int) {
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if s.outputScroll > maxOffset {
+		s.outputScroll = maxOffset
+	}
+	if s.outputScroll < 0 {
+		s.outputScroll = 0
+	}
 }
 
 func (s *State) CycleInfoView() {
