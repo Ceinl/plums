@@ -48,6 +48,39 @@ func newChatLog(state *State) *components.ChatLog {
 	return chatLog
 }
 
+func newGitDiffLog(state *State) *components.DiffLog {
+	diffLog := components.NewDiffLog()
+	diffLog.SetContent(state.GitDiff)
+	diffLog.SetScrollOffset(state.OutputScroll())
+	return diffLog
+}
+
+func newInfoTabs(state *State) *components.Div {
+	div := components.NewDiv()
+	div.SetSize(
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPx, Value: 1},
+	)
+	style := layout.Style{}
+	style.SetBackground(22, 20, 27)
+	div.SetStyle(style)
+
+	tabs := components.NewInfoTabs()
+	tabs.SetTabs([]components.InfoTab{
+		{Label: "AI output", Active: state.InfoView == InfoViewAI},
+		{Label: "Git diff", Active: state.InfoView == InfoViewGitDiff},
+	})
+	div.AppendChild(tabs)
+	return div
+}
+
+func newInfoView(state *State) layout.Component {
+	if state.InfoView == InfoViewGitDiff {
+		return newGitDiffLog(state)
+	}
+	return newChatLog(state)
+}
+
 func newHorizontalRule(state *State) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(
@@ -219,7 +252,8 @@ func CreateSplitLayout(state *State) *components.Div {
 		layout.Unit{Type: layout.UnitGrow, Value: 1},
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 	)
-	rightDiv.AppendChild(newChatLog(state))
+	rightDiv.AppendChild(newInfoTabs(state))
+	rightDiv.AppendChild(newInfoView(state))
 	rightDiv.AppendChild(newSplitStatusBar(state))
 
 	root := components.NewDiv()

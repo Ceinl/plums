@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os/exec"
 	"strings"
 
 	"plums/internal/components"
@@ -18,12 +19,19 @@ const (
 
 type LayoutType int
 
+type InfoView int
+
 const MinSplitLayoutWidth = 90
 
 const (
 	LayoutDefault LayoutType = iota
 	LayoutFullscreen
 	LayoutSplit
+)
+
+const (
+	InfoViewAI InfoView = iota
+	InfoViewGitDiff
 )
 
 type Message struct {
@@ -55,6 +63,8 @@ type State struct {
 	Mode           string
 	ModelProvider  string
 	ModelID        string
+	InfoView       InfoView
+	GitDiff        string
 }
 
 func NewState(width int, height int) *State {
@@ -153,6 +163,27 @@ func (s *State) ScrollOutputPage(direction int) {
 
 func (s *State) ScrollOutputBottom() {
 	s.outputScroll = 0
+}
+
+func (s *State) CycleInfoView() {
+	s.outputScroll = 0
+	s.InfoView = (s.InfoView + 1) % 2
+	if s.InfoView == InfoViewGitDiff {
+		s.RefreshGitDiff()
+	}
+}
+
+func (s *State) RefreshGitDiff() {
+	out, err := exec.Command("git", "diff", "--", ".").CombinedOutput()
+	if err != nil {
+		s.GitDiff = strings.TrimSpace(string(out))
+		if s.GitDiff != "" {
+			s.GitDiff += "\n"
+		}
+		s.GitDiff += err.Error()
+		return
+	}
+	s.GitDiff = string(out)
 }
 
 // AddMessage appends a message with the given role directly to the log.

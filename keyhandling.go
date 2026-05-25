@@ -98,6 +98,9 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 			case 's', 'S':
 				state.SubmitInput()
 				return true, false
+			case 't', 'T':
+				state.CycleInfoView()
+				return true, false
 			}
 			return false, false
 		}
