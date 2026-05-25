@@ -12,6 +12,7 @@ type Popup struct {
 	style  layout.Style
 	items  []PopupItem
 	active int
+	panel  bool
 }
 
 type PopupItem struct {
@@ -32,6 +33,10 @@ func (p *Popup) SetItems(items []PopupItem, active int) {
 	p.active = active
 }
 
+func (p *Popup) SetPanel(panel bool) {
+	p.panel = panel
+}
+
 func (p *Popup) IsDirty() bool { return false }
 func (p *Popup) MakeDirty()    {}
 func (p *Popup) ClearDirty()   {}
@@ -44,6 +49,11 @@ func (p *Popup) Layout(x, y, w, h int) {
 }
 
 func (p *Popup) Render(s *screen.Screen) {
+	if p.panel {
+		p.renderPanel(s)
+		return
+	}
+
 	overlayBg := ansiBg(8, 7, 10)
 	overlayFg := ansiFg(98, 95, 108)
 	for y := p.y; y < p.y+p.h; y++ {
@@ -53,7 +63,7 @@ func (p *Popup) Render(s *screen.Screen) {
 	}
 
 	modalW := clamp(p.w-4, 42, 68)
-	modalH := clamp(len(p.items)*2+5, 9, p.h-2)
+	modalH := clamp(len(p.items)*2+4, 8, p.h-2)
 	mx := p.x + (p.w-modalW)/2
 	my := p.y + (p.h-modalH)/2
 	bg := p.style.GetBackground()
@@ -79,9 +89,8 @@ func (p *Popup) Render(s *screen.Screen) {
 	s.Set(mx+modalW-1, my+modalH-1, '┘', muted, bg, "")
 
 	drawText(s, mx+3, my+1, modalW-6, "Command Palette", accent, bg)
-	drawText(s, mx+3, my+2, modalW-6, "Ctrl+P open  Enter select  Esc close", muted, bg)
 
-	row := my + 4
+	row := my + 3
 	for i, item := range p.items {
 		itemFg := fg
 		if item.Disabled {
@@ -96,6 +105,47 @@ func (p *Popup) Render(s *screen.Screen) {
 			drawText(s, mx+6, row+1, modalW-10, item.Detail, muted, bg)
 		}
 		row += 2
+	}
+}
+
+func (p *Popup) renderPanel(s *screen.Screen) {
+	bg := p.style.GetBackground()
+	fg := p.style.GetForeground()
+	muted := ansiFg(159, 153, 176)
+	accent := ansiFg(247, 184, 90)
+	activeBg := ansiBg(48, 43, 61)
+
+	for y := p.y; y < p.y+p.h; y++ {
+		for x := p.x; x < p.x+p.w; x++ {
+			s.Set(x, y, ' ', fg, bg, "")
+		}
+	}
+
+	drawText(s, p.x, p.y, p.w, "Command Palette", accent, bg)
+
+	row := p.y + 2
+	for i, item := range p.items {
+		if row >= p.y+p.h {
+			return
+		}
+		itemFg := fg
+		if item.Disabled {
+			itemFg = muted
+		}
+		if i == p.active && !item.Disabled {
+			drawFill(s, p.x, row, p.w, activeBg)
+			drawText(s, p.x+1, row, p.w-1, "> "+item.Title, accent, activeBg)
+			if row+1 < p.y+p.h {
+				drawFill(s, p.x, row+1, p.w, activeBg)
+				drawText(s, p.x+3, row+1, p.w-3, item.Detail, muted, activeBg)
+			}
+		} else {
+			drawText(s, p.x+1, row, p.w-1, "  "+item.Title, itemFg, bg)
+			if row+1 < p.y+p.h {
+				drawText(s, p.x+3, row+1, p.w-3, item.Detail, muted, bg)
+			}
+		}
+		row += 3
 	}
 }
 

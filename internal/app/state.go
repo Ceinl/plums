@@ -216,8 +216,12 @@ func (s *State) TogglePopup() {
 func (s *State) OpenPalette() {
 	s.PopupOpen = true
 	s.PendingAction = PaletteActionNone
-	if s.PaletteIndex >= len(s.PaletteItems()) {
+	items := s.PaletteItems()
+	if s.PaletteIndex >= len(items) {
 		s.PaletteIndex = 0
+	}
+	if len(items) > 0 && items[s.PaletteIndex].Disabled {
+		s.MovePalette(1)
 	}
 }
 
