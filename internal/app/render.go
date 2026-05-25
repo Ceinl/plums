@@ -196,6 +196,7 @@ func Render(state *State) {
 
 	root.Layout(0, 0, state.width, state.height)
 	root.Render(scr)
+	renderSlashCommandDropdown(state)
 	if state.PopupOpen && (state.EffectiveLayout() != LayoutSplit || state.width < MinSplitLayoutWidth) {
 		popup := components.NewPopup()
 		popup.SetTitle(state.PaletteTitle())
@@ -211,6 +212,79 @@ func Render(state *State) {
 	cx, cy := state.Editor.CursorScreenPos()
 	scr.SetCursor(cx, cy)
 	scr.ShowCursor()
+}
+
+func renderSlashCommandDropdown(state *State) {
+	if state.PopupOpen {
+		return
+	}
+	commands := state.SlashCommands()
+	if len(commands) == 0 {
+		return
+	}
+
+	cx, cy := state.Editor.CursorScreenPos()
+	w := 44
+	if w > state.width-2 {
+		w = state.width - 2
+	}
+	if w < 20 {
+		return
+	}
+	x := cx
+	if x+w > state.width {
+		x = state.width - w
+	}
+	if x < 0 {
+		x = 0
+	}
+	y := cy + 1
+	if y+len(commands)+1 > state.height {
+		y = cy - len(commands) - 1
+	}
+	if y < 0 {
+		return
+	}
+
+	bg := ansiBg(30, 27, 38)
+	fg := ansiFg(232, 229, 241)
+	muted := ansiFg(159, 153, 176)
+	accent := ansiFg(247, 184, 90)
+	for row := 0; row < len(commands)+1 && y+row < state.height; row++ {
+		for col := 0; col < w; col++ {
+			scr.Set(x+col, y+row, ' ', fg, bg, "")
+		}
+	}
+	drawOverlayText(x+1, y, w-2, "slash commands", muted, bg)
+	for i, command := range commands {
+		row := y + i + 1
+		drawOverlayText(x+1, row, w-2, command.Name, accent, bg)
+		detailX := x + 2 + len(command.Name)
+		if detailX < x+w-1 {
+			drawOverlayText(detailX, row, x+w-detailX-1, command.Detail, muted, bg)
+		}
+	}
+}
+
+func drawOverlayText(x, y, maxW int, text, fg, bg string) {
+	for i, r := range text {
+		if i >= maxW {
+			return
+		}
+		scr.Set(x+i, y, r, fg, bg, "")
+	}
+}
+
+func ansiFg(r, g, b uint8) string {
+	style := layout.Style{}
+	style.SetForeground(r, g, b)
+	return style.GetForeground()
+}
+
+func ansiBg(r, g, b uint8) string {
+	style := layout.Style{}
+	style.SetBackground(r, g, b)
+	return style.GetBackground()
 }
 
 // ── Layout builders ───────────────────────────────────────────────────────────
