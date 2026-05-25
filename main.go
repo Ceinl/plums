@@ -177,6 +177,8 @@ func applySession(state *app.State, session *ai.Session) {
 	state.SetSessionTitle(session.Title)
 	if session.Model != nil {
 		state.SetModel(session.Model.ProviderID, session.Model.ID)
+	} else {
+		state.SetModel("", "")
 	}
 }
 
@@ -196,11 +198,18 @@ func applyRecentModel(ctx context.Context, state *app.State, client *ai.Client) 
 		debuglog.Printf("session: recent model working directory failed: %v", err)
 		return
 	}
-	for _, session := range sessions {
-		if session.Model != nil && session.Directory == wd {
-			state.SetModel(session.Model.ProviderID, session.Model.ID)
-			return
+	var latest *ai.Session
+	for i := range sessions {
+		session := &sessions[i]
+		if session.Model == nil || session.Directory != wd {
+			continue
 		}
+		if latest == nil || session.Time.Updated > latest.Time.Updated {
+			latest = session
+		}
+	}
+	if latest != nil {
+		state.SetModel(latest.Model.ProviderID, latest.Model.ID)
 	}
 }
 
@@ -249,7 +258,9 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 	case app.PaletteActionChangeModel:
 		state.AddMessage("system", "model switching needs opencode model API wiring")
 	case app.PaletteActionSessionsList:
-		sessions, err := client.ListSessions(ctx)
+		listCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		sessions, err := client.ListSessions(listCtx)
+		cancel()
 		if err != nil {
 			state.AddMessage("system", fmt.Sprintf("failed to list sessions: %v", err))
 			return
@@ -264,13 +275,17 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 		if sessionID == "" {
 			return
 		}
-		session, err := client.GetSession(ctx, sessionID)
+		sessionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		session, err := client.GetSession(sessionCtx, sessionID)
+		cancel()
 		if err != nil {
 			state.AddMessage("system", fmt.Sprintf("failed to get session: %v", err))
 			return
 		}
 		applySession(state, session)
-		messages, err := client.ListMessages(ctx, sessionID)
+		messagesCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		messages, err := client.ListMessages(messagesCtx, sessionID)
+		cancel()
 		if err != nil {
 			state.ClearConversation()
 			state.AddMessage("system", fmt.Sprintf("attached session %s; failed to load messages: %v", sessionDisplayName(session), err))

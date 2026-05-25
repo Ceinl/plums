@@ -7,7 +7,6 @@ import (
 
 const (
 	infoTabsBg       = "\x1b[48;2;22;20;27m"
-	infoTabsHeaderBg = "\x1b[48;2;18;16;23m"
 	infoTabsInactive = "\x1b[38;2;92;88;108m"
 	infoTabsActive   = "\x1b[38;2;238;234;248m"
 )
@@ -58,7 +57,7 @@ func (t *InfoTabs) Render(scr *screen.Screen) {
 	}
 
 	for x := 0; x < t.w; x++ {
-		scr.Set(t.x+x, t.y, ' ', infoTabsInactive, infoTabsHeaderBg, "")
+		scr.Set(t.x+x, t.y, ' ', infoTabsInactive, bg, "")
 	}
 
 	cx := t.x + 2
@@ -73,7 +72,7 @@ func (t *InfoTabs) Render(scr *screen.Screen) {
 				if cx >= t.x+t.w {
 					break
 				}
-				scr.Set(cx, t.y, ' ', infoTabsInactive, infoTabsHeaderBg, "")
+				scr.Set(cx, t.y, ' ', infoTabsInactive, bg, "")
 				cx++
 			}
 		}
@@ -83,7 +82,7 @@ func (t *InfoTabs) Render(scr *screen.Screen) {
 			if cx >= t.x+t.w {
 				break
 			}
-			scr.Set(cx, t.y, r, fg, infoTabsHeaderBg, "")
+			scr.Set(cx, t.y, r, fg, bg, "")
 			cx++
 		}
 	}

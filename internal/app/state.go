@@ -1,8 +1,10 @@
 package app
 
 import (
+	"context"
 	"os/exec"
 	"strings"
+	"time"
 
 	"plums/internal/components"
 )
@@ -191,11 +193,17 @@ func (s *State) CycleInfoView() {
 }
 
 func (s *State) RefreshGitDiff() {
-	out, err := exec.Command("git", "diff", "--", ".").CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "diff", "--", ".").CombinedOutput()
 	if err != nil {
 		s.GitDiff = strings.TrimSpace(string(out))
 		if s.GitDiff != "" {
 			s.GitDiff += "\n"
+		}
+		if ctx.Err() == context.DeadlineExceeded {
+			s.GitDiff += "git diff timed out"
+			return
 		}
 		s.GitDiff += err.Error()
 		return
