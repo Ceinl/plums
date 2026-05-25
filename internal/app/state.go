@@ -55,6 +55,17 @@ type SessionListItem struct {
 	Current bool
 }
 
+type SlashCommand struct {
+	Name   string
+	Detail string
+}
+
+var slashCommands = []SlashCommand{
+	{Name: "/new", Detail: "Create a fresh opencode session"},
+	{Name: "/command", Detail: "Open the command palette"},
+	{Name: "/sessions", Detail: "Open existing opencode sessions"},
+}
+
 type State struct {
 	width  int
 	height int
@@ -84,6 +95,7 @@ type State struct {
 	ModelID        string
 	InfoView       InfoView
 	GitDiff        string
+	submittedInput string
 }
 
 func NewState(width int, height int) *State {
@@ -97,6 +109,7 @@ func NewState(width int, height int) *State {
 }
 
 func (s *State) SubmitInput() string {
+	s.submittedInput = ""
 	input := s.Editor.GetContent()
 	if s.runEditorCommand(input) {
 		return ""
@@ -104,7 +117,14 @@ func (s *State) SubmitInput() string {
 	if input != "" {
 		s.messages = append(s.messages, Message{Role: "user", Content: input})
 		s.Editor.SetContent("")
+		s.submittedInput = input
 	}
+	return input
+}
+
+func (s *State) ConsumeSubmittedInput() string {
+	input := s.submittedInput
+	s.submittedInput = ""
 	return input
 }
 
@@ -295,6 +315,21 @@ func (s *State) PaletteItems() []components.PopupItem {
 	}
 }
 
+func (s *State) SlashCommands() []SlashCommand {
+	input := s.Editor.GetContent()
+	if !strings.HasPrefix(input, "/") || strings.Contains(input, "\n") {
+		return nil
+	}
+
+	items := make([]SlashCommand, 0, len(slashCommands))
+	for _, command := range slashCommands {
+		if strings.HasPrefix(command.Name, input) {
+			items = append(items, command)
+		}
+	}
+	return items
+}
+
 func (s *State) MovePalette(delta int) {
 	items := s.PaletteItems()
 	if len(items) == 0 {
@@ -392,13 +427,25 @@ func (s *State) ToggleMode() {
 
 func (s *State) runEditorCommand(input string) bool {
 	line := strings.TrimSpace(input)
-	if !strings.HasPrefix(line, ">") {
+	if !strings.HasPrefix(line, ">") && !strings.HasPrefix(line, "/") {
 		return false
 	}
-	command := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, ">")))
+	command := strings.ToLower(strings.TrimSpace(line[1:]))
 	switch command {
 	case "clear":
 		s.Editor.SetContent("")
+		return true
+	case "command":
+		s.Editor.SetContent("")
+		s.OpenPalette()
+		return true
+	case "new":
+		s.Editor.SetContent("")
+		s.PendingAction = PaletteActionNewSession
+		return true
+	case "sessions":
+		s.Editor.SetContent("")
+		s.PendingAction = PaletteActionSessionsList
 		return true
 	default:
 		return false

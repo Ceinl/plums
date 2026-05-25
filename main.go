@@ -81,10 +81,9 @@ func main() {
 			}
 			if handled {
 				if ev.Type == keyboard.KeyEnter && ev.Alt {
-					msgs := state.Messages()
-					if len(msgs) > 0 {
-						last := msgs[len(msgs)-1]
-						if last.Role == "user" && state.SessionID != "" {
+					input := state.ConsumeSubmittedInput()
+					if input != "" {
+						if state.SessionID != "" {
 							if cancelStream != nil {
 								cancelStream()
 							}
@@ -92,8 +91,8 @@ func main() {
 							sctx, cancelStream = context.WithCancel(ctx)
 							state.SetStreaming(true)
 							state.ClearAiOutput()
-							aiStream = client.SendMessage(sctx, state.SessionID, last.Content)
-						} else if last.Role == "user" {
+							aiStream = client.SendMessage(sctx, state.SessionID, input)
+						} else {
 							state.AddMessage("system", "no active session – is opencode serve running?")
 						}
 					}
