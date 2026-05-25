@@ -22,6 +22,7 @@ type StatusBar struct {
 	aiThinking     bool
 	providerID     string
 	modelID        string
+	sessionTitle   string
 	parent         layout.Component
 	x, y, w, h     int
 	style          layout.Style
@@ -48,6 +49,11 @@ func (s *StatusBar) SetStatus(serverStarting, serverReady, aiThinking bool) {
 func (s *StatusBar) SetModel(providerID, modelID string) {
 	s.providerID = providerID
 	s.modelID = modelID
+	s.isDirty = true
+}
+
+func (s *StatusBar) SetSession(title string) {
+	s.sessionTitle = title
 	s.isDirty = true
 }
 
@@ -89,7 +95,11 @@ func (s *StatusBar) Render(scr *screen.Screen) {
 		model = s.modelID
 	}
 
-	content := strings.TrimSpace(string(icon) + " " + label + "  " + model)
+	session := s.sessionTitle
+	if session == "" {
+		session = "untitled session"
+	}
+	content := strings.TrimSpace(string(icon) + " " + label + "  " + session + "  " + model)
 	content = truncateRunes(content, s.w)
 	for i, r := range content {
 		scr.Set(s.x+i, s.y, r, fg, bg, "")

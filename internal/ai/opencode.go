@@ -21,8 +21,16 @@ type Client struct {
 
 // Session represents an opencode session.
 type Session struct {
-	ID    string    `json:"id"`
-	Model *ModelRef `json:"model"`
+	ID        string      `json:"id"`
+	Title     string      `json:"title"`
+	Directory string      `json:"directory"`
+	Model     *ModelRef   `json:"model"`
+	Time      SessionTime `json:"time"`
+}
+
+type SessionTime struct {
+	Created int64 `json:"created"`
+	Updated int64 `json:"updated"`
 }
 
 type ModelRef struct {
@@ -43,11 +51,12 @@ type messageResponse struct {
 }
 
 type messageInfo struct {
-	ID string `json:"id"`
+	ID   string `json:"id"`
+	Role string `json:"role"`
 }
 
 type createSessionBody struct {
-	Title string `json:"title"`
+	Title string `json:"title,omitempty"`
 }
 
 type sendMessageBody struct {
@@ -147,7 +156,7 @@ func (c *Client) Health(ctx context.Context) error {
 }
 
 func (c *Client) CreateSession(ctx context.Context) (*Session, error) {
-	body := createSessionBody{Title: "plums chat"}
+	body := createSessionBody{}
 	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshal session body: %w", err)
@@ -172,6 +181,26 @@ func (c *Client) CreateSession(ctx context.Context) (*Session, error) {
 	return &session, nil
 }
 
+func (c *Client) ListSessions(ctx context.Context) ([]Session, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("opencode server: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("opencode server returned status %d", resp.StatusCode)
+	}
+	var sessions []Session
+	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
 func (c *Client) GetSession(ctx context.Context, sessionID string) (*Session, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session/"+url.PathEscape(sessionID), nil)
 	if err != nil {
@@ -190,6 +219,26 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*Session, er
 		return nil, err
 	}
 	return &session, nil
+}
+
+func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]messageResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session/"+url.PathEscape(sessionID)+"/message", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("opencode server: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("opencode server returned status %d", resp.StatusCode)
+	}
+	var messages []messageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+		return nil, err
+	}
+	return messages, nil
 }
 
 // SendMessage streams the assistant's reply token-by-token via the returned

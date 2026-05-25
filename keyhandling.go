@@ -18,12 +18,26 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		case keyboard.KeyArrowDown:
 			state.MovePalette(1)
 			return true, false
+		case keyboard.KeyArrowLeft:
+			state.MovePalette(-1)
+			return true, false
+		case keyboard.KeyArrowRight:
+			state.MovePalette(1)
+			return true, false
 		case keyboard.KeyEnter:
 			state.SelectPaletteItem()
 			return true, false
 		case keyboard.KeyRune:
 			if ev.Ctrl && (ev.Ch == 'P' || ev.Ch == 'p') {
 				state.ClosePalette()
+				return true, false
+			}
+			switch ev.Ch {
+			case 'h', 'H', 'k', 'K':
+				state.MovePalette(-1)
+				return true, false
+			case 'j', 'J', 'l', 'L':
+				state.MovePalette(1)
 				return true, false
 			}
 		}
@@ -97,6 +111,9 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 				return true, false
 			case 's', 'S':
 				state.SubmitInput()
+				return true, false
+			case 't', 'T':
+				state.CycleInfoView()
 				return true, false
 			}
 			return false, false

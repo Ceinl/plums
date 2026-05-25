@@ -48,6 +48,39 @@ func newChatLog(state *State) *components.ChatLog {
 	return chatLog
 }
 
+func newGitDiffLog(state *State) *components.DiffLog {
+	diffLog := components.NewDiffLog()
+	diffLog.SetContent(state.GitDiff)
+	diffLog.SetScrollOffset(state.OutputScroll())
+	return diffLog
+}
+
+func newInfoTabs(state *State) *components.Div {
+	div := components.NewDiv()
+	div.SetSize(
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPx, Value: 1},
+	)
+	style := layout.Style{}
+	style.SetBackground(22, 20, 27)
+	div.SetStyle(style)
+
+	tabs := components.NewInfoTabs()
+	tabs.SetTabs([]components.InfoTab{
+		{Label: "AI output", Active: state.InfoView == InfoViewAI},
+		{Label: "Git diff", Active: state.InfoView == InfoViewGitDiff},
+	})
+	div.AppendChild(tabs)
+	return div
+}
+
+func newInfoView(state *State) layout.Component {
+	if state.InfoView == InfoViewGitDiff {
+		return newGitDiffLog(state)
+	}
+	return newChatLog(state)
+}
+
 func newHorizontalRule(state *State) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(
@@ -82,6 +115,7 @@ func newSplitStatusBar(state *State) *components.Div {
 
 	bar := components.NewStatusBar()
 	bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
+	bar.SetSession(state.SessionTitle)
 	bar.SetModel(state.ModelProvider, state.ModelID)
 	div.AppendChild(bar)
 	return div
@@ -114,6 +148,29 @@ func newEditorDiv(ed *components.Editor, w, h layout.Unit) *components.Div {
 	return div
 }
 
+func newPalettePanel(state *State, w, h layout.Unit) *components.Div {
+	div := components.NewDiv()
+	div.SetSize(w, h)
+	div.SetPadding(layout.Padding{
+		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+		Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
+		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
+	})
+
+	style := layout.Style{}
+	style.SetBackground(32, 30, 40)
+	style.SetForeground(220, 218, 230)
+	div.SetStyle(style)
+
+	popup := components.NewPopup()
+	popup.SetPanel(true)
+	popup.SetTitle(state.PaletteTitle())
+	popup.SetItems(state.PaletteItems(), state.PaletteIndex)
+	div.AppendChild(popup)
+	return div
+}
+
 // ── Main render entry point ───────────────────────────────────────────────────
 
 func Render(state *State) {
@@ -139,8 +196,9 @@ func Render(state *State) {
 
 	root.Layout(0, 0, state.width, state.height)
 	root.Render(scr)
-	if state.PopupOpen {
+	if state.PopupOpen && (state.EffectiveLayout() != LayoutSplit || state.width < MinSplitLayoutWidth) {
 		popup := components.NewPopup()
+		popup.SetTitle(state.PaletteTitle())
 		popup.SetItems(state.PaletteItems(), state.PaletteIndex)
 		popup.Layout(0, 0, state.width, state.height)
 		popup.Render(scr)
@@ -195,18 +253,27 @@ func CreateSplitLayout(state *State) *components.Div {
 		return CreateNarrowSplitLayout(state)
 	}
 
-	// Left pane: editor (50 %)
-	leftDiv := newEditorDiv(
-		state.Editor,
-		layout.Unit{Type: layout.UnitPersent, Value: 50},
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
-	)
-	leftDiv.SetPadding(layout.Padding{
-		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
-		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
-		Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
-		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
-	})
+	// Left pane: editor, temporarily replaced by command palette when open.
+	var leftDiv *components.Div
+	if state.PopupOpen {
+		leftDiv = newPalettePanel(
+			state,
+			layout.Unit{Type: layout.UnitPersent, Value: 50},
+			layout.Unit{Type: layout.UnitPersent, Value: 100},
+		)
+	} else {
+		leftDiv = newEditorDiv(
+			state.Editor,
+			layout.Unit{Type: layout.UnitPersent, Value: 50},
+			layout.Unit{Type: layout.UnitPersent, Value: 100},
+		)
+		leftDiv.SetPadding(layout.Padding{
+			Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+			Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+			Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
+			Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
+		})
+	}
 
 	// 1-column accent separator
 	sep := newVerticalSeparator()
@@ -219,7 +286,8 @@ func CreateSplitLayout(state *State) *components.Div {
 		layout.Unit{Type: layout.UnitGrow, Value: 1},
 		layout.Unit{Type: layout.UnitPersent, Value: 100},
 	)
-	rightDiv.AppendChild(newChatLog(state))
+	rightDiv.AppendChild(newInfoTabs(state))
+	rightDiv.AppendChild(newInfoView(state))
 	rightDiv.AppendChild(newSplitStatusBar(state))
 
 	root := components.NewDiv()
