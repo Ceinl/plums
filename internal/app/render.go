@@ -121,8 +121,17 @@ func Render(state *State) {
 
 	root.Layout(0, 0, state.width, state.height)
 	root.Render(scr)
+	if state.PopupOpen {
+		popup := components.NewPopup()
+		popup.SetItems(state.PaletteItems(), state.PaletteIndex)
+		popup.Layout(0, 0, state.width, state.height)
+		popup.Render(scr)
+	}
 
 	scr.Flush()
+	if state.PopupOpen {
+		return
+	}
 	cx, cy := state.Editor.CursorScreenPos()
 	scr.SetCursor(cx, cy)
 	scr.ShowCursor()
@@ -164,6 +173,10 @@ func CreateDefaultLayout(state *State) *components.Div {
 }
 
 func CreateSplitLayout(state *State) *components.Div {
+	if state.width < MinSplitLayoutWidth {
+		return CreateNarrowSplitLayout(state)
+	}
+
 	// Left pane: editor (50 %)
 	leftDiv := newEditorDiv(
 		state.Editor,
@@ -200,6 +213,39 @@ func CreateSplitLayout(state *State) *components.Div {
 	root.AppendChild(leftDiv)
 	root.AppendChild(sep)
 	root.AppendChild(rightDiv)
+	return root
+}
+
+func CreateNarrowSplitLayout(state *State) *components.Div {
+	outputDiv := newOutput()
+	outputDiv.SetSize(
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPersent, Value: 50},
+	)
+	outputDiv.AppendChild(newChatLog(state))
+
+	sepDiv := newHorizontalRule(state)
+
+	inputDiv := newEditorDiv(
+		state.Editor,
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitGrow, Value: 1},
+	)
+	inputDiv.SetPadding(layout.Padding{
+		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+		Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
+		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
+	})
+
+	root := components.NewDiv()
+	root.SetSize(
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPersent, Value: 100},
+	)
+	root.AppendChild(outputDiv)
+	root.AppendChild(sepDiv)
+	root.AppendChild(inputDiv)
 	return root
 }
 
