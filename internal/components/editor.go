@@ -50,7 +50,9 @@ type Editor struct {
 	x, y int
 	w, h int
 
-	scrollY int
+	scrollY      int
+	manualScroll bool
+	lineCount    int
 
 	cursorScreenX int
 	cursorScreenY int
@@ -98,6 +100,8 @@ func (e *Editor) SetContent(s string) {
 	if s == "" {
 		e.Content = [][]rune{{}}
 		e.Cursor.Pos = CursorPos{}
+		e.scrollY = 0
+		e.manualScroll = false
 		e.ClearSelection()
 		e.isDirty = true
 		return
@@ -109,6 +113,8 @@ func (e *Editor) SetContent(s string) {
 	}
 	lastRow := len(e.Content) - 1
 	e.Cursor.Pos = CursorPos{Row: lastRow, Col: len(e.Content[lastRow])}
+	e.scrollY = 0
+	e.manualScroll = false
 	e.ClearSelection()
 	e.isDirty = true
 }
@@ -209,6 +215,7 @@ func (e *Editor) SelectAll() {
 // ── Plain cursor movement ──────────────────────────────────────────────────
 
 func (e *Editor) MoveCursorLeft() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		s, _ := e.selBounds()
 		e.Cursor.Pos = s
@@ -225,6 +232,7 @@ func (e *Editor) MoveCursorLeft() {
 }
 
 func (e *Editor) MoveCursorRight() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		_, end := e.selBounds()
 		e.Cursor.Pos = end
@@ -241,6 +249,7 @@ func (e *Editor) MoveCursorRight() {
 }
 
 func (e *Editor) MoveCursorUp() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		s, _ := e.selBounds()
 		e.Cursor.Pos = s
@@ -256,6 +265,7 @@ func (e *Editor) MoveCursorUp() {
 }
 
 func (e *Editor) MoveCursorDown() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		_, end := e.selBounds()
 		e.Cursor.Pos = end
@@ -271,6 +281,7 @@ func (e *Editor) MoveCursorDown() {
 }
 
 func (e *Editor) MoveCursorHome() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		s, _ := e.selBounds()
 		e.Cursor.Pos = s
@@ -282,6 +293,7 @@ func (e *Editor) MoveCursorHome() {
 }
 
 func (e *Editor) MoveCursorEnd() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		_, end := e.selBounds()
 		e.Cursor.Pos = end
@@ -295,6 +307,7 @@ func (e *Editor) MoveCursorEnd() {
 // ── Selection movement ─────────────────────────────────────────────────────
 
 func (e *Editor) SelectLeft() {
+	e.RevealCursor()
 	e.beginSelectionIfNeeded()
 	if e.Cursor.Pos.Col > 0 {
 		e.Cursor.Pos.Col--
@@ -308,6 +321,7 @@ func (e *Editor) SelectLeft() {
 }
 
 func (e *Editor) SelectRight() {
+	e.RevealCursor()
 	e.beginSelectionIfNeeded()
 	if e.Cursor.Pos.Col < len(e.Content[e.Cursor.Pos.Row]) {
 		e.Cursor.Pos.Col++
@@ -321,6 +335,7 @@ func (e *Editor) SelectRight() {
 }
 
 func (e *Editor) SelectUp() {
+	e.RevealCursor()
 	e.beginSelectionIfNeeded()
 	if e.Cursor.Pos.Row == 0 {
 		e.Cursor.Pos.Col = 0
@@ -334,6 +349,7 @@ func (e *Editor) SelectUp() {
 }
 
 func (e *Editor) SelectDown() {
+	e.RevealCursor()
 	e.beginSelectionIfNeeded()
 	if e.Cursor.Pos.Row < len(e.Content)-1 {
 		e.Cursor.Pos.Row++
@@ -347,6 +363,7 @@ func (e *Editor) SelectDown() {
 }
 
 func (e *Editor) SelectHome() {
+	e.RevealCursor()
 	e.beginSelectionIfNeeded()
 	e.Cursor.Pos.Col = 0
 	e.Cursor.lastCol = 0
@@ -356,6 +373,7 @@ func (e *Editor) SelectHome() {
 }
 
 func (e *Editor) SelectEnd() {
+	e.RevealCursor()
 	e.beginSelectionIfNeeded()
 	e.Cursor.Pos.Col = len(e.Content[e.Cursor.Pos.Row])
 	e.Cursor.lastCol = uint(e.Cursor.Pos.Col)
@@ -436,6 +454,7 @@ func (e *Editor) moveWordRight() {
 }
 
 func (e *Editor) MoveWordLeft() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		s, _ := e.selBounds()
 		e.Cursor.Pos = s
@@ -447,6 +466,7 @@ func (e *Editor) MoveWordLeft() {
 }
 
 func (e *Editor) MoveWordRight() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		_, end := e.selBounds()
 		e.Cursor.Pos = end
@@ -458,6 +478,7 @@ func (e *Editor) MoveWordRight() {
 }
 
 func (e *Editor) SelectWordLeft() {
+	e.RevealCursor()
 	e.beginSelectionIfNeeded()
 	e.moveWordLeft()
 	if e.Cursor.Pos.Equal(e.Cursor.selAnchor) {
@@ -466,6 +487,7 @@ func (e *Editor) SelectWordLeft() {
 }
 
 func (e *Editor) SelectWordRight() {
+	e.RevealCursor()
 	e.beginSelectionIfNeeded()
 	e.moveWordRight()
 	if e.Cursor.Pos.Equal(e.Cursor.selAnchor) {
@@ -474,6 +496,7 @@ func (e *Editor) SelectWordRight() {
 }
 
 func (e *Editor) DeleteWordBackward() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		e.DeleteSelection()
 		return
@@ -489,6 +512,7 @@ func (e *Editor) DeleteWordBackward() {
 }
 
 func (e *Editor) DeleteWordForward() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		e.DeleteSelection()
 		return
@@ -503,8 +527,8 @@ func (e *Editor) DeleteWordForward() {
 	e.DeleteSelection()
 }
 
-
 func (e *Editor) InsertRune(r rune) {
+	e.RevealCursor()
 	if e.HasSelection() {
 		e.DeleteSelection()
 	}
@@ -521,6 +545,7 @@ func (e *Editor) InsertRune(r rune) {
 }
 
 func (e *Editor) InsertNewline() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		e.DeleteSelection()
 	}
@@ -541,6 +566,7 @@ func (e *Editor) insertNewline() {
 }
 
 func (e *Editor) DeleteBackward() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		e.DeleteSelection()
 		return
@@ -562,6 +588,7 @@ func (e *Editor) DeleteBackward() {
 }
 
 func (e *Editor) DeleteForward() {
+	e.RevealCursor()
 	if e.HasSelection() {
 		e.DeleteSelection()
 		return
@@ -579,6 +606,7 @@ func (e *Editor) DeleteForward() {
 }
 
 func (e *Editor) DeleteCurrentLine() {
+	e.RevealCursor()
 	e.clamp()
 	row := e.Cursor.Pos.Row
 	if len(e.Content) == 1 {
@@ -594,6 +622,49 @@ func (e *Editor) DeleteCurrentLine() {
 	}
 	e.ClearSelection()
 	e.MakeDirty()
+}
+
+func (e *Editor) Scroll(delta int) bool {
+	if e.h <= 0 {
+		return false
+	}
+
+	before := e.scrollY
+	e.scrollY -= delta
+	e.clampScroll(e.lineCount)
+	if e.scrollY == before {
+		return false
+	}
+	e.manualScroll = true
+	return true
+}
+
+func (e *Editor) ScrollPage(direction int) bool {
+	page := e.h - 1
+	if page < 1 {
+		page = 1
+	}
+	return e.Scroll(direction * page)
+}
+
+func (e *Editor) ScrollTop() bool {
+	if e.scrollY == 0 {
+		return false
+	}
+	e.scrollY = 0
+	e.manualScroll = true
+	return true
+}
+
+func (e *Editor) ScrollBottom() bool {
+	before := e.scrollY
+	e.scrollY = e.lineCount - e.h
+	e.clampScroll(e.lineCount)
+	if e.scrollY == before {
+		return false
+	}
+	e.manualScroll = true
+	return true
 }
 
 // ── Layout / rendering ─────────────────────────────────────────────────────
@@ -643,6 +714,19 @@ func (e *Editor) visualLineForCursor() int {
 	return vl
 }
 
+func (e *Editor) clampScroll(lineCount int) {
+	if e.scrollY < 0 {
+		e.scrollY = 0
+	}
+	maxScroll := lineCount - e.h
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if e.scrollY > maxScroll {
+		e.scrollY = maxScroll
+	}
+}
+
 func (e *Editor) Render(s *screen.Screen) {
 	fg := e.style.GetForeground()
 	bg := e.style.GetBackground()
@@ -659,24 +743,18 @@ func (e *Editor) Render(s *screen.Screen) {
 	contentW := e.contentWidth()
 
 	visLines := e.computeVisualLines()
+	e.lineCount = len(visLines)
 	cursorVL := e.visualLineForCursor()
 
-	if cursorVL < e.scrollY {
-		e.scrollY = cursorVL
+	if !e.manualScroll {
+		if cursorVL < e.scrollY {
+			e.scrollY = cursorVL
+		}
+		if cursorVL >= e.scrollY+e.h {
+			e.scrollY = cursorVL - e.h + 1
+		}
 	}
-	if cursorVL >= e.scrollY+e.h {
-		e.scrollY = cursorVL - e.h + 1
-	}
-	if e.scrollY < 0 {
-		e.scrollY = 0
-	}
-	maxScroll := len(visLines) - e.h
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if e.scrollY > maxScroll {
-		e.scrollY = maxScroll
-	}
+	e.clampScroll(len(visLines))
 
 	// ── Colour palette ──────────────────────────────────────────────────
 	// Selection
@@ -759,6 +837,10 @@ func (e *Editor) Render(s *screen.Screen) {
 	cursorScreenVL := cursorVL - e.scrollY
 	e.cursorScreenY = e.y + cursorScreenVL
 	e.cursorScreenX = e.x + gutterW + (e.Cursor.Pos.Col % contentW)
+}
+
+func (e *Editor) RevealCursor() {
+	e.manualScroll = false
 }
 
 func (e *Editor) CursorScreenPos() (int, int) {

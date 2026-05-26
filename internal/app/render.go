@@ -45,6 +45,7 @@ func newChatLog(state *State) *components.ChatLog {
 	chatLog.SetAiOutput(state.aioutput)
 	chatLog.SetStreaming(state.IsStreaming())
 	chatLog.SetScrollOffset(state.OutputScroll())
+	chatLog.SetMaxScrollObserver(state.SetOutputMaxScroll)
 	return chatLog
 }
 
@@ -52,6 +53,7 @@ func newGitDiffLog(state *State) *components.DiffLog {
 	diffLog := components.NewDiffLog()
 	diffLog.SetContent(state.GitDiff)
 	diffLog.SetScrollOffset(state.OutputScroll())
+	diffLog.SetMaxScrollObserver(state.SetOutputMaxScroll)
 	return diffLog
 }
 
@@ -332,13 +334,13 @@ func CreateSplitLayout(state *State) *components.Div {
 	if state.PopupOpen {
 		leftDiv = newPalettePanel(
 			state,
-			layout.Unit{Type: layout.UnitPersent, Value: 50},
+			layout.Unit{Type: layout.UnitPersent, Value: float64(state.SplitLeftPercent())},
 			layout.Unit{Type: layout.UnitPersent, Value: 100},
 		)
 	} else {
 		leftDiv = newEditorDiv(
 			state.Editor,
-			layout.Unit{Type: layout.UnitPersent, Value: 50},
+			layout.Unit{Type: layout.UnitPersent, Value: float64(state.SplitLeftPercent())},
 			layout.Unit{Type: layout.UnitPersent, Value: 100},
 		)
 		leftDiv.SetPadding(layout.Padding{

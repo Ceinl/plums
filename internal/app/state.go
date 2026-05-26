@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,13 @@ type LayoutType int
 type InfoView int
 
 const MinSplitLayoutWidth = 90
+
+const (
+	minOutputPercentage     = 25
+	maxOutputPercentage     = 75
+	defaultOutputPercentage = 50
+	outputPercentageStep    = 5
+)
 
 const (
 	LayoutDefault LayoutType = iota
@@ -76,6 +84,8 @@ type State struct {
 	aioutput     string
 	isStreaming  bool
 	outputScroll int
+	outputMax    int
+	outputMaxSet bool
 
 	spinnerFrame int
 
@@ -95,16 +105,18 @@ type State struct {
 	ModelID        string
 	InfoView       InfoView
 	GitDiff        string
+	OutputPercent  int
 	submittedInput string
 }
 
 func NewState(width int, height int) *State {
 	return &State{
-		width:  width,
-		height: height,
-		Editor: components.NewTextEditor(),
-		Layout: LayoutSplit,
-		Mode:   "build",
+		width:         width,
+		height:        height,
+		Editor:        components.NewTextEditor(),
+		Layout:        LayoutSplit,
+		Mode:          "build",
+		OutputPercent: defaultOutputPercentage,
 	}
 }
 
@@ -118,6 +130,7 @@ func (s *State) SubmitInput() string {
 		s.messages = append(s.messages, Message{Role: "user", Content: input})
 		s.Editor.SetContent("")
 		s.submittedInput = input
+		s.invalidateOutputMax()
 	}
 	return input
 }
@@ -130,10 +143,12 @@ func (s *State) ConsumeSubmittedInput() string {
 
 func (s *State) AppendAiOutput(b string) {
 	s.aioutput += b
+	s.invalidateOutputMax()
 }
 
 func (s *State) ClearAiOutput() {
 	s.aioutput = ""
+	s.invalidateOutputMax()
 }
 
 func (s *State) SetStreaming(v bool) {
@@ -153,6 +168,7 @@ func (s *State) FinalizeAiOutput() {
 	if s.aioutput != "" {
 		s.messages = append(s.messages, Message{Role: "ai", Content: s.aioutput})
 		s.aioutput = ""
+		s.invalidateOutputMax()
 	}
 }
 
@@ -163,6 +179,7 @@ func (s *State) Messages() []Message {
 func (s *State) Resize(w, h int) {
 	s.width = w
 	s.height = h
+	s.invalidateOutputMax()
 }
 
 func (s *State) EffectiveLayout() LayoutType {
@@ -185,28 +202,95 @@ func (s *State) OutputScroll() int {
 	return s.outputScroll
 }
 
-func (s *State) ScrollOutput(delta int) {
+func (s *State) ScrollOutput(delta int) bool {
+	before := s.outputScroll
 	s.outputScroll += delta
+	if s.outputScroll < 0 {
+		s.outputScroll = 0
+	}
+	return s.outputScroll != before
+}
+
+func (s *State) ScrollOutputVisible(delta int) bool {
+	before := s.outputScroll
+	s.ScrollOutput(delta)
+	if s.outputMaxSet {
+		s.ClampOutputScroll(s.outputMax)
+	}
+	return s.outputScroll != before
+}
+
+func (s *State) ScrollAt(x, y, delta int) bool {
+	if s.isEditorPoint(x, y) {
+		return s.Editor.Scroll(delta)
+	}
+	return s.ScrollOutputVisible(delta)
+}
+
+func (s *State) isEditorPoint(x, y int) bool {
+	if x < 0 || y < 0 || x >= s.width || y >= s.height {
+		return false
+	}
+
+	switch s.EffectiveLayout() {
+	case LayoutFullscreen:
+		return true
+	case LayoutSplit:
+		if s.width >= MinSplitLayoutWidth {
+			leftW := s.SplitLeftWidth()
+			return x < leftW && !s.PopupOpen
+		}
+		outputH := int(float64(s.height) * 0.5)
+		return y > outputH
+	case LayoutDefault:
+		return y >= s.height-5
+	default:
+		return false
+	}
+}
+
+func (s *State) ScrollOutputPage(direction int) bool {
+	page := s.height - 4
+	if page < 1 {
+		page = 1
+	}
+	return s.ScrollOutputVisible(direction * page)
+}
+
+func (s *State) ScrollOutputBottom() bool {
+	if s.outputScroll == 0 {
+		return false
+	}
+	s.outputScroll = 0
+	return true
+}
+
+func (s *State) ClampOutputScroll(maxOffset int) {
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if s.outputScroll > maxOffset {
+		s.outputScroll = maxOffset
+	}
 	if s.outputScroll < 0 {
 		s.outputScroll = 0
 	}
 }
 
-func (s *State) ScrollOutputPage(direction int) {
-	page := s.height - 4
-	if page < 1 {
-		page = 1
-	}
-	s.ScrollOutput(direction * page)
+func (s *State) SetOutputMaxScroll(maxOffset int) {
+	s.outputMax = maxOffset
+	s.outputMaxSet = true
+	s.ClampOutputScroll(maxOffset)
 }
 
-func (s *State) ScrollOutputBottom() {
-	s.outputScroll = 0
+func (s *State) invalidateOutputMax() {
+	s.outputMaxSet = false
 }
 
 func (s *State) CycleInfoView() {
 	s.outputScroll = 0
 	s.InfoView = (s.InfoView + 1) % 2
+	s.invalidateOutputMax()
 	if s.InfoView == InfoViewGitDiff {
 		s.RefreshGitDiff()
 	}
@@ -223,18 +307,22 @@ func (s *State) RefreshGitDiff() {
 		}
 		if ctx.Err() == context.DeadlineExceeded {
 			s.GitDiff += "git diff timed out"
+			s.invalidateOutputMax()
 			return
 		}
 		s.GitDiff += err.Error()
+		s.invalidateOutputMax()
 		return
 	}
 	s.GitDiff = string(out)
+	s.invalidateOutputMax()
 }
 
 // AddMessage appends a message with the given role directly to the log.
 // Use role "system" for status / error notices.
 func (s *State) AddMessage(role, content string) {
 	s.messages = append(s.messages, Message{Role: role, Content: content})
+	s.invalidateOutputMax()
 }
 
 func (s *State) SwitchLayout() {
@@ -248,6 +336,7 @@ func (s *State) SwitchLayout() {
 	default:
 		s.Layout = LayoutDefault
 	}
+	s.invalidateOutputMax()
 }
 
 func (s *State) TogglePopup() {
@@ -311,8 +400,54 @@ func (s *State) PaletteItems() []components.PopupItem {
 		{Title: "Change model", Detail: "Requires model API wiring", Disabled: true},
 		{Title: "Start new session", Detail: "Create a fresh opencode session"},
 		{Title: modeLabel, Detail: "Current mode: " + s.Mode},
+		{Title: "Output percentage", Detail: "Left/Right adjust - current: " + strconv.Itoa(s.SplitOutputPercent()) + "%"},
 		{Title: "Sessions list", Detail: "Open existing opencode sessions"},
 	}
+}
+
+func (s *State) SplitOutputPercent() int {
+	if s.OutputPercent == 0 {
+		return defaultOutputPercentage
+	}
+	return clampInt(s.OutputPercent, minOutputPercentage, maxOutputPercentage)
+}
+
+func (s *State) SplitLeftPercent() int {
+	return 100 - s.SplitOutputPercent()
+}
+
+func (s *State) SplitLeftWidth() int {
+	return int(float64(s.width) * float64(s.SplitLeftPercent()) / 100)
+}
+
+func (s *State) AdjustOutputPercentage(delta int) bool {
+	before := s.SplitOutputPercent()
+	s.OutputPercent = clampInt(before+delta, minOutputPercentage, maxOutputPercentage)
+	if s.OutputPercent != before {
+		s.invalidateOutputMax()
+	}
+	return s.OutputPercent != before
+}
+
+func (s *State) AdjustSelectedPaletteItem(delta int) bool {
+	if !s.IsOutputPercentageSelected() {
+		return false
+	}
+	return s.AdjustOutputPercentage(delta * outputPercentageStep)
+}
+
+func (s *State) IsOutputPercentageSelected() bool {
+	return s.PaletteView == PaletteViewCommands && s.PaletteIndex == 3
+}
+
+func clampInt(v, min, max int) int {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
 
 func (s *State) SlashCommands() []SlashCommand {
@@ -357,8 +492,12 @@ func (s *State) SelectPaletteItem() {
 		PaletteActionChangeModel,
 		PaletteActionNewSession,
 		PaletteActionSwitchMode,
+		PaletteActionNone,
 		PaletteActionSessionsList,
 	}[s.PaletteIndex]
+	if s.PendingAction == PaletteActionNone {
+		return
+	}
 	if s.PendingAction != PaletteActionSessionsList {
 		s.PopupOpen = false
 	}
@@ -409,12 +548,14 @@ func (s *State) ClearConversation() {
 	s.messages = nil
 	s.aioutput = ""
 	s.outputScroll = 0
+	s.invalidateOutputMax()
 }
 
 func (s *State) SetConversation(messages []Message) {
 	s.messages = messages
 	s.aioutput = ""
 	s.outputScroll = 0
+	s.invalidateOutputMax()
 }
 
 func (s *State) ToggleMode() {

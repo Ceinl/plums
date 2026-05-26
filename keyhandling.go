@@ -19,9 +19,17 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 			state.MovePalette(1)
 			return true, false
 		case keyboard.KeyArrowLeft:
+			if state.IsOutputPercentageSelected() {
+				state.AdjustSelectedPaletteItem(1)
+				return true, false
+			}
 			state.MovePalette(-1)
 			return true, false
 		case keyboard.KeyArrowRight:
+			if state.IsOutputPercentageSelected() {
+				state.AdjustSelectedPaletteItem(-1)
+				return true, false
+			}
 			state.MovePalette(1)
 			return true, false
 		case keyboard.KeyEnter:
@@ -33,10 +41,24 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 				return true, false
 			}
 			switch ev.Ch {
-			case 'h', 'H', 'k', 'K':
+			case 'h', 'H':
+				if state.IsOutputPercentageSelected() {
+					state.AdjustSelectedPaletteItem(1)
+					return true, false
+				}
 				state.MovePalette(-1)
 				return true, false
-			case 'j', 'J', 'l', 'L':
+			case 'k', 'K':
+				state.MovePalette(-1)
+				return true, false
+			case 'l', 'L':
+				if state.IsOutputPercentageSelected() {
+					state.AdjustSelectedPaletteItem(-1)
+					return true, false
+				}
+				state.MovePalette(1)
+				return true, false
+			case 'j', 'J':
 				state.MovePalette(1)
 				return true, false
 			}
@@ -150,8 +172,7 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		return true, false
 	case keyboard.KeyArrowUp:
 		if ev.Alt && !ev.Shift && !ev.Ctrl {
-			state.ScrollOutput(1)
-			return true, false
+			return state.ScrollOutputVisible(1), false
 		}
 		if ev.Shift {
 			ed.SelectUp()
@@ -161,8 +182,7 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		return true, false
 	case keyboard.KeyArrowDown:
 		if ev.Alt && !ev.Shift && !ev.Ctrl {
-			state.ScrollOutput(-1)
-			return true, false
+			return state.ScrollOutputVisible(-1), false
 		}
 		if ev.Shift {
 			ed.SelectDown()
@@ -171,21 +191,37 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		}
 		return true, false
 	case keyboard.KeyPageUp:
-		state.ScrollOutputPage(1)
-		return true, false
+		if state.EffectiveLayout() == app.LayoutFullscreen {
+			return ed.ScrollPage(1), false
+		}
+		return state.ScrollOutputPage(1), false
 	case keyboard.KeyPageDown:
-		state.ScrollOutputPage(-1)
-		return true, false
+		if state.EffectiveLayout() == app.LayoutFullscreen {
+			return ed.ScrollPage(-1), false
+		}
+		return state.ScrollOutputPage(-1), false
 	case keyboard.KeyMouseWheelUp:
-		state.ScrollOutput(3)
-		return true, false
+		if ev.Mouse {
+			return state.ScrollAt(ev.MouseX, ev.MouseY, 3), false
+		}
+		if state.EffectiveLayout() == app.LayoutFullscreen {
+			return ed.Scroll(3), false
+		}
+		return state.ScrollOutputVisible(3), false
 	case keyboard.KeyMouseWheelDown:
-		state.ScrollOutput(-3)
-		return true, false
+		if ev.Mouse {
+			return state.ScrollAt(ev.MouseX, ev.MouseY, -3), false
+		}
+		if state.EffectiveLayout() == app.LayoutFullscreen {
+			return ed.Scroll(-3), false
+		}
+		return state.ScrollOutputVisible(-3), false
 	case keyboard.KeyHome:
 		if ev.Ctrl {
-			state.ScrollOutputPage(1 << 20)
-			return true, false
+			if state.EffectiveLayout() == app.LayoutFullscreen {
+				return ed.ScrollTop(), false
+			}
+			return state.ScrollOutputPage(1 << 20), false
 		}
 		if ev.Shift {
 			ed.SelectHome()
@@ -195,8 +231,10 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		return true, false
 	case keyboard.KeyEnd:
 		if ev.Ctrl {
-			state.ScrollOutputBottom()
-			return true, false
+			if state.EffectiveLayout() == app.LayoutFullscreen {
+				return ed.ScrollBottom(), false
+			}
+			return state.ScrollOutputBottom(), false
 		}
 		if ev.Shift {
 			ed.SelectEnd()

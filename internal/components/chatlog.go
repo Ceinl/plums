@@ -65,6 +65,10 @@ type ChatLog struct {
 	aioutput     string
 	isStreaming  bool
 	scrollOffset int
+	onMaxScroll  func(int)
+	linesCached  bool
+	cachedWidth  int
+	cachedLines  []renderLine
 
 	style  layout.Style
 	parent layout.Component
@@ -79,16 +83,19 @@ func NewChatLog() *ChatLog {
 
 func (cl *ChatLog) SetMessages(msgs []ChatMessage) {
 	cl.messages = msgs
+	cl.invalidateLines()
 	cl.isDirty = true
 }
 
 func (cl *ChatLog) SetAiOutput(s string) {
 	cl.aioutput = s
+	cl.invalidateLines()
 	cl.isDirty = true
 }
 
 func (cl *ChatLog) SetStreaming(v bool) {
 	cl.isStreaming = v
+	cl.invalidateLines()
 	cl.isDirty = true
 }
 
@@ -100,6 +107,10 @@ func (cl *ChatLog) SetScrollOffset(offset int) {
 	cl.isDirty = true
 }
 
+func (cl *ChatLog) SetMaxScrollObserver(fn func(int)) {
+	cl.onMaxScroll = fn
+}
+
 func (cl *ChatLog) IsDirty() bool                { return cl.isDirty }
 func (cl *ChatLog) MakeDirty()                   { cl.isDirty = true }
 func (cl *ChatLog) ClearDirty()                  { cl.isDirty = false }
@@ -108,7 +119,34 @@ func (cl *ChatLog) SetParent(p layout.Component) { cl.parent = p }
 func (cl *ChatLog) SetStyle(s layout.Style)      { cl.style = s }
 
 func (cl *ChatLog) Layout(x, y, w, h int) {
+	if cl.w != w {
+		cl.invalidateLines()
+	}
 	cl.x, cl.y, cl.w, cl.h = x, y, w, h
+}
+
+func (cl *ChatLog) MaxScrollOffset() int {
+	maxOffset := len(cl.lines()) - cl.h
+	if maxOffset < 0 {
+		return 0
+	}
+	return maxOffset
+}
+
+func (cl *ChatLog) invalidateLines() {
+	cl.linesCached = false
+	cl.cachedLines = nil
+}
+
+func (cl *ChatLog) lines() []renderLine {
+	width := cl.contentWidth()
+	if cl.linesCached && cl.cachedWidth == width {
+		return cl.cachedLines
+	}
+	cl.cachedLines = cl.buildLines()
+	cl.cachedWidth = width
+	cl.linesCached = true
+	return cl.cachedLines
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -120,13 +158,24 @@ func (cl *ChatLog) Render(s *screen.Screen) {
 	}
 
 	// Build the full list of logical lines (may be taller than cl.h).
-	lines := cl.buildLines()
+	lines := cl.lines()
+	maxScroll := len(lines) - cl.h
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if cl.onMaxScroll != nil {
+		cl.onMaxScroll(maxScroll)
+	}
+	scrollOffset := cl.scrollOffset
+	if scrollOffset > maxScroll {
+		scrollOffset = maxScroll
+	}
 
 	// scrollOffset is the distance from the bottom. Zero preserves auto-scroll.
 	start := 0
 	if len(lines) > cl.h {
 		maxStart := len(lines) - cl.h
-		start = maxStart - cl.scrollOffset
+		start = maxStart - scrollOffset
 		if start < 0 {
 			start = 0
 		}
