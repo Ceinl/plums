@@ -19,9 +19,17 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 			state.MovePalette(1)
 			return true, false
 		case keyboard.KeyArrowLeft:
+			if state.IsOutputPercentageSelected() {
+				state.AdjustSelectedPaletteItem(1)
+				return true, false
+			}
 			state.MovePalette(-1)
 			return true, false
 		case keyboard.KeyArrowRight:
+			if state.IsOutputPercentageSelected() {
+				state.AdjustSelectedPaletteItem(-1)
+				return true, false
+			}
 			state.MovePalette(1)
 			return true, false
 		case keyboard.KeyEnter:
@@ -33,10 +41,24 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 				return true, false
 			}
 			switch ev.Ch {
-			case 'h', 'H', 'k', 'K':
+			case 'h', 'H':
+				if state.IsOutputPercentageSelected() {
+					state.AdjustSelectedPaletteItem(1)
+					return true, false
+				}
 				state.MovePalette(-1)
 				return true, false
-			case 'j', 'J', 'l', 'L':
+			case 'k', 'K':
+				state.MovePalette(-1)
+				return true, false
+			case 'l', 'L':
+				if state.IsOutputPercentageSelected() {
+					state.AdjustSelectedPaletteItem(-1)
+					return true, false
+				}
+				state.MovePalette(1)
+				return true, false
+			case 'j', 'J':
 				state.MovePalette(1)
 				return true, false
 			}
