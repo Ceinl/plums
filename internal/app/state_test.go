@@ -16,19 +16,18 @@ func TestClampOutputScroll(t *testing.T) {
 	}
 }
 
-func TestMaxOutputScrollTracksViewport(t *testing.T) {
-	state := NewState(100, 30)
-	state.AddMessage("ai", "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten")
+func TestScrollOutputVisibleUsesRenderedMax(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetOutputMaxScroll(10)
 
-	state.Resize(100, 12)
-	small := maxOutputScroll(state)
-	if small == 0 {
-		t.Fatal("expected small viewport to be scrollable")
+	state.ScrollOutputVisible(100)
+	if got := state.OutputScroll(); got != 10 {
+		t.Fatalf("expected scroll offset 10, got %d", got)
 	}
 
-	state.Resize(100, 40)
-	large := maxOutputScroll(state)
-	if large >= small {
-		t.Fatalf("expected larger viewport to reduce max scroll, got small=%d large=%d", small, large)
+	state.AddMessage("ai", "new content invalidates cached max")
+	state.ScrollOutputVisible(5)
+	if got := state.OutputScroll(); got != 15 {
+		t.Fatalf("expected unclamped scroll while max is invalid, got %d", got)
 	}
 }

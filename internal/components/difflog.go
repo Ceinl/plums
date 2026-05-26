@@ -22,6 +22,9 @@ type DiffLog struct {
 	isDirty      bool
 	content      string
 	scrollOffset int
+	onMaxScroll  func(int)
+	linesCached  bool
+	cachedLines  []string
 	parent       layout.Component
 	x, y         int
 	w, h         int
@@ -32,6 +35,7 @@ func NewDiffLog() *DiffLog { return &DiffLog{} }
 
 func (d *DiffLog) SetContent(content string) {
 	d.content = content
+	d.invalidateLines()
 	d.isDirty = true
 }
 
@@ -41,6 +45,10 @@ func (d *DiffLog) SetScrollOffset(offset int) {
 	}
 	d.scrollOffset = offset
 	d.isDirty = true
+}
+
+func (d *DiffLog) SetMaxScrollObserver(fn func(int)) {
+	d.onMaxScroll = fn
 }
 
 func (d *DiffLog) IsDirty() bool                { return d.isDirty }
@@ -73,10 +81,21 @@ func (d *DiffLog) Render(scr *screen.Screen) {
 	}
 
 	lines := d.lines()
+	maxScroll := len(lines) - d.h
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if d.onMaxScroll != nil {
+		d.onMaxScroll(maxScroll)
+	}
+	scrollOffset := d.scrollOffset
+	if scrollOffset > maxScroll {
+		scrollOffset = maxScroll
+	}
 	start := 0
 	if len(lines) > d.h {
 		maxStart := len(lines) - d.h
-		start = maxStart - d.scrollOffset
+		start = maxStart - scrollOffset
 		if start < 0 {
 			start = 0
 		}
@@ -94,28 +113,39 @@ func (d *DiffLog) Render(scr *screen.Screen) {
 }
 
 func (d *DiffLog) lines() []string {
-	if strings.TrimSpace(d.content) == "" {
-		return []string{"No git diff."}
+	if d.linesCached {
+		return d.cachedLines
 	}
 
 	var out []string
-	for _, line := range strings.Split(d.content, "\n") {
-		switch {
-		case strings.HasPrefix(line, "diff --git "):
-			out = append(out, "")
-		case strings.HasPrefix(line, "index "):
-			continue
-		case strings.HasPrefix(line, "--- "):
-			continue
-		case strings.HasPrefix(line, "+++ b/"):
-			out = append(out, strings.TrimPrefix(line, "+++ b/"))
-		case strings.HasPrefix(line, "+++ "):
-			out = append(out, strings.TrimPrefix(line, "+++ "))
-		default:
-			out = append(out, line)
+	if strings.TrimSpace(d.content) == "" {
+		out = []string{"No git diff."}
+	} else {
+		for _, line := range strings.Split(d.content, "\n") {
+			switch {
+			case strings.HasPrefix(line, "diff --git "):
+				out = append(out, "")
+			case strings.HasPrefix(line, "index "):
+				continue
+			case strings.HasPrefix(line, "--- "):
+				continue
+			case strings.HasPrefix(line, "+++ b/"):
+				out = append(out, strings.TrimPrefix(line, "+++ b/"))
+			case strings.HasPrefix(line, "+++ "):
+				out = append(out, strings.TrimPrefix(line, "+++ "))
+			default:
+				out = append(out, line)
+			}
 		}
 	}
-	return out
+	d.cachedLines = out
+	d.linesCached = true
+	return d.cachedLines
+}
+
+func (d *DiffLog) invalidateLines() {
+	d.linesCached = false
+	d.cachedLines = nil
 }
 
 func (d *DiffLog) renderLine(scr *screen.Screen, y int, line string, bg string) {

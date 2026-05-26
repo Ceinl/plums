@@ -76,6 +76,8 @@ type State struct {
 	aioutput     string
 	isStreaming  bool
 	outputScroll int
+	outputMax    int
+	outputMaxSet bool
 
 	spinnerFrame int
 
@@ -118,6 +120,7 @@ func (s *State) SubmitInput() string {
 		s.messages = append(s.messages, Message{Role: "user", Content: input})
 		s.Editor.SetContent("")
 		s.submittedInput = input
+		s.invalidateOutputMax()
 	}
 	return input
 }
@@ -130,10 +133,12 @@ func (s *State) ConsumeSubmittedInput() string {
 
 func (s *State) AppendAiOutput(b string) {
 	s.aioutput += b
+	s.invalidateOutputMax()
 }
 
 func (s *State) ClearAiOutput() {
 	s.aioutput = ""
+	s.invalidateOutputMax()
 }
 
 func (s *State) SetStreaming(v bool) {
@@ -153,6 +158,7 @@ func (s *State) FinalizeAiOutput() {
 	if s.aioutput != "" {
 		s.messages = append(s.messages, Message{Role: "ai", Content: s.aioutput})
 		s.aioutput = ""
+		s.invalidateOutputMax()
 	}
 }
 
@@ -163,6 +169,7 @@ func (s *State) Messages() []Message {
 func (s *State) Resize(w, h int) {
 	s.width = w
 	s.height = h
+	s.invalidateOutputMax()
 }
 
 func (s *State) EffectiveLayout() LayoutType {
@@ -197,7 +204,9 @@ func (s *State) ScrollOutput(delta int) bool {
 func (s *State) ScrollOutputVisible(delta int) bool {
 	before := s.outputScroll
 	s.ScrollOutput(delta)
-	s.ClampOutputScroll(maxOutputScroll(s))
+	if s.outputMaxSet {
+		s.ClampOutputScroll(s.outputMax)
+	}
 	return s.outputScroll != before
 }
 
@@ -258,9 +267,20 @@ func (s *State) ClampOutputScroll(maxOffset int) {
 	}
 }
 
+func (s *State) SetOutputMaxScroll(maxOffset int) {
+	s.outputMax = maxOffset
+	s.outputMaxSet = true
+	s.ClampOutputScroll(maxOffset)
+}
+
+func (s *State) invalidateOutputMax() {
+	s.outputMaxSet = false
+}
+
 func (s *State) CycleInfoView() {
 	s.outputScroll = 0
 	s.InfoView = (s.InfoView + 1) % 2
+	s.invalidateOutputMax()
 	if s.InfoView == InfoViewGitDiff {
 		s.RefreshGitDiff()
 	}
@@ -277,18 +297,22 @@ func (s *State) RefreshGitDiff() {
 		}
 		if ctx.Err() == context.DeadlineExceeded {
 			s.GitDiff += "git diff timed out"
+			s.invalidateOutputMax()
 			return
 		}
 		s.GitDiff += err.Error()
+		s.invalidateOutputMax()
 		return
 	}
 	s.GitDiff = string(out)
+	s.invalidateOutputMax()
 }
 
 // AddMessage appends a message with the given role directly to the log.
 // Use role "system" for status / error notices.
 func (s *State) AddMessage(role, content string) {
 	s.messages = append(s.messages, Message{Role: role, Content: content})
+	s.invalidateOutputMax()
 }
 
 func (s *State) SwitchLayout() {
@@ -302,6 +326,7 @@ func (s *State) SwitchLayout() {
 	default:
 		s.Layout = LayoutDefault
 	}
+	s.invalidateOutputMax()
 }
 
 func (s *State) TogglePopup() {
@@ -463,12 +488,14 @@ func (s *State) ClearConversation() {
 	s.messages = nil
 	s.aioutput = ""
 	s.outputScroll = 0
+	s.invalidateOutputMax()
 }
 
 func (s *State) SetConversation(messages []Message) {
 	s.messages = messages
 	s.aioutput = ""
 	s.outputScroll = 0
+	s.invalidateOutputMax()
 }
 
 func (s *State) ToggleMode() {
