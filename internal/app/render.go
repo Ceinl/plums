@@ -334,13 +334,13 @@ func CreateSplitLayout(state *State) *components.Div {
 	if state.PopupOpen {
 		leftDiv = newPalettePanel(
 			state,
-			layout.Unit{Type: layout.UnitPersent, Value: 50},
+			layout.Unit{Type: layout.UnitPersent, Value: float64(state.SplitLeftPercent())},
 			layout.Unit{Type: layout.UnitPersent, Value: 100},
 		)
 	} else {
 		leftDiv = newEditorDiv(
 			state.Editor,
-			layout.Unit{Type: layout.UnitPersent, Value: 50},
+			layout.Unit{Type: layout.UnitPersent, Value: float64(state.SplitLeftPercent())},
 			layout.Unit{Type: layout.UnitPersent, Value: 100},
 		)
 		leftDiv.SetPadding(layout.Padding{
