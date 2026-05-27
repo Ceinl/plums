@@ -34,14 +34,15 @@ func NewTerminal(fd int) *Terminal {
 	}
 }
 
-func (t *Terminal) Enter() {
+func (t *Terminal) Enter() error {
 	oldstate, err := term.MakeRaw(t.fd)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	t.RefreshSize()
 	t.oldstate = oldstate
 	fmt.Print(HIDE_CURSOR, OPEN_ALT, ENABLE_MOUSE, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, MOVE_CURSOR, CLEAR_SCREEN)
+	return nil
 }
 
 func (t *Terminal) Exit() {

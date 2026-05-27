@@ -48,7 +48,10 @@ func main() {
 	}
 
 	t := ui.NewTerminal(int(os.Stdin.Fd()))
-	t.Enter()
+	if err := t.Enter(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize terminal: %v\n", err)
+		os.Exit(1)
+	}
 	defer t.Exit()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,7 +84,14 @@ func main() {
 
 	for {
 		select {
-		case ev := <-keys:
+		case ev, ok := <-keys:
+			if !ok {
+				if cancelStream != nil {
+					cancelStream()
+				}
+				cancel()
+				return
+			}
 			handled, quit := handleKey(state, ev)
 			if quit {
 				if cancelStream != nil {
