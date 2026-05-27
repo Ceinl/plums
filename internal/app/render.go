@@ -198,6 +198,7 @@ func newSplitStatusBar(state *State) *components.Div {
 	bar := components.NewStatusBar()
 	bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
 	bar.SetSession(state.SessionTitle)
+	bar.SetMode(state.Mode)
 	bar.SetModel(state.ModelProvider, state.ModelID)
 	div.AppendChild(bar)
 	return div

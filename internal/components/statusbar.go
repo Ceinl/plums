@@ -20,6 +20,7 @@ type StatusBar struct {
 	serverStarting bool
 	serverReady    bool
 	aiThinking     bool
+	mode           string
 	providerID     string
 	modelID        string
 	sessionTitle   string
@@ -49,6 +50,11 @@ func (s *StatusBar) SetStatus(serverStarting, serverReady, aiThinking bool) {
 func (s *StatusBar) SetModel(providerID, modelID string) {
 	s.providerID = providerID
 	s.modelID = modelID
+	s.isDirty = true
+}
+
+func (s *StatusBar) SetMode(mode string) {
+	s.mode = mode
 	s.isDirty = true
 }
 
@@ -99,7 +105,11 @@ func (s *StatusBar) Render(scr *screen.Screen) {
 	if session == "" {
 		session = "untitled session"
 	}
-	content := strings.TrimSpace(string(icon) + " " + label + "  " + session + "  " + model)
+	mode := s.mode
+	if mode == "" {
+		mode = "build"
+	}
+	content := strings.TrimSpace(string(icon) + " " + label + "  " + session + "  " + mode + "  " + model)
 	content = truncateRunes(content, s.w)
 	for i, r := range content {
 		scr.Set(s.x+i, s.y, r, fg, bg, "")

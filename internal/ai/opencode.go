@@ -79,6 +79,7 @@ type createSessionBody struct {
 
 type sendMessageBody struct {
 	Model *MessageModelRef `json:"model,omitempty"`
+	Agent string           `json:"agent,omitempty"`
 	Parts []Part           `json:"parts"`
 }
 
@@ -289,11 +290,11 @@ func (c *Client) ListProviders(ctx context.Context) ([]Provider, []string, error
 // channel. It first tries the SSE-based approach (prompt_async + /event); if
 // that fails (404 or connection error) it falls back to the synchronous
 // /session/{id}/message endpoint.
-func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, modelID string) <-chan string {
+func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, modelID, agent string) <-chan string {
 	out := make(chan string)
 	go func() {
 		defer close(out)
-		result, err := c.sendWithSSE(ctx, sessionID, text, providerID, modelID, out)
+		result, err := c.sendWithSSE(ctx, sessionID, text, providerID, modelID, agent, out)
 		if err == nil {
 			return
 		}
@@ -302,7 +303,7 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 		}
 		if !result.emitted {
 			// SSE path unavailable before streaming tokens; fall back safely.
-			c.sendSync(ctx, sessionID, text, providerID, modelID, out)
+			c.sendSync(ctx, sessionID, text, providerID, modelID, agent, out)
 			return
 		}
 		select {
@@ -319,7 +320,7 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 // generation via POST /session/{id}/prompt_async, then reads events until
 // session.idle arrives. It reports whether tokens were emitted so the caller
 // only falls back to sendSync when doing so cannot duplicate output.
-func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, modelID string, out chan<- string) (sseResult, error) {
+func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, modelID, agent string, out chan<- string) (sseResult, error) {
 	var result sseResult
 
 	// 1. Open the SSE stream first so we don't miss any events.
@@ -341,12 +342,7 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 	defer func() { _ = sseResp.Body.Close() }()
 
 	// 2. Send the prompt asynchronously.
-	b := sendMessageBody{
-		Parts: []Part{{Type: "text", Text: text}},
-	}
-	if providerID != "" && modelID != "" {
-		b.Model = &MessageModelRef{ProviderID: providerID, ModelID: modelID}
-	}
+	b := newSendMessageBody(text, providerID, modelID, agent)
 	bodyData, err := json.Marshal(b)
 	if err != nil {
 		return result, fmt.Errorf("marshal prompt body: %w", err)
@@ -494,13 +490,8 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 
 // sendSync is the legacy fallback: POSTs to /session/{id}/message, waits for
 // the full JSON response, then emits the text character by character.
-func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, modelID string, out chan<- string) {
-	b := sendMessageBody{
-		Parts: []Part{{Type: "text", Text: text}},
-	}
-	if providerID != "" && modelID != "" {
-		b.Model = &MessageModelRef{ProviderID: providerID, ModelID: modelID}
-	}
+func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, modelID, agent string, out chan<- string) {
+	b := newSendMessageBody(text, providerID, modelID, agent)
 	data, err := json.Marshal(b)
 	if err != nil {
 		select {
@@ -562,4 +553,15 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 			}
 		}
 	}
+}
+
+func newSendMessageBody(text, providerID, modelID, agent string) sendMessageBody {
+	b := sendMessageBody{
+		Agent: agent,
+		Parts: []Part{{Type: "text", Text: text}},
+	}
+	if providerID != "" && modelID != "" {
+		b.Model = &MessageModelRef{ProviderID: providerID, ModelID: modelID}
+	}
+	return b
 }

@@ -116,7 +116,7 @@ func main() {
 							sctx, cancelStream = context.WithCancel(ctx)
 							state.SetStreaming(true)
 							state.ClearAiOutput()
-							aiStream = client.SendMessage(sctx, state.SessionID, input, state.ModelProvider, state.ModelID)
+							aiStream = client.SendMessage(sctx, state.SessionID, input, state.ModelProvider, state.ModelID, state.Mode)
 						} else {
 							state.AddMessage("system", "no active session – is opencode serve running?")
 						}
