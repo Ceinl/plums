@@ -11,6 +11,7 @@ type Popup struct {
 	w, h   int
 	style  layout.Style
 	title  string
+	query  string
 	items  []PopupItem
 	active int
 	panel  bool
@@ -31,6 +32,10 @@ func NewPopup() *Popup {
 
 func (p *Popup) SetTitle(title string) {
 	p.title = title
+}
+
+func (p *Popup) SetQuery(query string) {
+	p.query = query
 }
 
 func (p *Popup) SetItems(items []PopupItem, active int) {
@@ -68,7 +73,7 @@ func (p *Popup) Render(s *screen.Screen) {
 	}
 
 	modalW := clamp(p.w-4, 42, 68)
-	modalH := clamp(len(p.items)*2+4, 8, p.h-2)
+	modalH := clamp(len(p.items)*2+6, 10, p.h-2)
 	mx := p.x + (p.w-modalW)/2
 	my := p.y + (p.h-modalH)/2
 	bg := p.style.GetBackground()
@@ -94,9 +99,17 @@ func (p *Popup) Render(s *screen.Screen) {
 	s.Set(mx+modalW-1, my+modalH-1, '┘', muted, bg, "")
 
 	drawText(s, mx+3, my+1, modalW-6, p.title, accent, bg)
+	drawSearch(s, mx+3, my+2, modalW-6, p.query, fg, muted, ansiBg(20, 18, 26))
+	visibleItems := (modalH - 6) / 2
+	start, end := visibleWindow(p.active, len(p.items), visibleItems)
+	if len(p.items) > visibleItems && visibleItems > 0 {
+		label := rangeLabel(start, end, len(p.items))
+		drawText(s, mx+modalW-len(label)-3, my+1, len(label), label, muted, bg)
+	}
 
-	row := my + 3
-	for i, item := range p.items {
+	row := my + 5
+	for i := start; i < end; i++ {
+		item := p.items[i]
 		itemFg := fg
 		if item.Disabled {
 			itemFg = muted
@@ -127,9 +140,17 @@ func (p *Popup) renderPanel(s *screen.Screen) {
 	}
 
 	drawText(s, p.x, p.y, p.w, p.title, accent, bg)
+	drawSearch(s, p.x, p.y+1, p.w, p.query, fg, muted, ansiBg(20, 18, 26))
+	visibleItems := (p.h - 2) / 3
+	start, end := visibleWindow(p.active, len(p.items), visibleItems)
+	if len(p.items) > visibleItems && visibleItems > 0 {
+		label := rangeLabel(start, end, len(p.items))
+		drawText(s, p.x+p.w-len(label), p.y, len(label), label, muted, bg)
+	}
 
-	row := p.y + 2
-	for i, item := range p.items {
+	row := p.y + 3
+	for i := start; i < end; i++ {
+		item := p.items[i]
 		if row >= p.y+p.h {
 			return
 		}
@@ -170,6 +191,47 @@ func clamp(v, min, max int) int {
 	return v
 }
 
+func visibleWindow(active, total, visible int) (int, int) {
+	if total <= 0 || visible <= 0 {
+		return 0, 0
+	}
+	if visible >= total {
+		return 0, total
+	}
+	if active < 0 {
+		active = 0
+	}
+	if active >= total {
+		active = total - 1
+	}
+	start := active - visible/2
+	if start < 0 {
+		start = 0
+	}
+	if start+visible > total {
+		start = total - visible
+	}
+	return start, start + visible
+}
+
+func rangeLabel(start, end, total int) string {
+	return itoa(start+1) + "-" + itoa(end) + "/" + itoa(total)
+}
+
+func itoa(v int) string {
+	if v == 0 {
+		return "0"
+	}
+	digits := [20]byte{}
+	i := len(digits)
+	for v > 0 {
+		i--
+		digits[i] = byte('0' + v%10)
+		v /= 10
+	}
+	return string(digits[i:])
+}
+
 func drawText(s *screen.Screen, x, y, maxW int, text, fg, bg string) {
 	for i, r := range text {
 		if i >= maxW {
@@ -183,6 +245,19 @@ func drawFill(s *screen.Screen, x, y, w int, bg string) {
 	for i := 0; i < w; i++ {
 		s.Set(x+i, y, ' ', ansiFg(232, 229, 241), bg, "")
 	}
+}
+
+func drawSearch(s *screen.Screen, x, y, w int, query, fg, muted, bg string) {
+	if w <= 0 {
+		return
+	}
+	drawFill(s, x, y, w, bg)
+	text := "> " + query
+	if query == "" {
+		text = "> Search"
+		fg = muted
+	}
+	drawText(s, x+1, y, w-2, text, fg, bg)
 }
 
 func ansiFg(r, g, b uint8) string {

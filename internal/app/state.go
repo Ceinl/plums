@@ -15,6 +15,7 @@ type PaletteAction int
 const (
 	PaletteActionNone PaletteAction = iota
 	PaletteActionChangeModel
+	PaletteActionSelectModel
 	PaletteActionNewSession
 	PaletteActionSwitchMode
 	PaletteActionSessionsList
@@ -25,6 +26,7 @@ type PaletteView int
 
 const (
 	PaletteViewCommands PaletteView = iota
+	PaletteViewModels
 	PaletteViewSessions
 )
 
@@ -63,6 +65,22 @@ type SessionListItem struct {
 	Current bool
 }
 
+type ModelListItem struct {
+	ProviderID   string
+	ProviderName string
+	ModelID      string
+	ModelName    string
+	Current      bool
+}
+
+type paletteCommandItem struct {
+	Title    string
+	Detail   string
+	Action   PaletteAction
+	Adjust   bool
+	Disabled bool
+}
+
 type SlashCommand struct {
 	Name   string
 	Detail string
@@ -98,7 +116,9 @@ type State struct {
 	PopupOpen      bool
 	PaletteIndex   int
 	PaletteView    PaletteView
+	PaletteQuery   string
 	PendingAction  PaletteAction
+	ModelItems     []ModelListItem
 	SessionItems   []SessionListItem
 	Mode           string
 	ModelProvider  string
@@ -350,6 +370,7 @@ func (s *State) TogglePopup() {
 func (s *State) OpenPalette() {
 	s.PopupOpen = true
 	s.PaletteView = PaletteViewCommands
+	s.PaletteQuery = ""
 	s.PendingAction = PaletteActionNone
 	items := s.PaletteItems()
 	if s.PaletteIndex >= len(items) {
@@ -363,10 +384,14 @@ func (s *State) OpenPalette() {
 func (s *State) ClosePalette() {
 	s.PopupOpen = false
 	s.PaletteView = PaletteViewCommands
+	s.PaletteQuery = ""
 	s.PendingAction = PaletteActionNone
 }
 
 func (s *State) PaletteTitle() string {
+	if s.PaletteView == PaletteViewModels {
+		return "Models"
+	}
 	if s.PaletteView == PaletteViewSessions {
 		return "Sessions"
 	}
@@ -374,12 +399,35 @@ func (s *State) PaletteTitle() string {
 }
 
 func (s *State) PaletteItems() []components.PopupItem {
+	if s.PaletteView == PaletteViewModels {
+		models := s.visibleModelItems()
+		if len(models) == 0 {
+			return []components.PopupItem{{Title: "No models", Detail: "No opencode models found", Disabled: true}}
+		}
+		items := make([]components.PopupItem, len(models))
+		for i, model := range models {
+			title := model.ModelName
+			if title == "" {
+				title = model.ModelID
+			}
+			detail := model.ProviderID + "/" + model.ModelID
+			if model.ProviderName != "" {
+				detail = model.ProviderName + " - " + detail
+			}
+			if model.Current {
+				detail = "current - " + detail
+			}
+			items[i] = components.PopupItem{Title: title, Detail: detail}
+		}
+		return items
+	}
 	if s.PaletteView == PaletteViewSessions {
-		if len(s.SessionItems) == 0 {
+		sessions := s.visibleSessionItems()
+		if len(sessions) == 0 {
 			return []components.PopupItem{{Title: "No sessions", Detail: "No opencode sessions found", Disabled: true}}
 		}
-		items := make([]components.PopupItem, len(s.SessionItems))
-		for i, session := range s.SessionItems {
+		items := make([]components.PopupItem, len(sessions))
+		for i, session := range sessions {
 			title := session.Title
 			if title == "" {
 				title = session.ID
@@ -392,17 +440,15 @@ func (s *State) PaletteItems() []components.PopupItem {
 		}
 		return items
 	}
-	modeLabel := "Switch to plan mode"
-	if s.Mode == "plan" {
-		modeLabel = "Switch to build mode"
+	commands := s.visibleCommandItems()
+	if len(commands) == 0 {
+		return []components.PopupItem{{Title: "No commands", Detail: "No matching commands", Disabled: true}}
 	}
-	return []components.PopupItem{
-		{Title: "Change model", Detail: "Requires model API wiring", Disabled: true},
-		{Title: "Start new session", Detail: "Create a fresh opencode session"},
-		{Title: modeLabel, Detail: "Current mode: " + s.Mode},
-		{Title: "Output percentage", Detail: "Left/Right adjust - current: " + strconv.Itoa(s.SplitOutputPercent()) + "%"},
-		{Title: "Sessions list", Detail: "Open existing opencode sessions"},
+	items := make([]components.PopupItem, len(commands))
+	for i, command := range commands {
+		items[i] = components.PopupItem{Title: command.Title, Detail: command.Detail, Disabled: command.Disabled}
 	}
+	return items
 }
 
 func (s *State) SplitOutputPercent() int {
@@ -437,7 +483,45 @@ func (s *State) AdjustSelectedPaletteItem(delta int) bool {
 }
 
 func (s *State) IsOutputPercentageSelected() bool {
-	return s.PaletteView == PaletteViewCommands && s.PaletteIndex == 3
+	if s.PaletteView != PaletteViewCommands {
+		return false
+	}
+	commands := s.visibleCommandItems()
+	return s.PaletteIndex >= 0 && s.PaletteIndex < len(commands) && commands[s.PaletteIndex].Adjust
+}
+
+func (s *State) PaletteSearch() string {
+	return s.PaletteQuery
+}
+
+func (s *State) InsertPaletteRune(ch rune) {
+	if ch < 32 || ch == 127 {
+		return
+	}
+	s.PaletteQuery += string(ch)
+	s.PaletteIndex = 0
+	s.ensurePaletteSelection()
+}
+
+func (s *State) DeletePaletteRune() bool {
+	if s.PaletteQuery == "" {
+		return false
+	}
+	runes := []rune(s.PaletteQuery)
+	s.PaletteQuery = string(runes[:len(runes)-1])
+	s.PaletteIndex = 0
+	s.ensurePaletteSelection()
+	return true
+}
+
+func (s *State) ClearPaletteSearch() bool {
+	if s.PaletteQuery == "" {
+		return false
+	}
+	s.PaletteQuery = ""
+	s.PaletteIndex = 0
+	s.ensurePaletteSelection()
+	return true
 }
 
 func clampInt(v, min, max int) int {
@@ -478,6 +562,23 @@ func (s *State) MovePalette(delta int) {
 	}
 }
 
+func (s *State) ensurePaletteSelection() {
+	items := s.PaletteItems()
+	if len(items) == 0 {
+		s.PaletteIndex = 0
+		return
+	}
+	if s.PaletteIndex >= len(items) {
+		s.PaletteIndex = len(items) - 1
+	}
+	if s.PaletteIndex < 0 {
+		s.PaletteIndex = 0
+	}
+	if items[s.PaletteIndex].Disabled {
+		s.MovePalette(1)
+	}
+}
+
 func (s *State) SelectPaletteItem() {
 	items := s.PaletteItems()
 	if s.PaletteIndex < 0 || s.PaletteIndex >= len(items) || items[s.PaletteIndex].Disabled {
@@ -488,17 +589,20 @@ func (s *State) SelectPaletteItem() {
 		s.PopupOpen = false
 		return
 	}
-	s.PendingAction = []PaletteAction{
-		PaletteActionChangeModel,
-		PaletteActionNewSession,
-		PaletteActionSwitchMode,
-		PaletteActionNone,
-		PaletteActionSessionsList,
-	}[s.PaletteIndex]
+	if s.PaletteView == PaletteViewModels {
+		s.PendingAction = PaletteActionSelectModel
+		s.PopupOpen = false
+		return
+	}
+	commands := s.visibleCommandItems()
+	if s.PaletteIndex < 0 || s.PaletteIndex >= len(commands) {
+		return
+	}
+	s.PendingAction = commands[s.PaletteIndex].Action
 	if s.PendingAction == PaletteActionNone {
 		return
 	}
-	if s.PendingAction != PaletteActionSessionsList {
+	if s.PendingAction != PaletteActionSessionsList && s.PendingAction != PaletteActionChangeModel {
 		s.PopupOpen = false
 	}
 }
@@ -520,6 +624,7 @@ func (s *State) SetSessionTitle(title string) {
 func (s *State) SetSessionItems(items []SessionListItem) {
 	s.SessionItems = items
 	s.PaletteView = PaletteViewSessions
+	s.PaletteQuery = ""
 	s.PaletteIndex = 0
 	if len(items) > 0 {
 		for i, item := range items {
@@ -532,11 +637,107 @@ func (s *State) SetSessionItems(items []SessionListItem) {
 	s.PopupOpen = true
 }
 
+func (s *State) SetModelItems(items []ModelListItem) {
+	s.ModelItems = items
+	s.PaletteView = PaletteViewModels
+	s.PaletteQuery = ""
+	s.PaletteIndex = 0
+	if len(items) > 0 {
+		for i, item := range items {
+			if item.ProviderID == s.ModelProvider && item.ModelID == s.ModelID {
+				s.PaletteIndex = i
+				break
+			}
+		}
+	}
+	s.PopupOpen = true
+}
+
+func (s *State) SelectedModel() (providerID, modelID string) {
+	models := s.visibleModelItems()
+	if s.PaletteView != PaletteViewModels || s.PaletteIndex < 0 || s.PaletteIndex >= len(models) {
+		return "", ""
+	}
+	item := models[s.PaletteIndex]
+	return item.ProviderID, item.ModelID
+}
+
 func (s *State) SelectedSessionID() string {
-	if s.PaletteView != PaletteViewSessions || s.PaletteIndex < 0 || s.PaletteIndex >= len(s.SessionItems) {
+	sessions := s.visibleSessionItems()
+	if s.PaletteView != PaletteViewSessions || s.PaletteIndex < 0 || s.PaletteIndex >= len(sessions) {
 		return ""
 	}
-	return s.SessionItems[s.PaletteIndex].ID
+	return sessions[s.PaletteIndex].ID
+}
+
+func (s *State) commandItems() []paletteCommandItem {
+	modeLabel := "Switch to plan mode"
+	if s.Mode == "plan" {
+		modeLabel = "Switch to build mode"
+	}
+	return []paletteCommandItem{
+		{Title: "Change model", Detail: "Select model for future prompts", Action: PaletteActionChangeModel},
+		{Title: "Start new session", Detail: "Create a fresh opencode session", Action: PaletteActionNewSession},
+		{Title: modeLabel, Detail: "Current mode: " + s.Mode, Action: PaletteActionSwitchMode},
+		{Title: "Output percentage", Detail: "Left/Right adjust - current: " + strconv.Itoa(s.SplitOutputPercent()) + "%", Action: PaletteActionNone, Adjust: true},
+		{Title: "Sessions list", Detail: "Open existing opencode sessions", Action: PaletteActionSessionsList},
+	}
+}
+
+func (s *State) visibleCommandItems() []paletteCommandItem {
+	commands := s.commandItems()
+	query := normalizedQuery(s.PaletteQuery)
+	if query == "" {
+		return commands
+	}
+	items := make([]paletteCommandItem, 0, len(commands))
+	for _, command := range commands {
+		if paletteMatches(query, command.Title, command.Detail) {
+			items = append(items, command)
+		}
+	}
+	return items
+}
+
+func (s *State) visibleModelItems() []ModelListItem {
+	query := normalizedQuery(s.PaletteQuery)
+	if query == "" {
+		return s.ModelItems
+	}
+	items := make([]ModelListItem, 0, len(s.ModelItems))
+	for _, model := range s.ModelItems {
+		if paletteMatches(query, model.ModelName, model.ModelID, model.ProviderID, model.ProviderName) {
+			items = append(items, model)
+		}
+	}
+	return items
+}
+
+func (s *State) visibleSessionItems() []SessionListItem {
+	query := normalizedQuery(s.PaletteQuery)
+	if query == "" {
+		return s.SessionItems
+	}
+	items := make([]SessionListItem, 0, len(s.SessionItems))
+	for _, session := range s.SessionItems {
+		if paletteMatches(query, session.Title, session.ID) {
+			items = append(items, session)
+		}
+	}
+	return items
+}
+
+func normalizedQuery(query string) string {
+	return strings.ToLower(strings.TrimSpace(query))
+}
+
+func paletteMatches(query string, values ...string) bool {
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), query) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *State) SetModel(providerID, modelID string) {

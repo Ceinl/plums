@@ -40,3 +40,45 @@ func TestLoadRenderConfig(t *testing.T) {
 		t.Fatalf("load docs render config: %v", err)
 	}
 }
+
+func TestPaletteSearchSelectsFilteredCommand(t *testing.T) {
+	state := NewState(80, 24)
+	state.OpenPalette()
+	for _, ch := range "session" {
+		state.InsertPaletteRune(ch)
+	}
+
+	items := state.PaletteItems()
+	if len(items) != 2 {
+		t.Fatalf("expected 2 session commands, got %d", len(items))
+	}
+	if items[0].Title != "Start new session" {
+		t.Fatalf("expected first filtered command to be Start new session, got %q", items[0].Title)
+	}
+
+	state.MovePalette(1)
+	state.SelectPaletteItem()
+	if got := state.ConsumePendingAction(); got != PaletteActionSessionsList {
+		t.Fatalf("expected sessions list action, got %v", got)
+	}
+}
+
+func TestPaletteSearchSelectsFilteredModel(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetModelItems([]ModelListItem{
+		{ProviderID: "anthropic", ProviderName: "Anthropic", ModelID: "claude-sonnet-4", ModelName: "Claude Sonnet 4"},
+		{ProviderID: "openai", ProviderName: "OpenAI", ModelID: "gpt-5.5", ModelName: "GPT 5.5"},
+	})
+	for _, ch := range "gpt" {
+		state.InsertPaletteRune(ch)
+	}
+
+	items := state.PaletteItems()
+	if len(items) != 1 || items[0].Title != "GPT 5.5" {
+		t.Fatalf("expected GPT model only, got %#v", items)
+	}
+	providerID, modelID := state.SelectedModel()
+	if providerID != "openai" || modelID != "gpt-5.5" {
+		t.Fatalf("expected openai/gpt-5.5, got %s/%s", providerID, modelID)
+	}
+}

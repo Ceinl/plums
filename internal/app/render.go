@@ -248,6 +248,7 @@ func newPalettePanel(state *State, w, h layout.Unit) *components.Div {
 	popup := components.NewPopup()
 	popup.SetPanel(true)
 	popup.SetTitle(state.PaletteTitle())
+	popup.SetQuery(state.PaletteSearch())
 	popup.SetItems(state.PaletteItems(), state.PaletteIndex)
 	div.AppendChild(popup)
 	return div
@@ -275,6 +276,7 @@ func Render(state *State, cfg *RenderConfig) {
 	if overlayEnabled(state, cfg, "command_palette_popup") {
 		popup := components.NewPopup()
 		popup.SetTitle(state.PaletteTitle())
+		popup.SetQuery(state.PaletteSearch())
 		popup.SetItems(state.PaletteItems(), state.PaletteIndex)
 		popup.Layout(0, 0, state.width, state.height)
 		popup.Render(scr)
@@ -495,6 +497,7 @@ func buildComponent(state *State, node LayoutNode) (layout.Component, error) {
 		popup := components.NewPopup()
 		popup.SetPanel(true)
 		popup.SetTitle(state.PaletteTitle())
+		popup.SetQuery(state.PaletteSearch())
 		popup.SetItems(state.PaletteItems(), state.PaletteIndex)
 		return popup, nil
 	case "info_tabs":

@@ -12,6 +12,12 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		case keyboard.KeyEscape:
 			state.ClosePalette()
 			return true, false
+		case keyboard.KeyBackspace:
+			state.DeletePaletteRune()
+			return true, false
+		case keyboard.KeyDelete:
+			state.ClearPaletteSearch()
+			return true, false
 		case keyboard.KeyArrowUp:
 			state.MovePalette(-1)
 			return true, false
@@ -40,28 +46,19 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 				state.ClosePalette()
 				return true, false
 			}
-			switch ev.Ch {
-			case 'h', 'H':
-				if state.IsOutputPercentageSelected() {
-					state.AdjustSelectedPaletteItem(1)
-					return true, false
-				}
-				state.MovePalette(-1)
-				return true, false
-			case 'k', 'K':
-				state.MovePalette(-1)
-				return true, false
-			case 'l', 'L':
-				if state.IsOutputPercentageSelected() {
-					state.AdjustSelectedPaletteItem(-1)
-					return true, false
-				}
-				state.MovePalette(1)
-				return true, false
-			case 'j', 'J':
+			if ev.Ctrl && (ev.Ch == 'N' || ev.Ch == 'n') {
 				state.MovePalette(1)
 				return true, false
 			}
+			if ev.Ctrl && (ev.Ch == 'K' || ev.Ch == 'k') {
+				state.ClearPaletteSearch()
+				return true, false
+			}
+			if ev.Ctrl || ev.Alt {
+				return true, false
+			}
+			state.InsertPaletteRune(ev.Ch)
+			return true, false
 		}
 		return true, false
 	}
