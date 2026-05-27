@@ -136,21 +136,19 @@ type sseResult struct {
 	completed bool
 }
 
+const DefaultBaseURL = "http://127.0.0.1:4096"
+
 // ── Constructors ──────────────────────────────────────────────────────────────
 
 func NewClient() *Client {
-	return &Client{
-		baseURL: "http://127.0.0.1:4096",
-		httpClient: &http.Client{
-			Timeout: 300 * time.Second,
-		},
-		sseClient: &http.Client{
-			Timeout: 0, // no timeout – SSE streams run until the server signals idle
-		},
-	}
+	return NewClientWithURL(DefaultBaseURL)
 }
 
 func NewClientWithURL(baseURL string) *Client {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if baseURL == "" {
+		baseURL = DefaultBaseURL
+	}
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{

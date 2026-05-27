@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,6 +18,8 @@ import (
 	"plums/internal/keyboard"
 	"plums/internal/ui"
 )
+
+const plumsConfigPath = ".agents/plums/config/config.toml"
 
 type startupResult struct {
 	session *ai.Session
@@ -65,7 +69,13 @@ func main() {
 
 	state := app.NewState(t.W, t.H)
 
-	client := ai.NewClient()
+	opencodeServerURL, err := loadOpencodeServerURL(plumsConfigPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load opencode server URL: %v\n", err)
+		os.Exit(1)
+	}
+	debuglog.Printf("config: opencode server URL %s", opencodeServerURL)
+	client := ai.NewClientWithURL(opencodeServerURL)
 	var serverProc *ai.ServerProcess
 	defer func() { serverProc.Stop() }()
 
@@ -156,6 +166,60 @@ func main() {
 			app.Render(state, renderConfig)
 		}
 	}
+}
+
+func loadOpencodeServerURL(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ai.DefaultBaseURL, nil
+		}
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+
+	section := ""
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "["), "]"))
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(key) != "opencode_server_url" || section != "opencode" {
+			continue
+		}
+		url, err := parseTomlString(value)
+		if err != nil {
+			return "", fmt.Errorf("%s opencode.opencode_server_url: %w", path, err)
+		}
+		if url == "" {
+			return "", fmt.Errorf("%s opencode.opencode_server_url is empty", path)
+		}
+		return url, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return ai.DefaultBaseURL, nil
+}
+
+func parseTomlString(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if i := strings.Index(value, " #"); i >= 0 {
+		value = strings.TrimSpace(value[:i])
+	}
+	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+		return "", fmt.Errorf("expected quoted string")
+	}
+	return strings.TrimSpace(value[1 : len(value)-1]), nil
 }
 
 func resolveConfigPath(global, local bool) (string, error) {

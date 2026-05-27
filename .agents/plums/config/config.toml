@@ -1,6 +1,9 @@
 default_layout = "split"
 hide_thinking = true
 
+[opencode]
+opencode_server_url = "http://127.0.0.1:4096"
+
 [split]
 left_width = 50
 
