@@ -31,3 +31,12 @@ func TestScrollOutputVisibleUsesRenderedMax(t *testing.T) {
 		t.Fatalf("expected unclamped scroll while max is invalid, got %d", got)
 	}
 }
+
+func TestLoadRenderConfig(t *testing.T) {
+	if _, err := LoadRenderConfig(""); err != nil {
+		t.Fatalf("load built-in render config: %v", err)
+	}
+	if _, err := LoadRenderConfig("../../docs/config/layout.json"); err != nil {
+		t.Fatalf("load docs render config: %v", err)
+	}
+}

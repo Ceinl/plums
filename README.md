@@ -20,7 +20,7 @@ go run .
 | Key | Action |
 |---|---|
 | `Tab` | Switch layout |
-| `Alt + Enter` | Send message |
+| `Shift + Enter` | Send message |
 | `Ctrl + S` | Submit input |
 | `Ctrl + C` | Quit |
 | `Ctrl + A` | Select all |

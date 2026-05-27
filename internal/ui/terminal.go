@@ -13,8 +13,13 @@ const (
 	SHOW_CURSOR   = "\x1b[?25h"
 	ENABLE_MOUSE  = "\x1b[?1000h\x1b[?1006h"
 	DISABLE_MOUSE = "\x1b[?1006l\x1b[?1000l"
-	CLEAR_SCREEN  = "\x1b[2J"
-	MOVE_CURSOR   = "\x1b[H"
+	// Ask compatible terminals to distinguish modified keys like Shift+Enter.
+	ENABLE_KITTY_KEYBOARD     = "\x1b[>1u"
+	DISABLE_KITTY_KEYBOARD    = "\x1b[<u"
+	ENABLE_MODIFY_OTHER_KEYS  = "\x1b[>4;2m"
+	DISABLE_MODIFY_OTHER_KEYS = "\x1b[>4;0m"
+	CLEAR_SCREEN              = "\x1b[2J"
+	MOVE_CURSOR               = "\x1b[H"
 )
 
 type Terminal struct {
@@ -29,14 +34,15 @@ func NewTerminal(fd int) *Terminal {
 	}
 }
 
-func (t *Terminal) Enter() {
+func (t *Terminal) Enter() error {
 	oldstate, err := term.MakeRaw(t.fd)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	t.RefreshSize()
 	t.oldstate = oldstate
-	fmt.Print(HIDE_CURSOR, OPEN_ALT, ENABLE_MOUSE, MOVE_CURSOR, CLEAR_SCREEN)
+	fmt.Print(HIDE_CURSOR, OPEN_ALT, ENABLE_MOUSE, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, MOVE_CURSOR, CLEAR_SCREEN)
+	return nil
 }
 
 func (t *Terminal) Exit() {
@@ -44,7 +50,7 @@ func (t *Terminal) Exit() {
 		return
 	}
 
-	fmt.Print(DISABLE_MOUSE + SHOW_CURSOR + CLOSE_ALT)
+	fmt.Print(DISABLE_MODIFY_OTHER_KEYS + DISABLE_KITTY_KEYBOARD + DISABLE_MOUSE + SHOW_CURSOR + CLOSE_ALT)
 	term.Restore(t.fd, t.oldstate)
 }
 

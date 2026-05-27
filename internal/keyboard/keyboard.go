@@ -56,44 +56,44 @@ const (
 	KeyUnknown
 )
 
+type byteReader struct {
+	in <-chan byte
+}
+
+func (r *byteReader) readByte(ctx context.Context) (byte, bool) {
+	select {
+	case <-ctx.Done():
+		return 0, false
+	case b, ok := <-r.in:
+		return b, ok
+	}
+}
+
+func (r *byteReader) readByteTimeout(timeout time.Duration) (byte, bool) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case b, ok := <-r.in:
+		return b, ok
+	case <-timer.C:
+		return 0, false
+	}
+}
+
 func Listen(ctx context.Context) <-chan Event {
+	bytes := readStdinBytes(ctx)
 	out := make(chan Event)
 	go func() {
 		defer close(out)
-		buf := make([]byte, 1)
+		reader := &byteReader{in: bytes}
 		for {
-			select {
-			case <-ctx.Done():
+			b, ok := reader.readByte(ctx)
+			if !ok {
 				return
-			default:
-			}
-			n, err := os.Stdin.Read(buf)
-			if err != nil || n == 0 {
-				continue
-			}
-			b := buf[0]
-
-			if b == byteEscape {
-				ev := readEscapeSequence(buf)
-				select {
-				case <-ctx.Done():
-					return
-				case out <- ev:
-				}
-				continue
 			}
 
-			if b&0x80 != 0 {
-				ev := readUTF8Sequence(b)
-				select {
-				case <-ctx.Done():
-					return
-				case out <- ev:
-				}
-				continue
-			}
-
-			ev := parseSingleByte(b)
+			ev := parseByte(reader, b)
 			select {
 			case <-ctx.Done():
 				return
@@ -104,24 +104,37 @@ func Listen(ctx context.Context) <-chan Event {
 	return out
 }
 
-func readByteTimeout(timeout time.Duration) (byte, bool) {
-	ch := make(chan byte, 1)
+func readStdinBytes(ctx context.Context) <-chan byte {
+	out := make(chan byte, 64)
 	go func() {
+		defer close(out)
 		buf := make([]byte, 1)
-		n, _ := os.Stdin.Read(buf)
-		if n > 0 {
-			ch <- buf[0]
+		for {
+			n, err := os.Stdin.Read(buf)
+			if err != nil || n == 0 {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case out <- buf[0]:
+			}
 		}
 	}()
-	select {
-	case b := <-ch:
-		return b, true
-	case <-time.After(timeout):
-		return 0, false
-	}
+	return out
 }
 
-func readUTF8Sequence(first byte) Event {
+func parseByte(reader *byteReader, b byte) Event {
+	if b == byteEscape {
+		return readEscapeSequence(reader)
+	}
+	if b&0x80 != 0 {
+		return readUTF8Sequence(reader, b)
+	}
+	return parseSingleByte(b)
+}
+
+func readUTF8Sequence(reader *byteReader, first byte) Event {
 	n := utf8Bytes(first)
 	if n == 1 {
 		r, _ := utf8.DecodeRune([]byte{first})
@@ -130,7 +143,7 @@ func readUTF8Sequence(first byte) Event {
 	buf := make([]byte, n)
 	buf[0] = first
 	for i := 1; i < n; i++ {
-		b, ok := readByteTimeout(50 * time.Millisecond)
+		b, ok := reader.readByteTimeout(50 * time.Millisecond)
 		if !ok {
 			break
 		}
@@ -156,27 +169,27 @@ func utf8Bytes(first byte) int {
 	return 1
 }
 
-func readEscapeSequence(buf []byte) Event {
+func readEscapeSequence(reader *byteReader) Event {
 	// We already read ESC. Read the next byte with timeout.
-	next, ok := readByteTimeout(50 * time.Millisecond)
+	next, ok := reader.readByteTimeout(50 * time.Millisecond)
 	if !ok {
 		return Event{Type: KeyEscape}
 	}
 
 	if next == byteBracket {
 		// CSI sequence: ESC [ ... final_byte
-		return readCSI()
+		return readCSI(reader)
 	}
 
 	if next == byteEscape {
-		ev := readEscapeSequence(nil)
+		ev := readEscapeSequence(reader)
 		ev.Alt = true
 		return ev
 	}
 
 	if next == byteO {
 		// SS3 sequence: ESC O X
-		next2, ok2 := readByteTimeout(50 * time.Millisecond)
+		next2, ok2 := reader.readByteTimeout(50 * time.Millisecond)
 		if !ok2 {
 			return Event{Type: KeyUnknown}
 		}
@@ -194,7 +207,7 @@ func readEscapeSequence(buf []byte) Event {
 	}
 
 	if next&0x80 != 0 {
-		ev := readUTF8Sequence(next)
+		ev := readUTF8Sequence(reader, next)
 		ev.Alt = true
 		return ev
 	}
@@ -202,13 +215,13 @@ func readEscapeSequence(buf []byte) Event {
 	return Event{Type: KeyUnknown}
 }
 
-func readCSI() Event {
+func readCSI(reader *byteReader) Event {
 	// Read parameters and final byte
 	params := make([]byte, 0, 8)
 	final := byte(0)
 
 	for {
-		b, ok := readByteTimeout(50 * time.Millisecond)
+		b, ok := reader.readByteTimeout(50 * time.Millisecond)
 		if !ok {
 			break
 		}
@@ -249,9 +262,13 @@ func parseCSI(params []byte, final byte) Event {
 		paramNums = append(paramNums, 1)
 	}
 
-	shift := modifier == 2 || modifier == 4 || modifier == 6 || modifier == 8
-	ctrl := modifier == 5 || modifier == 6 || modifier == 7 || modifier == 8
-	alt := modifier == 3 || modifier == 4 || modifier == 7 || modifier == 8
+	shift, ctrl, alt := modifierFlags(modifier)
+
+	if final == '~' && len(paramNums) >= 3 && paramNums[0] == byteEscape {
+		// xterm modifyOtherKeys protocol: ESC [ 27 ; modifier ; codepoint ~.
+		shift, ctrl, alt = modifierFlags(paramNums[1])
+		return modifiedCodepointEvent(paramNums[2], shift, ctrl, alt)
+	}
 
 	switch final {
 	case 'A':
@@ -266,6 +283,10 @@ func parseCSI(params []byte, final byte) Event {
 		return Event{Type: KeyHome, Shift: shift, Ctrl: ctrl, Alt: alt}
 	case 'F':
 		return Event{Type: KeyEnd, Shift: shift, Ctrl: ctrl, Alt: alt}
+	case 'u':
+		// CSI u keyboard protocol, used by terminals that distinguish
+		// modified keys from plain keys: ESC [ codepoint ; modifier u.
+		return modifiedCodepointEvent(paramNums[0], shift, ctrl, alt)
 	case '~':
 		code := paramNums[0]
 		switch code {
@@ -283,6 +304,28 @@ func parseCSI(params []byte, final byte) Event {
 	}
 
 	return Event{Type: KeyUnknown}
+}
+
+func modifierFlags(modifier int) (shift, ctrl, alt bool) {
+	shift = modifier == 2 || modifier == 4 || modifier == 6 || modifier == 8
+	ctrl = modifier == 5 || modifier == 6 || modifier == 7 || modifier == 8
+	alt = modifier == 3 || modifier == 4 || modifier == 7 || modifier == 8
+	return shift, ctrl, alt
+}
+
+func modifiedCodepointEvent(codepoint int, shift, ctrl, alt bool) Event {
+	switch codepoint {
+	case byteEnter:
+		return Event{Type: KeyEnter, Shift: shift, Ctrl: ctrl, Alt: alt}
+	case byteEscape:
+		return Event{Type: KeyEscape, Shift: shift, Ctrl: ctrl, Alt: alt}
+	}
+
+	ch := rune(codepoint)
+	if ctrl && (ch == 'c' || ch == 'C') {
+		return Event{Type: KeyCtrlC, Shift: shift, Ctrl: true, Alt: alt, Ch: ch}
+	}
+	return Event{Type: KeyRune, Ch: ch, Shift: shift, Ctrl: ctrl, Alt: alt}
 }
 
 func parseSGRMouse(params []byte, final byte) Event {

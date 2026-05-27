@@ -7,21 +7,18 @@ BIN_DIR := bin
 BIN := $(BIN_DIR)/$(APP)
 GO := go
 
-LOCAL_CONFIG ?= ./config.json
-PROD_CONFIG ?= $(HOME)/.config/plums/config.json
-
 run:
 	$(GO) run .
 
 dev:
 	@echo "Dev run"
-	@echo "Config: $(LOCAL_CONFIG)"
-	$(GO) run . --config $(LOCAL_CONFIG)
+	@echo "Config: ./.agents/plums/config/layout.json"
+	$(GO) run . --config-local
 
 prod:
 	@echo "Prod run"
-	@echo "Config: $(PROD_CONFIG)"
-	$(GO) run . --config $(PROD_CONFIG)
+	@echo "Config: $(HOME)/.config/plums/config/layout.json"
+	$(GO) run . --config-global
 
 test:
 	$(GO) test ./...
