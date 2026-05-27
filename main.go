@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -115,7 +116,7 @@ func main() {
 							sctx, cancelStream = context.WithCancel(ctx)
 							state.SetStreaming(true)
 							state.ClearAiOutput()
-							aiStream = client.SendMessage(sctx, state.SessionID, input)
+							aiStream = client.SendMessage(sctx, state.SessionID, input, state.ModelProvider, state.ModelID)
 						} else {
 							state.AddMessage("system", "no active session – is opencode serve running?")
 						}
@@ -217,8 +218,6 @@ func applySession(state *app.State, session *ai.Session) {
 	state.SetSessionTitle(session.Title)
 	if session.Model != nil {
 		state.SetModel(session.Model.ProviderID, session.Model.ID)
-	} else {
-		state.SetModel("", "")
 	}
 }
 
@@ -286,8 +285,7 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 			return
 		}
 		applySession(state, session)
-		if session.Model == nil {
-			state.SetModel("", "")
+		if session.Model == nil && state.ModelID == "" {
 			applyRecentModel(ctx, state, client)
 		}
 		state.ClearConversation()
@@ -296,7 +294,21 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 		state.ToggleMode()
 		state.AddMessage("system", "switched to "+state.Mode+" mode")
 	case app.PaletteActionChangeModel:
-		state.AddMessage("system", "model switching needs opencode model API wiring")
+		providersCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		providers, connected, err := client.ListProviders(providersCtx)
+		cancel()
+		if err != nil {
+			state.AddMessage("system", fmt.Sprintf("failed to list models: %v", err))
+			return
+		}
+		state.SetModelItems(modelItemsFromProviders(providers, connected, state.ModelProvider, state.ModelID))
+	case app.PaletteActionSelectModel:
+		providerID, modelID := state.SelectedModel()
+		if providerID == "" || modelID == "" {
+			return
+		}
+		state.SetModel(providerID, modelID)
+		state.AddMessage("system", "switched model to "+providerID+"/"+modelID)
 	case app.PaletteActionSessionsList:
 		listCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		sessions, err := client.ListSessions(listCtx)
@@ -349,4 +361,43 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 		}
 		state.SetConversation(conversation)
 	}
+}
+
+func modelItemsFromProviders(providers []ai.Provider, connected []string, currentProvider, currentModel string) []app.ModelListItem {
+	connectedSet := make(map[string]bool, len(connected))
+	for _, providerID := range connected {
+		connectedSet[providerID] = true
+	}
+	onlyConnected := len(connectedSet) > 0
+
+	items := []app.ModelListItem{}
+	for _, provider := range providers {
+		if onlyConnected && !connectedSet[provider.ID] {
+			continue
+		}
+		modelIDs := make([]string, 0, len(provider.Models))
+		for modelID := range provider.Models {
+			modelIDs = append(modelIDs, modelID)
+		}
+		sort.Strings(modelIDs)
+		for _, modelID := range modelIDs {
+			model := provider.Models[modelID]
+			id := model.ID
+			if id == "" {
+				id = modelID
+			}
+			providerID := model.ProviderID
+			if providerID == "" {
+				providerID = provider.ID
+			}
+			items = append(items, app.ModelListItem{
+				ProviderID:   providerID,
+				ProviderName: provider.Name,
+				ModelID:      id,
+				ModelName:    model.Name,
+				Current:      providerID == currentProvider && id == currentModel,
+			})
+		}
+	}
+	return items
 }

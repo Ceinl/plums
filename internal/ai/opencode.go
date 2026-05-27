@@ -39,6 +39,24 @@ type ModelRef struct {
 	Variant    string `json:"variant"`
 }
 
+type MessageModelRef struct {
+	ProviderID string `json:"providerID"`
+	ModelID    string `json:"modelID"`
+}
+
+type Provider struct {
+	ID     string           `json:"id"`
+	Name   string           `json:"name"`
+	Models map[string]Model `json:"models"`
+}
+
+type Model struct {
+	ID         string `json:"id"`
+	ProviderID string `json:"providerID"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+}
+
 // Part is a content part within a message.
 type Part struct {
 	Type string `json:"type"`
@@ -60,7 +78,13 @@ type createSessionBody struct {
 }
 
 type sendMessageBody struct {
-	Parts []Part `json:"parts"`
+	Model *MessageModelRef `json:"model,omitempty"`
+	Parts []Part           `json:"parts"`
+}
+
+type providerListResponse struct {
+	All       []Provider `json:"all"`
+	Connected []string   `json:"connected"`
 }
 
 // ── SSE event types ───────────────────────────────────────────────────────────
@@ -241,15 +265,35 @@ func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]messageR
 	return messages, nil
 }
 
+func (c *Client) ListProviders(ctx context.Context) ([]Provider, []string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/provider", nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("opencode server: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("opencode server returned status %d", resp.StatusCode)
+	}
+	var providers providerListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&providers); err != nil {
+		return nil, nil, err
+	}
+	return providers.All, providers.Connected, nil
+}
+
 // SendMessage streams the assistant's reply token-by-token via the returned
 // channel. It first tries the SSE-based approach (prompt_async + /event); if
 // that fails (404 or connection error) it falls back to the synchronous
 // /session/{id}/message endpoint.
-func (c *Client) SendMessage(ctx context.Context, sessionID, text string) <-chan string {
+func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, modelID string) <-chan string {
 	out := make(chan string)
 	go func() {
 		defer close(out)
-		result, err := c.sendWithSSE(ctx, sessionID, text, out)
+		result, err := c.sendWithSSE(ctx, sessionID, text, providerID, modelID, out)
 		if err == nil {
 			return
 		}
@@ -258,7 +302,7 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text string) <-chan
 		}
 		if !result.emitted {
 			// SSE path unavailable before streaming tokens; fall back safely.
-			c.sendSync(ctx, sessionID, text, out)
+			c.sendSync(ctx, sessionID, text, providerID, modelID, out)
 			return
 		}
 		select {
@@ -275,7 +319,7 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text string) <-chan
 // generation via POST /session/{id}/prompt_async, then reads events until
 // session.idle arrives. It reports whether tokens were emitted so the caller
 // only falls back to sendSync when doing so cannot duplicate output.
-func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out chan<- string) (sseResult, error) {
+func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, modelID string, out chan<- string) (sseResult, error) {
 	var result sseResult
 
 	// 1. Open the SSE stream first so we don't miss any events.
@@ -299,6 +343,9 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 	// 2. Send the prompt asynchronously.
 	b := sendMessageBody{
 		Parts: []Part{{Type: "text", Text: text}},
+	}
+	if providerID != "" && modelID != "" {
+		b.Model = &MessageModelRef{ProviderID: providerID, ModelID: modelID}
 	}
 	bodyData, err := json.Marshal(b)
 	if err != nil {
@@ -447,9 +494,12 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text string, out ch
 
 // sendSync is the legacy fallback: POSTs to /session/{id}/message, waits for
 // the full JSON response, then emits the text character by character.
-func (c *Client) sendSync(ctx context.Context, sessionID, text string, out chan<- string) {
+func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, modelID string, out chan<- string) {
 	b := sendMessageBody{
 		Parts: []Part{{Type: "text", Text: text}},
+	}
+	if providerID != "" && modelID != "" {
+		b.Model = &MessageModelRef{ProviderID: providerID, ModelID: modelID}
 	}
 	data, err := json.Marshal(b)
 	if err != nil {
