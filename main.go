@@ -25,12 +25,26 @@ type startupResult struct {
 func main() {
 	defer debuglog.Close()
 
-	configPath := flag.String("config", "", "path to plums config file")
+	configGlobal := flag.Bool("config-global", false, "use global plums layout config")
+	configGlobalShort := flag.Bool("cg", false, "use global plums layout config")
+	configLocal := flag.Bool("config-local", false, "use local plums layout config")
+	configLocalShort := flag.Bool("cl", false, "use local plums layout config")
 	flag.Parse()
-	if *configPath != "" {
-		debuglog.Printf("config: using %s", *configPath)
+
+	configPath, err := resolveConfigPath(*configGlobal || *configGlobalShort, *configLocal || *configLocalShort)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	renderConfig, err := app.LoadRenderConfig(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load layout config: %v\n", err)
+		os.Exit(1)
+	}
+	if configPath != "" {
+		debuglog.Printf("config: using %s", configPath)
 	} else {
-		debuglog.Printf("config: no config file specified")
+		debuglog.Printf("config: using built-in layout config")
 	}
 
 	t := ui.NewTerminal(int(os.Stdin.Fd()))
@@ -55,7 +69,7 @@ func main() {
 	state.SetServerStarting(true)
 	go startOpencode(ctx, client, startupCh)
 
-	app.Render(state)
+	app.Render(state, renderConfig)
 
 	// Spinner ticker: re-render at 80 ms so the Braille animation is smooth
 	// even while the model is thinking (no tokens arriving yet).
@@ -80,7 +94,7 @@ func main() {
 				handlePaletteAction(ctx, state, client, action)
 			}
 			if handled {
-				if ev.Type == keyboard.KeyEnter && ev.Alt {
+				if ev.Type == keyboard.KeyEnter && ev.Shift {
 					input := state.ConsumeSubmittedInput()
 					if input != "" {
 						if state.SessionID != "" {
@@ -97,22 +111,22 @@ func main() {
 						}
 					}
 				}
-				app.Render(state)
+				app.Render(state, renderConfig)
 			}
 		case s, ok := <-aiStream:
 			if ok {
 				state.AppendAiOutput(s)
-				app.Render(state)
+				app.Render(state, renderConfig)
 			} else {
 				state.FinalizeAiOutput()
 				refreshSessionModel(ctx, state, client)
 				aiStream = nil
 				cancelStream = nil
-				app.Render(state)
+				app.Render(state, renderConfig)
 			}
 		case <-spinTicker.C:
 			if state.IsStreaming() {
-				app.Render(state)
+				app.Render(state, renderConfig)
 			}
 		case result := <-startupCh:
 			state.SetServerStarting(false)
@@ -124,13 +138,30 @@ func main() {
 				applySession(state, result.session)
 				applyRecentModel(ctx, state, client)
 			}
-			app.Render(state)
+			app.Render(state, renderConfig)
 		case <-sigCh:
 			t.RefreshSize()
 			state.Resize(t.W, t.H)
-			app.Render(state)
+			app.Render(state, renderConfig)
 		}
 	}
+}
+
+func resolveConfigPath(global, local bool) (string, error) {
+	if global && local {
+		return "", fmt.Errorf("use only one of --config-global/-cg or --config-local/-cl")
+	}
+	if local {
+		return "./.agents/plums/config/layout.json", nil
+	}
+	if global {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return home + "/.config/plums/config/layout.json", nil
+	}
+	return "", nil
 }
 
 func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupResult) {

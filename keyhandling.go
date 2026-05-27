@@ -70,7 +70,7 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 	case keyboard.KeyCtrlC:
 		return false, true
 	case keyboard.KeyEnter:
-		if !ev.Alt {
+		if !ev.Shift {
 			ed.InsertNewline()
 			return true, false
 		}
