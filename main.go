@@ -46,10 +46,25 @@ func main() {
 		fmt.Fprintf(os.Stderr, "failed to load layout config: %v\n", err)
 		os.Exit(1)
 	}
+	commandConfigPath, err := resolveCommandsConfigPath(configPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	commandConfig, err := app.LoadCommandConfig(commandConfigPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load command config: %v\n", err)
+		os.Exit(1)
+	}
 	if configPath != "" {
 		debuglog.Printf("config: using %s", configPath)
 	} else {
 		debuglog.Printf("config: using built-in layout config")
+	}
+	if commandConfigPath != "" {
+		debuglog.Printf("config: using %s", commandConfigPath)
+	} else {
+		debuglog.Printf("config: using built-in command config")
 	}
 
 	t := ui.NewTerminal(int(os.Stdin.Fd()))
@@ -68,6 +83,12 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGWINCH)
 
 	state := app.NewState(t.W, t.H)
+	state.SetCommandConfig(commandConfig)
+	if skills, err := app.DiscoverSkills(""); err == nil {
+		state.SetAvailableSkills(skills)
+	} else {
+		debuglog.Printf("skills: discovery failed: %v", err)
+	}
 
 	opencodeServerURL, err := loadOpencodeServerURL(plumsConfigPath)
 	if err != nil {
@@ -161,9 +182,12 @@ func main() {
 			}
 			app.Render(state, renderConfig)
 		case <-sigCh:
-			t.RefreshSize()
-			state.Resize(t.W, t.H)
-			app.Render(state, renderConfig)
+			if err := t.RefreshSize(); err == nil {
+				state.Resize(t.W, t.H)
+				app.Render(state, renderConfig)
+			} else {
+				debuglog.Printf("terminal: resize failed: %v", err)
+			}
 		}
 	}
 }
@@ -239,6 +263,20 @@ func resolveConfigPath(global, local bool) (string, error) {
 	return "", nil
 }
 
+func resolveCommandsConfigPath(layoutConfigPath string) (string, error) {
+	if layoutConfigPath == "" {
+		return "", nil
+	}
+	path := strings.TrimSuffix(layoutConfigPath, "layout.json") + "commands.json"
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return path, nil
+}
+
 func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupResult) {
 	var serverProc *ai.ServerProcess
 	debuglog.Printf("startup: checking opencode health")
@@ -252,7 +290,7 @@ func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupRes
 		}
 		serverProc = proc
 		debuglog.Printf("startup: started opencode server process")
-		if err := ai.WaitForHealth(ctx, client, 10*time.Second); err != nil {
+		if err := ai.WaitForHealthOrExit(ctx, client, serverProc, 10*time.Second); err != nil {
 			debuglog.Printf("startup: wait for health failed: %v", err)
 			serverProc.Stop()
 			out <- startupResult{err: fmt.Errorf("failed to start opencode server: %w", err)}
@@ -342,6 +380,8 @@ func refreshSessionModel(ctx context.Context, state *app.State, client *ai.Clien
 
 func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Client, action app.PaletteAction) {
 	switch action {
+	case app.PaletteActionOpenPalette:
+		state.OpenPalette()
 	case app.PaletteActionNewSession:
 		session, err := client.CreateSession(ctx)
 		if err != nil {
@@ -386,6 +426,13 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 			items[i] = app.SessionListItem{ID: session.ID, Title: session.Title, Current: session.ID == state.SessionID}
 		}
 		state.SetSessionItems(items)
+	case app.PaletteActionSkillsList:
+		skills, err := app.DiscoverSkills("")
+		if err != nil {
+			state.AddMessage("system", fmt.Sprintf("failed to list skills: %v", err))
+			return
+		}
+		state.SetSkillItems(skills)
 	case app.PaletteActionSelectSession:
 		sessionID := state.SelectedSessionID()
 		if sessionID == "" {
@@ -424,6 +471,12 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 			}
 		}
 		state.SetConversation(conversation)
+	case app.PaletteActionSelectSkill:
+		skill, ok := state.SelectedSkill()
+		if !ok {
+			return
+		}
+		state.InsertSkillMarker(skill)
 	}
 }
 

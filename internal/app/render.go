@@ -273,7 +273,7 @@ func Render(state *State, cfg *RenderConfig) {
 
 	root.Layout(0, 0, state.width, state.height)
 	root.Render(scr)
-	renderSlashCommandDropdown(state, cfg)
+	renderEditorDropdown(state, cfg)
 	if overlayEnabled(state, cfg, "command_palette_popup") {
 		popup := components.NewPopup()
 		popup.SetTitle(state.PaletteTitle())
@@ -305,10 +305,18 @@ func layoutName(t LayoutType) string {
 	}
 }
 
-func renderSlashCommandDropdown(state *State, cfg *RenderConfig) {
+func renderEditorDropdown(state *State, cfg *RenderConfig) {
 	if !overlayEnabled(state, cfg, "slash_command_dropdown") {
 		return
 	}
+	if suggestions := state.SkillSuggestions(); len(suggestions) > 0 {
+		renderSkillDropdown(state, cfg, suggestions)
+		return
+	}
+	renderSlashCommandDropdown(state, cfg)
+}
+
+func renderSlashCommandDropdown(state *State, cfg *RenderConfig) {
 	commands := state.SlashCommands()
 	if len(commands) == 0 {
 		return
@@ -366,6 +374,65 @@ func renderSlashCommandDropdown(state *State, cfg *RenderConfig) {
 	}
 }
 
+func renderSkillDropdown(state *State, cfg *RenderConfig, skills []SkillSuggestion) {
+	cx, cy := state.Editor.CursorScreenPos()
+	overlay := cfg.Overlays["slash_command_dropdown"]
+	w := overlay.Width.Preferred
+	if w == 0 {
+		w = 44
+	}
+	maxW := resolveOverlayMax(state, overlay.Width.Max, state.width-2)
+	if w > maxW {
+		w = maxW
+	}
+	minW := overlay.Width.Min
+	if minW == 0 {
+		minW = 20
+	}
+	if w < minW {
+		return
+	}
+	x := cx
+	if x+w > state.width {
+		x = state.width - w
+	}
+	if x < 0 {
+		x = 0
+	}
+	visible := len(skills)
+	if visible > 8 {
+		visible = 8
+	}
+	y := cy + 1
+	if y+visible+1 > state.height {
+		y = cy - visible - 1
+	}
+	if y < 0 {
+		return
+	}
+
+	bg := ansiBgColor(overlay.Style.Background, 30, 27, 38)
+	fg := ansiFgColor(overlay.Style.Foreground, 232, 229, 241)
+	muted := ansiFgColor(overlay.Style.Muted, 159, 153, 176)
+	accent := ansiFgColor(overlay.Style.Accent, 247, 184, 90)
+	for row := 0; row < visible+1 && y+row < state.height; row++ {
+		for col := 0; col < w; col++ {
+			scr.Set(x+col, y+row, ' ', fg, bg, "")
+		}
+	}
+	drawOverlayText(x+1, y, w-2, "skills", muted, bg)
+	for i := 0; i < visible; i++ {
+		skill := skills[i]
+		row := y + i + 1
+		name := "/skill " + skill.Name
+		drawOverlayText(x+1, row, w-2, name, accent, bg)
+		detailX := x + 2 + len(name)
+		if detailX < x+w-1 {
+			drawOverlayText(detailX, row, x+w-detailX-1, skill.Description, muted, bg)
+		}
+	}
+}
+
 func overlayEnabled(state *State, cfg *RenderConfig, name string) bool {
 	if cfg == nil || cfg.Overlays == nil {
 		return false
@@ -376,7 +443,7 @@ func overlayEnabled(state *State, cfg *RenderConfig, name string) bool {
 	}
 	switch name {
 	case "slash_command_dropdown":
-		return !state.PopupOpen && len(state.SlashCommands()) > 0
+		return !state.PopupOpen && (len(state.SlashCommands()) > 0 || len(state.SkillSuggestions()) > 0)
 	case "command_palette_popup":
 		return state.PopupOpen && (state.EffectiveLayout() != LayoutSplit || state.width < MinSplitLayoutWidth)
 	default:
