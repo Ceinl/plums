@@ -5,6 +5,7 @@ import (
 
 	"plums/internal/app"
 	"plums/internal/keyboard"
+	"plums/internal/screen"
 )
 
 func TestShiftEnterSubmitsInput(t *testing.T) {
@@ -97,5 +98,93 @@ func TestCtrlZUndoesPastedTextAsOneChange(t *testing.T) {
 	}
 	if got := state.Editor.GetContent(); got != "before " {
 		t.Fatalf("expected one undo to remove full paste, got %q", got)
+	}
+}
+
+func TestMouseDragCopiesOutputSelection(t *testing.T) {
+	state := app.NewState(80, 24)
+	state.Layout = app.LayoutDefault
+	state.AppendAiOutput("hello world")
+
+	root := app.CreateDefaultLayout(state)
+	root.Layout(0, 0, 80, 24)
+	root.Render(screen.NewScreen(80, 24))
+
+	var copied string
+	oldWriteClipboard := writeClipboard
+	writeClipboard = func(text string) error {
+		copied = text
+		return nil
+	}
+	t.Cleanup(func() { writeClipboard = oldWriteClipboard })
+
+	for _, ev := range []keyboard.Event{
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 1},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 1},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 1},
+	} {
+		handled, quit := handleKey(state, ev)
+		if !handled || quit {
+			t.Fatalf("expected mouse event handled without quit, event=%#v handled=%v quit=%v", ev, handled, quit)
+		}
+	}
+	if copied != "hello" {
+		t.Fatalf("expected output selection copied, got %q", copied)
+	}
+}
+
+func TestOutputMouseSelectionCopiesWhenReleasedOutsideOutput(t *testing.T) {
+	state := app.NewState(80, 24)
+	state.Layout = app.LayoutDefault
+	state.AppendAiOutput("hello world")
+
+	root := app.CreateDefaultLayout(state)
+	root.Layout(0, 0, 80, 24)
+	root.Render(screen.NewScreen(80, 24))
+
+	var copied string
+	oldWriteClipboard := writeClipboard
+	writeClipboard = func(text string) error {
+		copied = text
+		return nil
+	}
+	t.Cleanup(func() { writeClipboard = oldWriteClipboard })
+
+	for _, ev := range []keyboard.Event{
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 1},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 20},
+	} {
+		handled, quit := handleKey(state, ev)
+		if !handled || quit {
+			t.Fatalf("expected mouse event handled without quit, event=%#v handled=%v quit=%v", ev, handled, quit)
+		}
+	}
+	if copied != "hello world" {
+		t.Fatalf("expected output selection copied after outside release, got %q", copied)
+	}
+}
+
+func TestMouseDragSelectsEditorTextThroughKeyHandling(t *testing.T) {
+	state := app.NewState(80, 24)
+	state.Layout = app.LayoutDefault
+	state.Editor.SetContent("hello world")
+
+	root := app.CreateDefaultLayout(state)
+	root.Layout(0, 0, 80, 24)
+	root.Render(screen.NewScreen(80, 24))
+
+	for _, ev := range []keyboard.Event{
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 6, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 11, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 11, MouseY: 20},
+	} {
+		handled, quit := handleKey(state, ev)
+		if !handled || quit {
+			t.Fatalf("expected mouse event handled without quit, event=%#v handled=%v quit=%v", ev, handled, quit)
+		}
+	}
+	if got := state.Editor.SelectedText(); got != "hello" {
+		t.Fatalf("expected editor mouse selection, got %q", got)
 	}
 }

@@ -242,6 +242,40 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 			return ed.Scroll(-3), false
 		}
 		return state.ScrollOutputVisible(-3), false
+	case keyboard.KeyMouseLeftDown:
+		if state.PopupOpen {
+			state.ClosePalette()
+			return true, false
+		}
+		if state.Editor.MouseDown(ev.MouseX, ev.MouseY) {
+			return true, false
+		}
+		if state.OutputMouseDown(ev.MouseX, ev.MouseY) {
+			return true, false
+		}
+		return false, false
+	case keyboard.KeyMouseLeftDrag:
+		if !state.PopupOpen && state.Editor.MouseDrag(ev.MouseX, ev.MouseY) {
+			return true, false
+		}
+		if !state.PopupOpen && state.OutputMouseDrag(ev.MouseX, ev.MouseY) {
+			return true, false
+		}
+		return false, false
+	case keyboard.KeyMouseLeftUp:
+		if !state.PopupOpen && state.Editor.MouseUp(ev.MouseX, ev.MouseY) {
+			return true, false
+		}
+		if !state.PopupOpen {
+			text := state.OutputMouseUp(ev.MouseX, ev.MouseY)
+			if text != "" {
+				if err := writeClipboard(text); err != nil {
+					state.AddMessage("system", "copy failed: "+err.Error())
+				}
+			}
+			return true, false
+		}
+		return false, false
 	case keyboard.KeyHome:
 		if ev.Ctrl {
 			if state.EffectiveLayout() == app.LayoutFullscreen {

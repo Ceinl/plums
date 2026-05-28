@@ -116,7 +116,7 @@ func newOutput() *components.Div {
 }
 
 func newChatLog(state *State) *components.ChatLog {
-	chatLog := components.NewChatLog()
+	chatLog := state.ChatLog()
 	msgs := make([]components.ChatMessage, len(state.messages))
 	for i, m := range state.messages {
 		msgs[i] = components.ChatMessage{Role: m.Role, Content: m.Content}
@@ -125,15 +125,13 @@ func newChatLog(state *State) *components.ChatLog {
 	chatLog.SetAiOutput(state.aioutput)
 	chatLog.SetStreaming(state.IsStreaming())
 	chatLog.SetScrollOffset(state.OutputScroll())
-	chatLog.SetMaxScrollObserver(state.SetOutputMaxScroll)
 	return chatLog
 }
 
 func newGitDiffLog(state *State) *components.DiffLog {
-	diffLog := components.NewDiffLog()
+	diffLog := state.DiffLog()
 	diffLog.SetContent(state.GitDiff)
 	diffLog.SetScrollOffset(state.OutputScroll())
-	diffLog.SetMaxScrollObserver(state.SetOutputMaxScroll)
 	return diffLog
 }
 

@@ -29,6 +29,10 @@ const (
 	fgListMarker  = "\x1b[38;2;155;188;255m"       // cool accent for bullets / numbers
 	bgUserMessage = "\x1b[48;2;34;32;42m"          // lighter panel for user prompts
 	decorBold     = "\x1b[1m"
+
+	// selection highlight colours
+	selFg = "\x1b[38;2;22;20;27m"
+	selBg = "\x1b[48;2;200;198;212m"
 )
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -83,6 +87,11 @@ type ChatLog struct {
 
 	x, y int
 	w, h int
+
+	// mouse selection
+	selActive            bool
+	selStartX, selStartY int
+	selEndX, selEndY     int
 }
 
 func NewChatLog() *ChatLog {
@@ -90,20 +99,32 @@ func NewChatLog() *ChatLog {
 }
 
 func (cl *ChatLog) SetMessages(msgs []ChatMessage) {
+	if chatMessagesEqual(cl.messages, msgs) {
+		return
+	}
 	cl.messages = msgs
 	cl.invalidateLines()
+	cl.ClearSelection()
 	cl.isDirty = true
 }
 
 func (cl *ChatLog) SetAiOutput(s string) {
+	if cl.aioutput == s {
+		return
+	}
 	cl.aioutput = s
 	cl.invalidateLines()
+	cl.ClearSelection()
 	cl.isDirty = true
 }
 
 func (cl *ChatLog) SetStreaming(v bool) {
+	if cl.isStreaming == v {
+		return
+	}
 	cl.isStreaming = v
 	cl.invalidateLines()
+	cl.ClearSelection()
 	cl.isDirty = true
 }
 
@@ -111,8 +132,24 @@ func (cl *ChatLog) SetScrollOffset(offset int) {
 	if offset < 0 {
 		offset = 0
 	}
+	if cl.scrollOffset == offset {
+		return
+	}
 	cl.scrollOffset = offset
+	cl.ClearSelection()
 	cl.isDirty = true
+}
+
+func chatMessagesEqual(a, b []ChatMessage) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (cl *ChatLog) SetMaxScrollObserver(fn func(int)) {
@@ -131,6 +168,139 @@ func (cl *ChatLog) Layout(x, y, w, h int) {
 		cl.invalidateLines()
 	}
 	cl.x, cl.y, cl.w, cl.h = x, y, w, h
+}
+
+func (cl *ChatLog) MouseDown(x, y int) bool {
+	if x < cl.x || x >= cl.x+cl.w || y < cl.y || y >= cl.y+cl.h {
+		return false
+	}
+	cl.selActive = true
+	cl.selStartX, cl.selStartY = x, y
+	cl.selEndX, cl.selEndY = x, y
+	cl.isDirty = true
+	return true
+}
+
+func (cl *ChatLog) MouseDrag(x, y int) {
+	if !cl.selActive {
+		return
+	}
+	cl.selEndX, cl.selEndY = x, y
+	cl.isDirty = true
+}
+
+func (cl *ChatLog) MouseUp(x, y int) string {
+	if !cl.selActive {
+		return ""
+	}
+	cl.selEndX, cl.selEndY = x, y
+	text := cl.extractSelection()
+	cl.selActive = false
+	cl.isDirty = true
+	return text
+}
+
+func (cl *ChatLog) ClearSelection() {
+	cl.selActive = false
+	cl.isDirty = true
+}
+
+func (cl *ChatLog) rowSelectionRange(screenY int) (startX, endX int, ok bool) {
+	if !cl.selActive {
+		return 0, 0, false
+	}
+	sy1, sy2 := cl.selStartY, cl.selEndY
+	if sy1 > sy2 {
+		sy1, sy2 = sy2, sy1
+	}
+	if screenY < sy1 || screenY > sy2 {
+		return 0, 0, false
+	}
+
+	sx1, sx2 := cl.selStartX, cl.selEndX
+	if sy1 != sy2 {
+		if cl.selStartY <= cl.selEndY {
+			if screenY == cl.selStartY {
+				return sx1, cl.x + cl.w, true
+			}
+			if screenY == cl.selEndY {
+				return cl.x, sx2, true
+			}
+			return cl.x, cl.x + cl.w, true
+		}
+		// dragged upward
+		if screenY == cl.selEndY {
+			return sx2, cl.x + cl.w, true
+		}
+		if screenY == cl.selStartY {
+			return cl.x, sx1, true
+		}
+		return cl.x, cl.x + cl.w, true
+	}
+	if sx1 > sx2 {
+		sx1, sx2 = sx2, sx1
+	}
+	return sx1, sx2, true
+}
+
+func (cl *ChatLog) extractSelection() string {
+	if !cl.selActive {
+		return ""
+	}
+
+	lines := cl.lines()
+	maxScroll := len(lines) - cl.h
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	scrollOffset := cl.scrollOffset
+	if scrollOffset > maxScroll {
+		scrollOffset = maxScroll
+	}
+	start := 0
+	if len(lines) > cl.h {
+		maxStart := len(lines) - cl.h
+		start = maxStart - scrollOffset
+		if start < 0 {
+			start = 0
+		}
+	}
+
+	var out []string
+	for row := 0; row < cl.h; row++ {
+		y := cl.y + row
+		idx := start + row
+		if idx >= len(lines) {
+			continue
+		}
+
+		rx1, rx2, ok := cl.rowSelectionRange(y)
+		if !ok {
+			continue
+		}
+
+		line := lines[idx]
+		if line.kind == lineKindBlank {
+			out = append(out, "")
+			continue
+		}
+
+		var runes []rune
+		curX := cl.x
+		for _, span := range line.spans {
+			for _, r := range span.text {
+				if curX >= rx1 && curX < rx2 {
+					runes = append(runes, r)
+				}
+				curX++
+			}
+		}
+		if len(runes) > 0 {
+			out = append(out, string(runes))
+		}
+	}
+
+	return strings.Join(out, "\n")
 }
 
 func (cl *ChatLog) MaxScrollOffset() int {
@@ -418,6 +588,17 @@ func (cl *ChatLog) renderLine(s *screen.Screen, y int, line renderLine, bg strin
 }
 
 // renderHeader draws system markers across the full row.
+func (cl *ChatLog) selectionFgBg(y, x int, fg, bg string) (string, string) {
+	rx1, rx2, ok := cl.rowSelectionRange(y)
+	if !ok {
+		return fg, bg
+	}
+	if x >= rx1 && x < rx2 {
+		return selFg, selBg
+	}
+	return fg, bg
+}
+
 func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg string, bg string) {
 	x := cl.x
 
@@ -426,19 +607,22 @@ func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg str
 		if x >= cl.x+cl.w {
 			break
 		}
-		s.Set(x, y, r, roleFg, bg, "")
+		cellFg, cellBg := cl.selectionFgBg(y, x, roleFg, bg)
+		s.Set(x, y, r, cellFg, cellBg, "")
 		x++
 	}
 
 	// Space between marker and rule.
 	if x < cl.x+cl.w {
-		s.Set(x, y, ' ', fgDimRule, bg, "")
+		cellFg, cellBg := cl.selectionFgBg(y, x, fgDimRule, bg)
+		s.Set(x, y, ' ', cellFg, cellBg, "")
 		x++
 	}
 
 	// Horizontal rule filling the rest.
 	for x < cl.x+cl.w {
-		s.Set(x, y, '─', fgDimRule, bg, "")
+		cellFg, cellBg := cl.selectionFgBg(y, x, fgDimRule, bg)
+		s.Set(x, y, '─', cellFg, cellBg, "")
 		x++
 	}
 }
@@ -447,13 +631,15 @@ func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg str
 func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []textSpan, fg string, bg string, accentFg string) {
 	x := cl.x
 	if accentFg != "" && x < cl.x+cl.w {
-		s.Set(x, y, '▏', accentFg, bg, "")
+		cellFg, cellBg := cl.selectionFgBg(y, x, accentFg, bg)
+		s.Set(x, y, '▏', cellFg, cellBg, "")
 		x++
 	}
 
 	// 2-space indent.
 	for i := 0; i < 2 && x < cl.x+cl.w; i++ {
-		s.Set(x, y, ' ', fg, bg, "")
+		cellFg, cellBg := cl.selectionFgBg(y, x, fg, bg)
+		s.Set(x, y, ' ', cellFg, cellBg, "")
 		x++
 	}
 
@@ -475,7 +661,8 @@ func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []t
 			if r == '\t' {
 				spaces := 4 - ((x - cl.x - 2) % 4)
 				for ; spaces > 0 && x < cl.x+cl.w; spaces-- {
-					s.Set(x, y, ' ', cellFg, bg, span.decor)
+					cf, cb := cl.selectionFgBg(y, x, cellFg, bg)
+					s.Set(x, y, ' ', cf, cb, span.decor)
 					x++
 				}
 				continue
@@ -483,7 +670,8 @@ func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []t
 			if r == '▌' && spanIdx == len(spans)-1 && i == len(runes)-1 {
 				cellFg = fgCursor
 			}
-			s.Set(x, y, sanitizeRenderableRune(r), cellFg, bg, span.decor)
+			cf, cb := cl.selectionFgBg(y, x, cellFg, bg)
+			s.Set(x, y, sanitizeRenderableRune(r), cf, cb, span.decor)
 			x++
 		}
 		if x >= cl.x+cl.w {
@@ -493,7 +681,8 @@ func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []t
 
 	// Fill remainder.
 	for x < cl.x+cl.w {
-		s.Set(x, y, ' ', fg, bg, "")
+		cellFg, cellBg := cl.selectionFgBg(y, x, fg, bg)
+		s.Set(x, y, ' ', cellFg, cellBg, "")
 		x++
 	}
 }
@@ -618,7 +807,8 @@ func compactBlankLines(lines []renderLine) []renderLine {
 
 func (cl *ChatLog) clearRow(s *screen.Screen, y int, bg string) {
 	for x := cl.x; x < cl.x+cl.w; x++ {
-		s.Set(x, y, ' ', fgContent, bg, "")
+		cellFg, cellBg := cl.selectionFgBg(y, x, fgContent, bg)
+		s.Set(x, y, ' ', cellFg, cellBg, "")
 	}
 }
 

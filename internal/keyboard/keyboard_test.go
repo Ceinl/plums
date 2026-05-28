@@ -130,6 +130,41 @@ func TestParseMouseWheelIgnoresReleaseEvents(t *testing.T) {
 	}
 }
 
+func TestParseMouseLeftDown(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[<0;10;5M")))
+	if ev.Type != KeyMouseLeftDown || !ev.Mouse || ev.MouseX != 9 || ev.MouseY != 4 {
+		t.Fatalf("expected mouse left down at 9,4, got %#v", ev)
+	}
+}
+
+func TestParseX10MouseLeftDown(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte{byteEscape, '[', 'M', 32, 42, 37}))
+	if ev.Type != KeyMouseLeftDown || !ev.Mouse || ev.MouseX != 9 || ev.MouseY != 4 {
+		t.Fatalf("expected X10 mouse left down at 9,4, got %#v", ev)
+	}
+}
+
+func TestParseURXVTMouseLeftDown(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[0;10;5M")))
+	if ev.Type != KeyMouseLeftDown || !ev.Mouse || ev.MouseX != 9 || ev.MouseY != 4 {
+		t.Fatalf("expected URXVT mouse left down at 9,4, got %#v", ev)
+	}
+}
+
+func TestParseMouseLeftDrag(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[<32;15;8M")))
+	if ev.Type != KeyMouseLeftDrag || !ev.Mouse || ev.MouseX != 14 || ev.MouseY != 7 {
+		t.Fatalf("expected mouse left drag at 14,7, got %#v", ev)
+	}
+}
+
+func TestParseMouseLeftUp(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[<0;10;5m")))
+	if ev.Type != KeyMouseLeftUp || !ev.Mouse || ev.MouseX != 9 || ev.MouseY != 4 {
+		t.Fatalf("expected mouse left up at 9,4, got %#v", ev)
+	}
+}
+
 func TestParseBracketedPaste(t *testing.T) {
 	ev := requireEvent(t, parseEvents([]byte("\x1b[200~one\ntwo\x1b[201~")))
 	if ev.Type != KeyPaste || ev.Text != "one\ntwo" {

@@ -145,6 +145,11 @@ type State struct {
 	OutputPercent  int
 	submittedInput string
 	commandConfig  *CommandConfig
+
+	chatLog *components.ChatLog
+	diffLog *components.DiffLog
+
+	outputMouseSelecting bool
 }
 
 func NewState(width int, height int) *State {
@@ -379,6 +384,8 @@ func (s *State) CycleInfoView() {
 	s.outputScroll = 0
 	s.InfoView = (s.InfoView + 1) % 2
 	s.invalidateOutputMax()
+	s.ChatLog().ClearSelection()
+	s.DiffLog().ClearSelection()
 	if s.InfoView == InfoViewGitDiff {
 		s.RefreshGitDiff()
 	}
@@ -426,6 +433,8 @@ func (s *State) SwitchLayout() {
 	}
 	s.Layout = s.availableLayouts[next]
 	s.invalidateOutputMax()
+	s.ChatLog().ClearSelection()
+	s.DiffLog().ClearSelection()
 }
 
 func (s *State) TogglePopup() {
@@ -978,6 +987,7 @@ func (s *State) ClearConversation() {
 	s.aioutput = ""
 	s.outputScroll = 0
 	s.invalidateOutputMax()
+	s.ChatLog().ClearSelection()
 }
 
 func (s *State) SetConversation(messages []Message) {
@@ -985,6 +995,56 @@ func (s *State) SetConversation(messages []Message) {
 	s.aioutput = ""
 	s.outputScroll = 0
 	s.invalidateOutputMax()
+	s.ChatLog().ClearSelection()
+}
+
+func (s *State) ChatLog() *components.ChatLog {
+	if s.chatLog == nil {
+		s.chatLog = components.NewChatLog()
+		s.chatLog.SetMaxScrollObserver(s.SetOutputMaxScroll)
+	}
+	return s.chatLog
+}
+
+func (s *State) DiffLog() *components.DiffLog {
+	if s.diffLog == nil {
+		s.diffLog = components.NewDiffLog()
+		s.diffLog.SetMaxScrollObserver(s.SetOutputMaxScroll)
+	}
+	return s.diffLog
+}
+
+func (s *State) OutputMouseDown(x, y int) bool {
+	s.outputMouseSelecting = false
+	if s.InfoView == InfoViewGitDiff {
+		s.outputMouseSelecting = s.DiffLog().MouseDown(x, y)
+		return s.outputMouseSelecting
+	}
+	s.outputMouseSelecting = s.ChatLog().MouseDown(x, y)
+	return s.outputMouseSelecting
+}
+
+func (s *State) OutputMouseDrag(x, y int) bool {
+	if !s.outputMouseSelecting {
+		return false
+	}
+	if s.InfoView == InfoViewGitDiff {
+		s.DiffLog().MouseDrag(x, y)
+	} else {
+		s.ChatLog().MouseDrag(x, y)
+	}
+	return true
+}
+
+func (s *State) OutputMouseUp(x, y int) string {
+	if !s.outputMouseSelecting {
+		return ""
+	}
+	s.outputMouseSelecting = false
+	if s.InfoView == InfoViewGitDiff {
+		return s.DiffLog().MouseUp(x, y)
+	}
+	return s.ChatLog().MouseUp(x, y)
 }
 
 func (s *State) ToggleMode() {

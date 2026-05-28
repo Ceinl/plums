@@ -38,3 +38,16 @@ func TestEditorUndoRestoresWordDeleteCursor(t *testing.T) {
 		t.Fatalf("expected cursor restored to end, got %#v", ed.Cursor.Pos)
 	}
 }
+
+func TestEditorMouseDragSelectsText(t *testing.T) {
+	ed := NewTextEditor()
+	ed.Layout(0, 0, 20, 5)
+	ed.SetContent("hello world")
+
+	if !ed.MouseDown(4, 0) || !ed.MouseDrag(9, 0) || !ed.MouseUp(9, 0) {
+		t.Fatal("expected editor mouse selection to be handled")
+	}
+	if got := ed.SelectedText(); got != "hello" {
+		t.Fatalf("expected selected text, got %q", got)
+	}
+}

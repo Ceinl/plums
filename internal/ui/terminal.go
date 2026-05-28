@@ -14,8 +14,8 @@ const (
 	CLOSE_ALT               = "\x1b[?1049l"
 	HIDE_CURSOR             = "\x1b[?25l"
 	SHOW_CURSOR             = "\x1b[?25h"
-	ENABLE_MOUSE            = "\x1b[?1000h\x1b[?1006h"
-	DISABLE_MOUSE           = "\x1b[?1006l\x1b[?1000l"
+	ENABLE_MOUSE            = "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
+	DISABLE_MOUSE           = "\x1b[?1006l\x1b[?1002l\x1b[?1000l"
 	ENABLE_BRACKETED_PASTE  = "\x1b[?2004h"
 	DISABLE_BRACKETED_PASTE = "\x1b[?2004l"
 	// Ask compatible terminals to distinguish modified keys like Shift+Enter.

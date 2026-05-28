@@ -125,6 +125,19 @@ func TestChatLogGivesUserMessagesBackgroundAndAiMessagesPlainBackground(t *testi
 	}
 }
 
+func TestChatLogSelectionSurvivesUnchangedSetters(t *testing.T) {
+	cl := NewChatLog()
+	cl.Layout(0, 0, 80, 10)
+	cl.SetAiOutput("hello world")
+
+	cl.MouseDown(0, 0)
+	cl.SetAiOutput("hello world")
+	got := cl.MouseUp(5, 0)
+	if got != "hello" {
+		t.Fatalf("expected selected text after unchanged render update, got %q", got)
+	}
+}
+
 func spanText(spans []textSpan) string {
 	out := ""
 	for _, span := range spans {

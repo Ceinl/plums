@@ -55,8 +55,9 @@ type Editor struct {
 	manualScroll bool
 	lineCount    int
 
-	cursorScreenX int
-	cursorScreenY int
+	cursorScreenX  int
+	cursorScreenY  int
+	mouseSelecting bool
 }
 
 type editorSnapshot struct {
@@ -202,6 +203,82 @@ func (e *Editor) HasSelection() bool {
 
 func (e *Editor) ClearSelection() {
 	e.Cursor.selActive = false
+	e.mouseSelecting = false
+}
+
+func (e *Editor) IsPoint(x, y int) bool {
+	return x >= e.x && x < e.x+e.w && y >= e.y && y < e.y+e.h
+}
+
+func (e *Editor) cursorPosForScreenPoint(x, y int) CursorPos {
+	e.clamp()
+	visLines := e.computeVisualLines()
+	if len(visLines) == 0 {
+		return CursorPos{}
+	}
+
+	row := y - e.y
+	if row < 0 {
+		row = 0
+	}
+	if row >= e.h {
+		row = e.h - 1
+	}
+	vlIdx := e.scrollY + row
+	if vlIdx < 0 {
+		vlIdx = 0
+	}
+	if vlIdx >= len(visLines) {
+		lastRow := len(e.Content) - 1
+		return CursorPos{Row: lastRow, Col: len(e.Content[lastRow])}
+	}
+
+	vl := visLines[vlIdx]
+	col := vl.start + x - (e.x + 4)
+	if col < vl.start {
+		col = vl.start
+	}
+	if col > vl.end {
+		col = vl.end
+	}
+	return CursorPos{Row: vl.row, Col: col}
+}
+
+func (e *Editor) MouseDown(x, y int) bool {
+	if !e.IsPoint(x, y) {
+		return false
+	}
+	pos := e.cursorPosForScreenPoint(x, y)
+	e.Cursor.Pos = pos
+	e.Cursor.selAnchor = pos
+	e.Cursor.selActive = true
+	e.mouseSelecting = true
+	e.manualScroll = true
+	e.MakeDirty()
+	return true
+}
+
+func (e *Editor) MouseDrag(x, y int) bool {
+	if !e.mouseSelecting {
+		return false
+	}
+	e.Cursor.Pos = e.cursorPosForScreenPoint(x, y)
+	e.Cursor.selActive = true
+	e.MakeDirty()
+	return true
+}
+
+func (e *Editor) MouseUp(x, y int) bool {
+	if !e.mouseSelecting {
+		return false
+	}
+	e.Cursor.Pos = e.cursorPosForScreenPoint(x, y)
+	e.mouseSelecting = false
+	if !e.HasSelection() {
+		e.Cursor.selActive = false
+	}
+	e.MakeDirty()
+	return true
 }
 
 func (e *Editor) beginSelectionIfNeeded() {
