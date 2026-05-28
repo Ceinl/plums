@@ -73,3 +73,28 @@ func TestWaitForHealthOrExitReportsStartupExit(t *testing.T) {
 		t.Fatalf("expected stderr in error, got %q", got)
 	}
 }
+
+func TestReplyQuestionPostsAnswers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/question/req-1/reply" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		var body questionReplyBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if got, want := body.Answers[0][0], "Yes"; got != want {
+			t.Fatalf("expected %q, got %q", want, got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	if err := client.ReplyQuestion(context.Background(), "req-1", [][]string{{"Yes"}}); err != nil {
+		t.Fatalf("reply question: %v", err)
+	}
+}

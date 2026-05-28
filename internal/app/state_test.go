@@ -235,3 +235,24 @@ func TestPaletteSearchSelectsFilteredModel(t *testing.T) {
 		t.Fatalf("expected openai/gpt-5.5, got %s/%s", providerID, modelID)
 	}
 }
+
+func TestQuestionPaletteSelectsAnswer(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetQuestionItems("Pick one", []QuestionOptionItem{
+		{Label: "It works", Description: "Confirm the tool works"},
+		{Label: "Try again", Description: "Ask another question"},
+	})
+
+	if !state.PopupOpen {
+		t.Fatalf("expected question palette to open")
+	}
+	state.MovePalette(1)
+	state.SelectPaletteItem()
+	if got := state.ConsumePendingAction(); got != PaletteActionAnswerQuestion {
+		t.Fatalf("expected answer question action, got %v", got)
+	}
+	answer, ok := state.SelectedQuestionAnswer()
+	if !ok || answer != "Try again" {
+		t.Fatalf("expected selected answer Try again, got %q ok=%v", answer, ok)
+	}
+}

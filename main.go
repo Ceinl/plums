@@ -111,8 +111,9 @@ func main() {
 	spinTicker := time.NewTicker(80 * time.Millisecond)
 	defer spinTicker.Stop()
 
-	var aiStream <-chan string
+	var aiStream <-chan ai.StreamEvent
 	var cancelStream context.CancelFunc
+	var pendingQuestion *ai.QuestionRequest
 
 	for {
 		select {
@@ -133,12 +134,30 @@ func main() {
 				return
 			}
 			if action := state.ConsumePendingAction(); action != app.PaletteActionNone {
-				handlePaletteAction(ctx, state, client, action)
+				if action == app.PaletteActionAnswerQuestion {
+					if pendingQuestion != nil {
+						if answer, ok := state.SelectedQuestionAnswer(); ok {
+							if replyQuestion(ctx, state, client, pendingQuestion.ID, [][]string{{answer}}) {
+								pendingQuestion = nil
+							}
+						}
+					}
+				} else {
+					handlePaletteAction(ctx, state, client, action)
+				}
 			}
 			if handled {
 				if ev.Type == keyboard.KeyEnter && ev.Shift {
 					input := state.ConsumeSubmittedInput()
 					if input != "" {
+						if pendingQuestion != nil {
+							answers := parseQuestionAnswers(input, pendingQuestion)
+							if replyQuestion(ctx, state, client, pendingQuestion.ID, answers) {
+								pendingQuestion = nil
+							}
+							app.Render(state, renderConfig)
+							continue
+						}
 						if state.SessionID != "" {
 							if cancelStream != nil {
 								cancelStream()
@@ -147,7 +166,7 @@ func main() {
 							sctx, cancelStream = context.WithCancel(ctx)
 							state.SetStreaming(true)
 							state.ClearAiOutput()
-							aiStream = client.SendMessage(sctx, state.SessionID, input, state.ModelProvider, state.ModelID, state.Mode)
+							aiStream = client.SendMessageEvents(sctx, state.SessionID, input, state.ModelProvider, state.ModelID, state.Mode)
 						} else {
 							state.AddMessage("system", "no active session – is opencode serve running?")
 						}
@@ -155,9 +174,15 @@ func main() {
 				}
 				app.Render(state, renderConfig)
 			}
-		case s, ok := <-aiStream:
+		case event, ok := <-aiStream:
 			if ok {
-				state.AppendAiOutput(s)
+				if event.Question != nil {
+					pendingQuestion = event.Question
+					state.SetStreaming(false)
+					state.SetQuestionItems(questionTitle(event.Question), questionOptionItems(event.Question))
+				} else if event.Text != "" {
+					state.AppendAiOutput(event.Text)
+				}
 				app.Render(state, renderConfig)
 			} else {
 				state.FinalizeAiOutput()
@@ -275,6 +300,88 @@ func resolveCommandsConfigPath(layoutConfigPath string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+func replyQuestion(ctx context.Context, state *app.State, client *ai.Client, requestID string, answers [][]string) bool {
+	replyCtx, cancelReply := context.WithTimeout(ctx, 5*time.Second)
+	err := client.ReplyQuestion(replyCtx, requestID, answers)
+	cancelReply()
+	if err != nil {
+		debuglog.Printf("question: reply failed: %v", err)
+		state.AddMessage("system", fmt.Sprintf("failed to answer question: %v", err))
+		return false
+	}
+	state.SetStreaming(true)
+	return true
+}
+
+func questionTitle(req *ai.QuestionRequest) string {
+	if req == nil || len(req.Questions) == 0 {
+		return "Question"
+	}
+	q := req.Questions[0]
+	if q.Header != "" {
+		return q.Header + ": " + q.Question
+	}
+	return q.Question
+}
+
+func questionOptionItems(req *ai.QuestionRequest) []app.QuestionOptionItem {
+	if req == nil || len(req.Questions) == 0 {
+		return nil
+	}
+	q := req.Questions[0]
+	items := make([]app.QuestionOptionItem, len(q.Options))
+	for i, option := range q.Options {
+		items[i] = app.QuestionOptionItem{Label: option.Label, Description: option.Description}
+	}
+	return items
+}
+
+func parseQuestionAnswers(input string, req *ai.QuestionRequest) [][]string {
+	if req == nil || len(req.Questions) == 0 {
+		return [][]string{{strings.TrimSpace(input)}}
+	}
+
+	lines := splitNonEmptyLines(input)
+	answers := make([][]string, len(req.Questions))
+	for i, q := range req.Questions {
+		answer := strings.TrimSpace(input)
+		if len(req.Questions) > 1 && i < len(lines) {
+			answer = lines[i]
+		}
+		if q.Multiple {
+			answers[i] = splitCommaAnswers(answer)
+		} else {
+			answers[i] = []string{answer}
+		}
+	}
+	return answers
+}
+
+func splitNonEmptyLines(input string) []string {
+	var out []string
+	for _, line := range strings.Split(input, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func splitCommaAnswers(input string) []string {
+	var out []string
+	for _, part := range strings.Split(input, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	if len(out) == 0 {
+		return []string{strings.TrimSpace(input)}
+	}
+	return out
 }
 
 func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupResult) {

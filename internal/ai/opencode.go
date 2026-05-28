@@ -63,6 +63,34 @@ type Part struct {
 	Text string `json:"text"`
 }
 
+type StreamEvent struct {
+	Text     string
+	Question *QuestionRequest
+}
+
+type QuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
+type QuestionInfo struct {
+	Question string           `json:"question"`
+	Header   string           `json:"header"`
+	Options  []QuestionOption `json:"options"`
+	Multiple bool             `json:"multiple"`
+	Custom   *bool            `json:"custom,omitempty"`
+}
+
+type QuestionRequest struct {
+	ID        string         `json:"id"`
+	SessionID string         `json:"sessionID"`
+	Questions []QuestionInfo `json:"questions"`
+}
+
+type questionReplyBody struct {
+	Answers [][]string `json:"answers"`
+}
+
 type messageResponse struct {
 	Info  messageInfo `json:"info"`
 	Parts []Part      `json:"parts"`
@@ -130,6 +158,8 @@ type sessionStatusProperties struct {
 		Type string `json:"type"`
 	} `json:"status"`
 }
+
+type questionAskedProperties = QuestionRequest
 
 type sseResult struct {
 	emitted   bool
@@ -292,6 +322,43 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 	out := make(chan string)
 	go func() {
 		defer close(out)
+		events := make(chan StreamEvent)
+		go func() {
+			defer close(events)
+			result, err := c.sendWithSSE(ctx, sessionID, text, providerID, modelID, agent, events)
+			if err == nil {
+				return
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			if !result.emitted {
+				c.sendSync(ctx, sessionID, text, providerID, modelID, agent, out)
+				return
+			}
+			select {
+			case <-ctx.Done():
+			case out <- fmt.Sprintf("\n⚠️  SSE stream ended before completion: %v\n", err):
+			}
+		}()
+		for event := range events {
+			if event.Text == "" {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case out <- event.Text:
+			}
+		}
+	}()
+	return out
+}
+
+func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, providerID, modelID, agent string) <-chan StreamEvent {
+	out := make(chan StreamEvent)
+	go func() {
+		defer close(out)
 		result, err := c.sendWithSSE(ctx, sessionID, text, providerID, modelID, agent, out)
 		if err == nil {
 			return
@@ -301,15 +368,50 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 		}
 		if !result.emitted {
 			// SSE path unavailable before streaming tokens; fall back safely.
-			c.sendSync(ctx, sessionID, text, providerID, modelID, agent, out)
+			textOut := make(chan string)
+			go func() {
+				defer close(textOut)
+				c.sendSync(ctx, sessionID, text, providerID, modelID, agent, textOut)
+			}()
+			for s := range textOut {
+				select {
+				case <-ctx.Done():
+					return
+				case out <- StreamEvent{Text: s}:
+				}
+			}
 			return
 		}
 		select {
 		case <-ctx.Done():
-		case out <- fmt.Sprintf("\n⚠️  SSE stream ended before completion: %v\n", err):
+		case out <- StreamEvent{Text: fmt.Sprintf("\n⚠️  SSE stream ended before completion: %v\n", err)}:
 		}
 	}()
 	return out
+}
+
+func (c *Client) ReplyQuestion(ctx context.Context, requestID string, answers [][]string) error {
+	body := questionReplyBody{Answers: answers}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal question reply: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		c.baseURL+"/question/"+url.PathEscape(requestID)+"/reply",
+		bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("question reply: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("question reply returned status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -318,7 +420,7 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 // generation via POST /session/{id}/prompt_async, then reads events until
 // session.idle arrives. It reports whether tokens were emitted so the caller
 // only falls back to sendSync when doing so cannot duplicate output.
-func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, modelID, agent string, out chan<- string) (sseResult, error) {
+func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, modelID, agent string, out chan<- StreamEvent) (sseResult, error) {
 	var result sseResult
 
 	// 1. Open the SSE stream first so we don't miss any events.
@@ -421,7 +523,7 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 						select {
 						case <-ctx.Done():
 							return result, ctx.Err()
-						case out <- d:
+						case out <- StreamEvent{Text: d}:
 							result.emitted = true
 						}
 					}
@@ -445,7 +547,7 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 					select {
 					case <-ctx.Done():
 						return result, ctx.Err()
-					case out <- props.Delta:
+					case out <- StreamEvent{Text: props.Delta}:
 						result.emitted = true
 					}
 				} else {
@@ -474,6 +576,19 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 				if props.SessionID == sessionID && props.Status.Type == "idle" {
 					result.completed = true
 					return result, nil
+				}
+
+			case "question.asked":
+				var props questionAskedProperties
+				if err := json.Unmarshal(env.Properties, &props); err != nil {
+					continue
+				}
+				if props.SessionID == sessionID {
+					select {
+					case <-ctx.Done():
+						return result, ctx.Err()
+					case out <- StreamEvent{Question: &props}:
+					}
 				}
 			}
 		}

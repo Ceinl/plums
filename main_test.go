@@ -3,7 +3,10 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+
+	"plums/internal/ai"
 )
 
 func TestLoadOpencodeServerURLFromConfig(t *testing.T) {
@@ -55,5 +58,26 @@ func TestResolveCommandsConfigPathDefaultsWhenMissing(t *testing.T) {
 	}
 	if got != "" {
 		t.Fatalf("expected default command config, got %q", got)
+	}
+}
+
+func TestParseQuestionAnswersSingleCustom(t *testing.T) {
+	req := &ai.QuestionRequest{Questions: []ai.QuestionInfo{{Question: "Name?"}}}
+	got := parseQuestionAnswers("  Alice  ", req)
+	want := [][]string{{"Alice"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected %#v, got %#v", want, got)
+	}
+}
+
+func TestParseQuestionAnswersMultipleChoice(t *testing.T) {
+	req := &ai.QuestionRequest{Questions: []ai.QuestionInfo{
+		{Question: "Pick env"},
+		{Question: "Pick features", Multiple: true},
+	}}
+	got := parseQuestionAnswers("Production\nA, B", req)
+	want := [][]string{{"Production"}, {"A", "B"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected %#v, got %#v", want, got)
 	}
 }

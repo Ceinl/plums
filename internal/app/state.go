@@ -22,6 +22,7 @@ const (
 	PaletteActionSelectSession
 	PaletteActionSkillsList
 	PaletteActionSelectSkill
+	PaletteActionAnswerQuestion
 )
 
 type PaletteView int
@@ -31,6 +32,7 @@ const (
 	PaletteViewModels
 	PaletteViewSessions
 	PaletteViewSkills
+	PaletteViewQuestions
 )
 
 type LayoutType int
@@ -98,6 +100,11 @@ type SkillSuggestion struct {
 	Description string
 }
 
+type QuestionOptionItem struct {
+	Label       string
+	Description string
+}
+
 type State struct {
 	width  int
 	height int
@@ -127,6 +134,8 @@ type State struct {
 	ModelItems     []ModelListItem
 	SessionItems   []SessionListItem
 	SkillItems     []SkillListItem
+	QuestionTitle  string
+	QuestionItems  []QuestionOptionItem
 	Mode           string
 	ModelProvider  string
 	ModelID        string
@@ -426,6 +435,12 @@ func (s *State) PaletteTitle() string {
 	if s.PaletteView == PaletteViewSkills {
 		return "Skills"
 	}
+	if s.PaletteView == PaletteViewQuestions {
+		if s.QuestionTitle != "" {
+			return s.QuestionTitle
+		}
+		return "Question"
+	}
 	return s.commandConfig.Palette.Title
 }
 
@@ -479,6 +494,17 @@ func (s *State) PaletteItems() []components.PopupItem {
 		items := make([]components.PopupItem, len(skills))
 		for i, skill := range skills {
 			items[i] = components.PopupItem{Title: skill.Name, Detail: skill.Description}
+		}
+		return items
+	}
+	if s.PaletteView == PaletteViewQuestions {
+		options := s.visibleQuestionItems()
+		if len(options) == 0 {
+			return []components.PopupItem{{Title: "No options", Detail: "Type an answer in the editor", Disabled: true}}
+		}
+		items := make([]components.PopupItem, len(options))
+		for i, option := range options {
+			items[i] = components.PopupItem{Title: option.Label, Detail: option.Description}
 		}
 		return items
 	}
@@ -692,6 +718,11 @@ func (s *State) SelectPaletteItem() {
 		s.PopupOpen = false
 		return
 	}
+	if s.PaletteView == PaletteViewQuestions {
+		s.PendingAction = PaletteActionAnswerQuestion
+		s.PopupOpen = false
+		return
+	}
 	commands := s.visibleCommandItems()
 	if s.PaletteIndex < 0 || s.PaletteIndex >= len(commands) {
 		return
@@ -759,6 +790,16 @@ func (s *State) SetSkillItems(items []SkillListItem) {
 	s.PopupOpen = true
 }
 
+func (s *State) SetQuestionItems(title string, items []QuestionOptionItem) {
+	s.QuestionTitle = title
+	s.QuestionItems = items
+	s.PaletteView = PaletteViewQuestions
+	s.PaletteQuery = ""
+	s.PaletteIndex = 0
+	s.PopupOpen = true
+	s.ensurePaletteSelection()
+}
+
 func (s *State) SetAvailableSkills(items []SkillListItem) {
 	s.SkillItems = items
 }
@@ -786,6 +827,14 @@ func (s *State) SelectedSkill() (SkillListItem, bool) {
 		return SkillListItem{}, false
 	}
 	return skills[s.PaletteIndex], true
+}
+
+func (s *State) SelectedQuestionAnswer() (string, bool) {
+	items := s.visibleQuestionItems()
+	if s.PaletteView != PaletteViewQuestions || s.PaletteIndex < 0 || s.PaletteIndex >= len(items) {
+		return "", false
+	}
+	return items[s.PaletteIndex].Label, true
 }
 
 func (s *State) InsertSkillMarker(skill SkillListItem) {
@@ -855,6 +904,20 @@ func (s *State) visibleSkillItems() []SkillListItem {
 	for _, skill := range s.SkillItems {
 		if paletteMatches(query, skill.Name, skill.Description) {
 			items = append(items, skill)
+		}
+	}
+	return items
+}
+
+func (s *State) visibleQuestionItems() []QuestionOptionItem {
+	query := normalizedQuery(s.PaletteQuery)
+	if query == "" {
+		return s.QuestionItems
+	}
+	items := make([]QuestionOptionItem, 0, len(s.QuestionItems))
+	for _, option := range s.QuestionItems {
+		if paletteMatches(query, option.Label, option.Description) {
+			items = append(items, option)
 		}
 	}
 	return items
