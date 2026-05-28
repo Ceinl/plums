@@ -1,6 +1,7 @@
 package keyboard
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -11,9 +12,11 @@ import (
 type Event struct {
 	Type   EventType
 	Ch     rune
+	Text   string
 	Shift  bool
 	Ctrl   bool
 	Alt    bool
+	Cmd    bool
 	Mouse  bool
 	MouseX int
 	MouseY int
@@ -54,8 +57,11 @@ const (
 	KeyDelete
 	KeyMouseWheelUp
 	KeyMouseWheelDown
+	KeyPaste
 	KeyUnknown
 )
+
+var bracketedPasteEnd = []byte("\x1b[201~")
 
 type byteReader struct {
 	in <-chan byte
@@ -233,10 +239,10 @@ func readCSI(reader *byteReader) Event {
 		params = append(params, b)
 	}
 
-	return parseCSI(params, final)
+	return parseCSI(reader, params, final)
 }
 
-func parseCSI(params []byte, final byte) Event {
+func parseCSI(reader *byteReader, params []byte, final byte) Event {
 	if len(params) > 0 && params[0] == '<' {
 		return parseSGRMouse(params[1:], final)
 	}
@@ -263,70 +269,94 @@ func parseCSI(params []byte, final byte) Event {
 		paramNums = append(paramNums, 1)
 	}
 
-	shift, ctrl, alt := modifierFlags(modifier)
+	shift, ctrl, alt, cmd := modifierFlags(modifier)
 
 	if final == '~' && len(paramNums) >= 3 && paramNums[0] == byteEscape {
 		// xterm modifyOtherKeys protocol: ESC [ 27 ; modifier ; codepoint ~.
-		shift, ctrl, alt = modifierFlags(paramNums[1])
-		return modifiedCodepointEvent(paramNums[2], shift, ctrl, alt)
+		shift, ctrl, alt, cmd = modifierFlags(paramNums[1])
+		return modifiedCodepointEvent(paramNums[2], shift, ctrl, alt, cmd)
 	}
 
 	switch final {
 	case 'A':
-		return Event{Type: KeyArrowUp, Shift: shift, Ctrl: ctrl, Alt: alt}
+		return Event{Type: KeyArrowUp, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	case 'B':
-		return Event{Type: KeyArrowDown, Shift: shift, Ctrl: ctrl, Alt: alt}
+		return Event{Type: KeyArrowDown, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	case 'C':
-		return Event{Type: KeyArrowRight, Shift: shift, Ctrl: ctrl, Alt: alt}
+		return Event{Type: KeyArrowRight, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	case 'D':
-		return Event{Type: KeyArrowLeft, Shift: shift, Ctrl: ctrl, Alt: alt}
+		return Event{Type: KeyArrowLeft, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	case 'H':
-		return Event{Type: KeyHome, Shift: shift, Ctrl: ctrl, Alt: alt}
+		return Event{Type: KeyHome, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	case 'F':
-		return Event{Type: KeyEnd, Shift: shift, Ctrl: ctrl, Alt: alt}
+		return Event{Type: KeyEnd, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	case 'u':
 		// CSI u keyboard protocol, used by terminals that distinguish
 		// modified keys from plain keys: ESC [ codepoint ; modifier u.
-		return modifiedCodepointEvent(paramNums[0], shift, ctrl, alt)
+		return modifiedCodepointEvent(paramNums[0], shift, ctrl, alt, cmd)
 	case '~':
 		code := paramNums[0]
 		switch code {
 		case 1:
-			return Event{Type: KeyHome, Shift: shift, Ctrl: ctrl, Alt: alt}
+			return Event{Type: KeyHome, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 		case 3:
-			return Event{Type: KeyDelete, Shift: shift, Ctrl: ctrl, Alt: alt}
+			return Event{Type: KeyDelete, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 		case 4:
-			return Event{Type: KeyEnd, Shift: shift, Ctrl: ctrl, Alt: alt}
+			return Event{Type: KeyEnd, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 		case 5:
-			return Event{Type: KeyPageUp, Shift: shift, Ctrl: ctrl, Alt: alt}
+			return Event{Type: KeyPageUp, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 		case 6:
-			return Event{Type: KeyPageDown, Shift: shift, Ctrl: ctrl, Alt: alt}
+			return Event{Type: KeyPageDown, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
+		case 200:
+			return readBracketedPaste(reader)
+		case 201:
+			return Event{Type: KeyUnknown}
 		}
 	}
 
 	return Event{Type: KeyUnknown}
 }
 
-func modifierFlags(modifier int) (shift, ctrl, alt bool) {
-	shift = modifier == 2 || modifier == 4 || modifier == 6 || modifier == 8
-	ctrl = modifier == 5 || modifier == 6 || modifier == 7 || modifier == 8
-	alt = modifier == 3 || modifier == 4 || modifier == 7 || modifier == 8
-	return shift, ctrl, alt
+func readBracketedPaste(reader *byteReader) Event {
+	buf := make([]byte, 0, 256)
+	for {
+		b, ok := reader.readByteTimeout(50 * time.Millisecond)
+		if !ok {
+			return Event{Type: KeyPaste, Text: string(buf)}
+		}
+		buf = append(buf, b)
+		if bytes.HasSuffix(buf, bracketedPasteEnd) {
+			buf = buf[:len(buf)-len(bracketedPasteEnd)]
+			return Event{Type: KeyPaste, Text: string(buf)}
+		}
+	}
 }
 
-func modifiedCodepointEvent(codepoint int, shift, ctrl, alt bool) Event {
+func modifierFlags(modifier int) (shift, ctrl, alt, cmd bool) {
+	bits := modifier - 1
+	if bits < 0 {
+		bits = 0
+	}
+	shift = bits&1 != 0
+	alt = bits&2 != 0
+	ctrl = bits&4 != 0
+	cmd = bits&8 != 0
+	return shift, ctrl, alt, cmd
+}
+
+func modifiedCodepointEvent(codepoint int, shift, ctrl, alt, cmd bool) Event {
 	switch codepoint {
 	case byteEnter:
-		return Event{Type: KeyEnter, Shift: shift, Ctrl: ctrl, Alt: alt}
+		return Event{Type: KeyEnter, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	case byteEscape:
-		return Event{Type: KeyEscape, Shift: shift, Ctrl: ctrl, Alt: alt}
+		return Event{Type: KeyEscape, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	}
 
 	ch := rune(codepoint)
-	if ctrl && (ch == 'c' || ch == 'C') {
-		return Event{Type: KeyCtrlC, Shift: shift, Ctrl: true, Alt: alt, Ch: ch}
+	if (ctrl || cmd) && (ch == 'c' || ch == 'C') {
+		return Event{Type: KeyCtrlC, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd, Ch: ch}
 	}
-	return Event{Type: KeyRune, Ch: ch, Shift: shift, Ctrl: ctrl, Alt: alt}
+	return Event{Type: KeyRune, Ch: ch, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 }
 
 func parseSGRMouse(params []byte, final byte) Event {

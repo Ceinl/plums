@@ -43,6 +43,7 @@ type Editor struct {
 
 	Content [][]rune
 	Cursor  Cursor
+	undo    []editorSnapshot
 
 	style  layout.Style
 	parent layout.Component
@@ -57,6 +58,15 @@ type Editor struct {
 	cursorScreenX int
 	cursorScreenY int
 }
+
+type editorSnapshot struct {
+	content      [][]rune
+	cursor       Cursor
+	scrollY      int
+	manualScroll bool
+}
+
+const maxUndoSnapshots = 100
 
 func NewTextEditor() *Editor {
 	return &Editor{
@@ -97,6 +107,7 @@ func (e *Editor) clamp() {
 }
 
 func (e *Editor) SetContent(s string) {
+	e.undo = nil
 	if s == "" {
 		e.Content = [][]rune{{}}
 		e.Cursor.Pos = CursorPos{}
@@ -117,6 +128,50 @@ func (e *Editor) SetContent(s string) {
 	e.manualScroll = false
 	e.ClearSelection()
 	e.isDirty = true
+}
+
+func cloneContent(content [][]rune) [][]rune {
+	clone := make([][]rune, len(content))
+	for i, row := range content {
+		clone[i] = append([]rune(nil), row...)
+	}
+	return clone
+}
+
+func (e *Editor) snapshot() editorSnapshot {
+	return editorSnapshot{
+		content:      cloneContent(e.Content),
+		cursor:       e.Cursor,
+		scrollY:      e.scrollY,
+		manualScroll: e.manualScroll,
+	}
+}
+
+func (e *Editor) pushUndoSnapshot(snapshot editorSnapshot) {
+	if len(e.undo) >= maxUndoSnapshots {
+		copy(e.undo, e.undo[1:])
+		e.undo = e.undo[:maxUndoSnapshots-1]
+	}
+	e.undo = append(e.undo, snapshot)
+}
+
+func (e *Editor) pushUndo() {
+	e.pushUndoSnapshot(e.snapshot())
+}
+
+func (e *Editor) Undo() bool {
+	if len(e.undo) == 0 {
+		return false
+	}
+	last := e.undo[len(e.undo)-1]
+	e.undo = e.undo[:len(e.undo)-1]
+	e.Content = cloneContent(last.content)
+	e.Cursor = last.cursor
+	e.scrollY = last.scrollY
+	e.manualScroll = last.manualScroll
+	e.MakeDirty()
+	e.clamp()
+	return true
 }
 
 func (e *Editor) GetContent() string {
@@ -188,6 +243,11 @@ func (e *Editor) DeleteSelection() {
 	if !e.HasSelection() {
 		return
 	}
+	e.pushUndo()
+	e.deleteSelectionNoUndo()
+}
+
+func (e *Editor) deleteSelectionNoUndo() {
 	s, end := e.selBounds()
 	if s.Row == end.Row {
 		e.Content[s.Row] = append(e.Content[s.Row][:s.Col], e.Content[s.Row][end.Col:]...)
@@ -501,14 +561,16 @@ func (e *Editor) DeleteWordBackward() {
 		e.DeleteSelection()
 		return
 	}
+	snapshot := e.snapshot()
 	anchor := e.Cursor.Pos
 	e.moveWordLeft()
 	if e.Cursor.Pos.Equal(anchor) {
 		return
 	}
+	e.pushUndoSnapshot(snapshot)
 	e.Cursor.selActive = true
 	e.Cursor.selAnchor = anchor
-	e.DeleteSelection()
+	e.deleteSelectionNoUndo()
 }
 
 func (e *Editor) DeleteWordForward() {
@@ -517,23 +579,26 @@ func (e *Editor) DeleteWordForward() {
 		e.DeleteSelection()
 		return
 	}
+	snapshot := e.snapshot()
 	anchor := e.Cursor.Pos
 	e.moveWordRight()
 	if e.Cursor.Pos.Equal(anchor) {
 		return
 	}
+	e.pushUndoSnapshot(snapshot)
 	e.Cursor.selActive = true
 	e.Cursor.selAnchor = anchor
-	e.DeleteSelection()
+	e.deleteSelectionNoUndo()
 }
 
 func (e *Editor) InsertRune(r rune) {
 	e.RevealCursor()
+	e.pushUndo()
 	if e.HasSelection() {
-		e.DeleteSelection()
+		e.deleteSelectionNoUndo()
 	}
 	if r == '\n' {
-		e.insertNewline()
+		e.insertNewlineNoUndo()
 		return
 	}
 	e.clamp()
@@ -544,15 +609,42 @@ func (e *Editor) InsertRune(r rune) {
 	e.MakeDirty()
 }
 
-func (e *Editor) InsertNewline() {
-	e.RevealCursor()
-	if e.HasSelection() {
-		e.DeleteSelection()
+func (e *Editor) InsertString(s string) {
+	if s == "" {
+		return
 	}
-	e.insertNewline()
+	e.RevealCursor()
+	e.pushUndo()
+	if e.HasSelection() {
+		e.deleteSelectionNoUndo()
+	}
+	for _, r := range s {
+		if r == '\r' {
+			continue
+		}
+		if r == '\n' {
+			e.insertNewlineNoUndo()
+			continue
+		}
+		e.clamp()
+		row := e.Cursor.Pos.Row
+		col := e.Cursor.Pos.Col
+		e.Content[row] = append(e.Content[row][:col], append([]rune{r}, e.Content[row][col:]...)...)
+		e.Cursor.Pos.Col++
+		e.MakeDirty()
+	}
 }
 
-func (e *Editor) insertNewline() {
+func (e *Editor) InsertNewline() {
+	e.RevealCursor()
+	e.pushUndo()
+	if e.HasSelection() {
+		e.deleteSelectionNoUndo()
+	}
+	e.insertNewlineNoUndo()
+}
+
+func (e *Editor) insertNewlineNoUndo() {
 	e.clamp()
 	row := e.Cursor.Pos.Row
 	col := e.Cursor.Pos.Col
@@ -575,9 +667,11 @@ func (e *Editor) DeleteBackward() {
 	row := e.Cursor.Pos.Row
 	col := e.Cursor.Pos.Col
 	if col > 0 {
+		e.pushUndo()
 		e.Content[row] = append(e.Content[row][:col-1], e.Content[row][col:]...)
 		e.Cursor.Pos.Col--
 	} else if row > 0 {
+		e.pushUndo()
 		prevLen := len(e.Content[row-1])
 		e.Content[row-1] = append(e.Content[row-1], e.Content[row]...)
 		e.Content = append(e.Content[:row], e.Content[row+1:]...)
@@ -597,8 +691,10 @@ func (e *Editor) DeleteForward() {
 	row := e.Cursor.Pos.Row
 	col := e.Cursor.Pos.Col
 	if col < len(e.Content[row]) {
+		e.pushUndo()
 		e.Content[row] = append(e.Content[row][:col], e.Content[row][col+1:]...)
 	} else if row < len(e.Content)-1 {
+		e.pushUndo()
 		e.Content[row] = append(e.Content[row], e.Content[row+1]...)
 		e.Content = append(e.Content[:row+1], e.Content[row+2:]...)
 	}
@@ -609,6 +705,10 @@ func (e *Editor) DeleteCurrentLine() {
 	e.RevealCursor()
 	e.clamp()
 	row := e.Cursor.Pos.Row
+	if len(e.Content) == 1 && len(e.Content[0]) == 0 {
+		return
+	}
+	e.pushUndo()
 	if len(e.Content) == 1 {
 		e.Content[0] = []rune{}
 	} else {

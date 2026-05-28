@@ -74,6 +74,20 @@ func TestParseCtrlSCSIU(t *testing.T) {
 	}
 }
 
+func TestParseCmdZCSIU(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[122;9u")))
+	if ev.Type != KeyRune || !ev.Cmd || ev.Ctrl || ev.Alt || ev.Ch != 'z' {
+		t.Fatalf("expected Cmd+Z, got %#v", ev)
+	}
+}
+
+func TestParseCmdCCSIU(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[99;9u")))
+	if ev.Type != KeyCtrlC || !ev.Cmd || ev.Ctrl || ev.Ch != 'c' {
+		t.Fatalf("expected Cmd+C, got %#v", ev)
+	}
+}
+
 func TestParseCtrlSModifyOtherKeys(t *testing.T) {
 	ev := requireEvent(t, parseEvents([]byte("\x1b[27;5;115~")))
 	if ev.Type != KeyRune || !ev.Ctrl || ev.Ch != 's' {
@@ -113,6 +127,13 @@ func TestParseMouseWheelIgnoresReleaseEvents(t *testing.T) {
 	ev := requireEvent(t, parseEvents([]byte("\x1b[<64;10;5m")))
 	if ev.Type != KeyUnknown {
 		t.Fatalf("expected wheel release ignored, got %#v", ev)
+	}
+}
+
+func TestParseBracketedPaste(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[200~one\ntwo\x1b[201~")))
+	if ev.Type != KeyPaste || ev.Text != "one\ntwo" {
+		t.Fatalf("expected bracketed paste, got %#v", ev)
 	}
 }
 

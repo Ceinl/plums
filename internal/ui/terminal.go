@@ -8,14 +8,16 @@ import (
 )
 
 const (
-	DefaultWidth  = 80
-	DefaultHeight = 24
-	OPEN_ALT      = "\x1b[?1049h"
-	CLOSE_ALT     = "\x1b[?1049l"
-	HIDE_CURSOR   = "\x1b[?25l"
-	SHOW_CURSOR   = "\x1b[?25h"
-	ENABLE_MOUSE  = "\x1b[?1000h\x1b[?1006h"
-	DISABLE_MOUSE = "\x1b[?1006l\x1b[?1000l"
+	DefaultWidth            = 80
+	DefaultHeight           = 24
+	OPEN_ALT                = "\x1b[?1049h"
+	CLOSE_ALT               = "\x1b[?1049l"
+	HIDE_CURSOR             = "\x1b[?25l"
+	SHOW_CURSOR             = "\x1b[?25h"
+	ENABLE_MOUSE            = "\x1b[?1000h\x1b[?1006h"
+	DISABLE_MOUSE           = "\x1b[?1006l\x1b[?1000l"
+	ENABLE_BRACKETED_PASTE  = "\x1b[?2004h"
+	DISABLE_BRACKETED_PASTE = "\x1b[?2004l"
 	// Ask compatible terminals to distinguish modified keys like Shift+Enter.
 	ENABLE_KITTY_KEYBOARD     = "\x1b[>1u"
 	DISABLE_KITTY_KEYBOARD    = "\x1b[<u"
@@ -52,7 +54,7 @@ func (t *Terminal) Enter() error {
 		return err
 	}
 	t.oldstate = oldstate
-	fmt.Print(HIDE_CURSOR, OPEN_ALT, ENABLE_MOUSE, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, MOVE_CURSOR, CLEAR_SCREEN)
+	fmt.Print(HIDE_CURSOR, OPEN_ALT, ENABLE_MOUSE, ENABLE_BRACKETED_PASTE, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, MOVE_CURSOR, CLEAR_SCREEN)
 	return nil
 }
 
@@ -61,7 +63,7 @@ func (t *Terminal) Exit() {
 		return
 	}
 
-	fmt.Print(DISABLE_MODIFY_OTHER_KEYS + DISABLE_KITTY_KEYBOARD + DISABLE_MOUSE + SHOW_CURSOR + CLOSE_ALT)
+	fmt.Print(DISABLE_MODIFY_OTHER_KEYS + DISABLE_KITTY_KEYBOARD + DISABLE_BRACKETED_PASTE + DISABLE_MOUSE + SHOW_CURSOR + CLOSE_ALT)
 	term.Restore(t.fd, t.oldstate)
 }
 

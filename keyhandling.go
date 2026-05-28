@@ -7,6 +7,12 @@ import (
 
 func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 	if ev.Type == keyboard.KeyCtrlC {
+		if copyEditorSelection(state) {
+			return true, false
+		}
+		if ev.Cmd {
+			return true, false
+		}
 		return false, true
 	}
 
@@ -92,6 +98,9 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 	case keyboard.KeyTab:
 		state.SwitchLayout()
 		return true, false
+	case keyboard.KeyPaste:
+		ed.InsertString(ev.Text)
+		return true, false
 	case keyboard.KeyEscape:
 		if state.PopupOpen {
 			state.TogglePopup()
@@ -102,6 +111,17 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 	case keyboard.KeyRune:
 		if ev.Ctrl && (ev.Ch == 'P' || ev.Ch == 'p') {
 			state.TogglePopup()
+			return true, false
+		}
+		if ev.Cmd {
+			switch ev.Ch {
+			case 'c', 'C':
+				copyEditorSelection(state)
+				return true, false
+			case 'z', 'Z':
+				ed.Undo()
+				return true, false
+			}
 			return true, false
 		}
 		// Alt+b / Alt+f: readline-style word jump (emitted by Terminal.app and
@@ -124,6 +144,11 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 			case 'a', 'A':
 				ed.MoveCursorHome()
 				return true, false
+			case 'c', 'C':
+				if copyEditorSelection(state) {
+					return true, false
+				}
+				return false, true
 			case 'e', 'E':
 				ed.MoveCursorEnd()
 				return true, false
@@ -136,6 +161,8 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 			case 't', 'T':
 				state.CycleInfoView()
 				return true, false
+			case 'z', 'Z':
+				return ed.Undo(), false
 			}
 			return false, false
 		}
@@ -243,4 +270,14 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 		return true, false
 	}
 	return false, false
+}
+
+func copyEditorSelection(state *app.State) bool {
+	if state == nil || state.Editor == nil || !state.Editor.HasSelection() {
+		return false
+	}
+	if err := writeClipboard(state.Editor.SelectedText()); err != nil {
+		state.AddMessage("system", "copy failed: "+err.Error())
+	}
+	return true
 }
