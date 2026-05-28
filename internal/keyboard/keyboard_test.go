@@ -102,6 +102,20 @@ func TestParseMouseWheel(t *testing.T) {
 	}
 }
 
+func TestParseMouseWheelIgnoresHorizontalScroll(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[<66;10;5M")))
+	if ev.Type != KeyUnknown {
+		t.Fatalf("expected horizontal wheel ignored, got %#v", ev)
+	}
+}
+
+func TestParseMouseWheelIgnoresReleaseEvents(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[<64;10;5m")))
+	if ev.Type != KeyUnknown {
+		t.Fatalf("expected wheel release ignored, got %#v", ev)
+	}
+}
+
 func TestReadInputBytesClosesOnEOF(t *testing.T) {
 	bytes := readInputBytes(context.Background(), strings.NewReader(""))
 	if b, ok := <-bytes; ok {

@@ -330,7 +330,7 @@ func modifiedCodepointEvent(codepoint int, shift, ctrl, alt bool) Event {
 }
 
 func parseSGRMouse(params []byte, final byte) Event {
-	if final != 'M' && final != 'm' {
+	if final != 'M' {
 		return Event{Type: KeyUnknown}
 	}
 
@@ -357,10 +357,14 @@ func parseSGRMouse(params []byte, final byte) Event {
 	if button&64 == 0 {
 		return Event{Type: KeyUnknown}
 	}
-	if button&1 == 0 {
+	scrollButton := button & 3
+	if scrollButton == 0 {
 		return Event{Type: KeyMouseWheelUp, Mouse: true, MouseX: x, MouseY: y}
 	}
-	return Event{Type: KeyMouseWheelDown, Mouse: true, MouseX: x, MouseY: y}
+	if scrollButton == 1 {
+		return Event{Type: KeyMouseWheelDown, Mouse: true, MouseX: x, MouseY: y}
+	}
+	return Event{Type: KeyUnknown}
 }
 
 func parseSS3(b byte) Event {

@@ -341,7 +341,9 @@ func (s *State) SetOutputMaxScroll(maxOffset int) {
 }
 
 func (s *State) invalidateOutputMax() {
-	s.outputMaxSet = false
+	// Keep the last rendered max as a provisional clamp until the next render
+	// computes the exact value. This prevents boundary scroll input from moving
+	// past the visible range and then snapping back during render.
 }
 
 func (s *State) CycleInfoView() {

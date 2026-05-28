@@ -42,10 +42,10 @@ func TestScrollOutputVisibleUsesRenderedMax(t *testing.T) {
 		t.Fatalf("expected scroll offset 10, got %d", got)
 	}
 
-	state.AddMessage("ai", "new content invalidates cached max")
+	state.AddMessage("ai", "new content invalidates exact max")
 	state.ScrollOutputVisible(5)
-	if got := state.OutputScroll(); got != 15 {
-		t.Fatalf("expected unclamped scroll while max is invalid, got %d", got)
+	if got := state.OutputScroll(); got != 10 {
+		t.Fatalf("expected scroll to keep using last rendered max while exact max is invalid, got %d", got)
 	}
 }
 
