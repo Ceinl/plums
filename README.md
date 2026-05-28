@@ -16,3 +16,5 @@ opencode_server_url = "http://127.0.0.1:4096"
 ```
 
 If `opencode.opencode_server_url` is omitted, Plums uses `http://127.0.0.1:4096`.
+
+For local URLs, Plums auto-starts `opencode serve` on the configured hostname and port. For non-local URLs, Plums connects to the existing server and reports an error if it is unreachable.

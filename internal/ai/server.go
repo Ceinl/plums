@@ -5,7 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,15 +25,19 @@ type ServerProcess struct {
 	stopOnce sync.Once
 }
 
-// StartServer starts `opencode serve` and returns once the process has been
-// launched. Call WaitForHealth before using the client.
-func StartServer(ctx context.Context) (*ServerProcess, error) {
+// StartServer starts `opencode serve` for baseURL and returns once the process
+// has been launched. Call WaitForHealth before using the client.
+func StartServer(ctx context.Context, baseURL string) (*ServerProcess, error) {
+	args, err := serverCommandArgs(baseURL)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := exec.LookPath("opencode"); err != nil {
 		return nil, fmt.Errorf("opencode executable not found: %w", err)
 	}
 
-	debuglog.Printf("server: exec opencode serve")
-	cmd := exec.CommandContext(ctx, "opencode", "serve")
+	debuglog.Printf("server: exec opencode %s", strings.Join(args, " "))
+	cmd := exec.CommandContext(ctx, "opencode", args...)
 	proc := &ServerProcess{
 		cmd:  cmd,
 		done: make(chan struct{}),
@@ -50,6 +57,45 @@ func StartServer(ctx context.Context) (*ServerProcess, error) {
 	}()
 
 	return proc, nil
+}
+
+func serverCommandArgs(baseURL string) ([]string, error) {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		baseURL = DefaultBaseURL
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Hostname() == "" {
+		return nil, fmt.Errorf("invalid opencode server URL %q", baseURL)
+	}
+	if u.Scheme != "http" {
+		return nil, fmt.Errorf("cannot auto-start opencode for %s URL %q; start the server yourself or use a local http URL", u.Scheme, baseURL)
+	}
+
+	host := u.Hostname()
+	if !isLocalHost(host) {
+		return nil, fmt.Errorf("cannot auto-start opencode for non-local URL %q; start the server yourself or use a local URL", baseURL)
+	}
+
+	args := []string{"serve", "--hostname", host}
+	port := u.Port()
+	if port == "" {
+		port = "80"
+	}
+	if _, err := strconv.Atoi(port); err != nil {
+		return nil, fmt.Errorf("invalid opencode server URL port %q", port)
+	}
+	args = append(args, "--port", port)
+	return args, nil
+}
+
+func isLocalHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
 }
 
 // Stop terminates the managed opencode server process.

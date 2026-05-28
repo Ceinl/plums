@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plums Roadmap</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f0e12;
+      --text: #eeeaf3;
+      --muted: #a9a2b7;
+      --faint: #686174;
+      --line: #2a2631;
+      --accent: #e0aa5f;
+      --risk: #ef7d7d;
+      --ok: #8fd7a4;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif;
+      font-size: 18px;
+      line-height: 1.58;
+    }
+
+    main {
+      width: min(820px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 72px 0 96px;
+    }
+
+    header {
+      padding-bottom: 36px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 40px;
+    }
+
+    h1 {
+      margin: 0;
+      color: var(--text);
+      font-size: clamp(3rem, 10vw, 7rem);
+      line-height: 0.9;
+      letter-spacing: -0.075em;
+      font-weight: 500;
+    }
+
+    h2 {
+      margin: 56px 0 14px;
+      color: var(--text);
+      font-size: 1.15rem;
+      line-height: 1.2;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-weight: 600;
+    }
+
+    p {
+      max-width: 660px;
+      margin: 18px 0 0;
+      color: var(--muted);
+    }
+
+    ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      border-top: 1px solid var(--line);
+    }
+
+    li {
+      position: relative;
+      padding: 13px 0 13px 34px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 24px;
+      width: 10px;
+      height: 1px;
+      background: var(--accent);
+    }
+
+    code {
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.82em;
+      background: #19171f;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 0.08rem 0.32rem;
+    }
+
+    .meta {
+      margin-top: 28px;
+      color: var(--faint);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.82rem;
+      letter-spacing: 0.02em;
+    }
+
+    .risk {
+      color: var(--risk);
+    }
+
+    .ok {
+      color: var(--ok);
+    }
+
+    @media (max-width: 640px) {
+      body {
+        font-size: 16px;
+      }
+
+      main {
+        width: min(100% - 28px, 820px);
+        padding: 44px 0 72px;
+      }
+
+      header {
+        margin-bottom: 28px;
+      }
+
+      h2 {
+        margin-top: 42px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Plums</h1>
+    </header>
+
+    <h2>Current Status</h2>
+    <ul>
+      <li><span class="risk">Not ready for beta deploy yet.</span></li>
+      <li>Close enough for internal alpha usage, but beta should wait until the remaining blocker below is fixed and verified in a clean worktree.</li>
+      <li>The current branch is <code>main</code>.</li>
+      <li><code>go test ./...</code> and <code>go build ./...</code> pass locally.</li>
+      <li><code>internal/harness</code> is experimental and outside beta scope.</li>
+    </ul>
+
+    <h2>Completed Since Last Roadmap</h2>
+    <ul>
+      <li>Closed keyboard input channels are handled in <code>main.go</code>; the main loop cancels active streams and exits instead of spinning.</li>
+      <li>Terminal startup now returns clean errors, including <code>ErrNotTerminal</code>, instead of panicking.</li>
+      <li>Resize events refresh terminal size and re-render the UI.</li>
+      <li>Quit paths cancel active streams and exit cleanly.</li>
+      <li>Opencode startup failure is surfaced as a system message, and early <code>opencode serve</code> exits include stderr.</li>
+      <li>Model switching is implemented through the command palette using the opencode provider API.</li>
+      <li>Plan/build mode is sent to opencode as the message <code>agent</code>.</li>
+      <li>The opencode server URL can be configured with <code>[opencode].opencode_server_url</code> in <code>.agents/plums/config/config.toml</code>.</li>
+      <li>Local custom opencode URLs now auto-start <code>opencode serve</code> on the configured hostname and port; non-local URLs are treated as attach-only.</li>
+      <li>Tests no longer depend on ignored <code>docs/config</code> fixtures.</li>
+      <li><code>internal/components/chatlog_test.go</code> is tracked.</li>
+      <li>Generated binaries are ignored with <code>/bin/</code> and <code>/plums</code>, and no generated binary paths are tracked.</li>
+      <li>Visible built-in palette commands now map to implemented behavior: model switching, new session, mode switching, output percentage, and session list.</li>
+      <li>Slash commands exist for <code>/clear</code>, <code>/command</code>, <code>/new</code>, and <code>/sessions</code>.</li>
+      <li>Tests cover non-TTY terminal startup, resize fallback, stdin EOF input handling, model/mode message payloads, startup exit reporting, palette search, and model selection.</li>
+    </ul>
+
+    <h2>Beta Blockers</h2>
+    <ul>
+      <li>The README is not beta-ready. It only documents a small config section and does not cover install, prerequisites, keybindings, first run, troubleshooting, or known limitations.</li>
+    </ul>
+
+    <h2>Before Private Beta</h2>
+    <ul>
+      <li>Expand the README with install, run, config, keybindings, opencode dependency, troubleshooting, and known limitations.</li>
+      <li>Run <code>go test ./...</code>, <code>go build ./...</code>, and a manual TUI smoke test with <code>opencode serve</code> in a clean worktree.</li>
+    </ul>
+
+    <h2>Beta Hardening</h2>
+    <ul>
+      <li>Add tests for opencode health, session creation, session list, message list, and sync message paths.</li>
+      <li>Add tests for SSE streaming, idle completion, malformed events, and fallback behavior.</li>
+      <li>Add tests for slash commands, more command palette actions, session switching, output percentage adjustment, and git diff tab behavior.</li>
+      <li>Improve user-facing handling for opencode port conflicts, auth failures, and slow startup.</li>
+      <li>Test keybindings and rendering in Terminal.app, iTerm2, Ghostty, WezTerm, Kitty, and Alacritty.</li>
+    </ul>
+
+    <h2>Before Public Launch</h2>
+    <ul>
+      <li>Add CI for tests, vet, formatting, and builds.</li>
+      <li>Add version metadata and a <code>--version</code> flag.</li>
+      <li>Create a release process for GitHub Releases binaries.</li>
+      <li>Choose an install path such as Homebrew or <code>go install</code>.</li>
+      <li>If command config is public, load it instead of hardcoding commands.</li>
+      <li>Define compatibility expectations for layout config versioning.</li>
+      <li>Add first-run help for missing opencode, auth failure, server startup failure, and unsupported terminals.</li>
+      <li>Review all README claims against implemented behavior.</li>
+      <li>Write release notes with known limitations.</li>
+    </ul>
+
+    <h2>Public Launch Gate</h2>
+    <ul>
+      <li>Fresh install works from documented instructions.</li>
+      <li>CI is green for the release candidate.</li>
+      <li>Supported terminal matrix has been manually verified.</li>
+      <li>All public commands, config files, and README claims match the implementation.</li>
+      <li>Release notes include known limitations and upgrade expectations.</li>
+    </ul>
+
+    <h2>Beta Gate</h2>
+    <ul>
+      <li><span class="ok">Ready for beta only after:</span> clean tests, clean build, clean worktree, documented install path, no tracked generated binaries, and a successful manual opencode session.</li>
+    </ul>
+  </main>
+</body>
+</html>

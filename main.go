@@ -390,7 +390,7 @@ func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupRes
 	debuglog.Printf("startup: checking opencode health")
 	if err := client.Health(ctx); err != nil {
 		debuglog.Printf("startup: health check failed: %v", err)
-		proc, err := ai.StartServer(ctx)
+		proc, err := ai.StartServer(ctx, client.BaseURL())
 		if err != nil {
 			debuglog.Printf("startup: start server failed: %v", err)
 			out <- startupResult{err: fmt.Errorf("failed to start opencode server: %w", err)}

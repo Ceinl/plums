@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +72,27 @@ func TestWaitForHealthOrExitReportsStartupExit(t *testing.T) {
 	}
 	if got := err.Error(); !strings.Contains(got, "startup boom") {
 		t.Fatalf("expected stderr in error, got %q", got)
+	}
+}
+
+func TestServerCommandArgsUsesConfiguredLocalURL(t *testing.T) {
+	got, err := serverCommandArgs("http://localhost:9999")
+	if err != nil {
+		t.Fatalf("server args: %v", err)
+	}
+	want := []string{"serve", "--hostname", "localhost", "--port", "9999"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected %#v, got %#v", want, got)
+	}
+}
+
+func TestServerCommandArgsRejectsRemoteURL(t *testing.T) {
+	_, err := serverCommandArgs("http://opencode.example.com:4096")
+	if err == nil {
+		t.Fatalf("expected remote URL error")
+	}
+	if got := err.Error(); !strings.Contains(got, "non-local URL") {
+		t.Fatalf("expected non-local URL error, got %q", got)
 	}
 }
 

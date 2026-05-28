@@ -190,6 +190,13 @@ func NewClientWithURL(baseURL string) *Client {
 	}
 }
 
+func (c *Client) BaseURL() string {
+	if c == nil || c.baseURL == "" {
+		return DefaultBaseURL
+	}
+	return c.baseURL
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 func (c *Client) Health(ctx context.Context) error {
