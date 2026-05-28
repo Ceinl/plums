@@ -1,6 +1,11 @@
 package app
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestClampOutputScroll(t *testing.T) {
 	state := NewState(80, 24)
@@ -13,6 +18,18 @@ func TestClampOutputScroll(t *testing.T) {
 	state.ClampOutputScroll(-1)
 	if got := state.OutputScroll(); got != 0 {
 		t.Fatalf("expected scroll offset 0, got %d", got)
+	}
+}
+
+func TestResizeClampsInvalidDimensions(t *testing.T) {
+	state := NewState(0, -1)
+	if state.width != 1 || state.height != 1 {
+		t.Fatalf("expected initial dimensions clamped to 1x1, got %dx%d", state.width, state.height)
+	}
+
+	state.Resize(-10, 0)
+	if state.width != 1 || state.height != 1 {
+		t.Fatalf("expected resized dimensions clamped to 1x1, got %dx%d", state.width, state.height)
 	}
 }
 
@@ -38,6 +55,142 @@ func TestLoadRenderConfig(t *testing.T) {
 	}
 	if _, err := LoadRenderConfig("../../docs/config/layout.json"); err != nil {
 		t.Fatalf("load docs render config: %v", err)
+	}
+}
+
+func TestLoadCommandConfig(t *testing.T) {
+	if _, err := LoadCommandConfig(""); err != nil {
+		t.Fatalf("load built-in command config: %v", err)
+	}
+	if _, err := LoadCommandConfig("../../docs/config/commands.json"); err != nil {
+		t.Fatalf("load docs command config: %v", err)
+	}
+}
+
+func TestCommandConfigControlsSlashCommands(t *testing.T) {
+	cfg, err := LoadCommandConfig("../../docs/config/commands.json")
+	if err != nil {
+		t.Fatalf("load command config: %v", err)
+	}
+	state := NewState(80, 24)
+	state.SetCommandConfig(cfg)
+	state.Editor.SetContent("/command")
+	state.SubmitInput()
+
+	if !state.PopupOpen {
+		t.Fatalf("expected configured /command slash command to open palette")
+	}
+}
+
+func TestDefaultCommandConfigIncludesSkillsCommand(t *testing.T) {
+	state := NewState(80, 24)
+	state.Editor.SetContent("/skills")
+	state.SubmitInput()
+
+	if got := state.ConsumePendingAction(); got != PaletteActionSkillsList {
+		t.Fatalf("expected /skills to open skills list, got %v", got)
+	}
+}
+
+func TestEditorSkillsCommandDoesNotRequireCommandConfig(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetCommandConfig(&CommandConfig{
+		Version: 1,
+		SlashCommands: []SlashCommandConfig{
+			{Name: "/command", Detail: "Open palette", Action: "open_palette"},
+		},
+		Palette: PaletteConfig{Items: []PaletteItemConfig{
+			{Title: "Open palette", Action: "open_palette"},
+		}},
+		Actions: map[string]ActionSpec{
+			"open_palette": {Kind: "builtin"},
+		},
+	})
+	state.Editor.SetContent("/skills")
+	state.SubmitInput()
+
+	if got := state.ConsumePendingAction(); got != PaletteActionSkillsList {
+		t.Fatalf("expected built-in /skills action, got %v", got)
+	}
+}
+
+func TestSkillMarkerExpandsSubmittedPrompt(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetSkillItems([]SkillListItem{{Name: "demo-skill", Content: "## Instructions\nUse demo behavior."}})
+	state.ClosePalette()
+	state.Editor.SetContent("/skill demo-skill\ndo the work")
+	state.SubmitInput()
+
+	got := state.ConsumeSubmittedInput()
+	for _, want := range []string{
+		"Use the `demo-skill` skill",
+		"<skill_content name=\"demo-skill\">",
+		"Use demo behavior.",
+		"User request:\ndo the work",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected submitted input to contain %q, got %q", want, got)
+		}
+	}
+}
+
+func TestInsertSkillMarkerLeavesEditorEditable(t *testing.T) {
+	state := NewState(80, 24)
+	state.Editor.SetContent("do the work")
+	state.Editor.MoveCursorHome()
+	state.InsertSkillMarker(SkillListItem{Name: "demo-skill"})
+
+	if got := state.Editor.GetContent(); got != "/skill demo-skill\ndo the work" {
+		t.Fatalf("expected skill marker in editor, got %q", got)
+	}
+	if len(state.Messages()) != 0 {
+		t.Fatalf("expected no system message when inserting skill marker")
+	}
+}
+
+func TestSkillSuggestionsAfterSkillDirective(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetAvailableSkills([]SkillListItem{
+		{Name: "frontend-design", Description: "Create polished UI"},
+		{Name: "diagnose", Description: "Debug failures"},
+	})
+	state.Editor.SetContent("/skill front")
+
+	suggestions := state.SkillSuggestions()
+	if len(suggestions) != 1 || suggestions[0].Name != "frontend-design" {
+		t.Fatalf("expected frontend-design suggestion, got %#v", suggestions)
+	}
+}
+
+func TestDiscoverSkillsFindsOpenCodeCompatibleSkill(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", filepath.Join(dir, "home"))
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatalf("create .git: %v", err)
+	}
+	cwd := filepath.Join(dir, "nested", "pkg")
+	skillDir := filepath.Join(dir, ".agents", "skills", "demo-skill")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatalf("create cwd: %v", err)
+	}
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("create skill dir: %v", err)
+	}
+	path := filepath.Join(skillDir, "SKILL.md")
+	content := "---\nname: demo-skill\ndescription: Demonstrate skill loading\n---\n## Body\nFollow these instructions.\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	skills, err := DiscoverSkills(cwd)
+	if err != nil {
+		t.Fatalf("discover skills: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %#v", skills)
+	}
+	if skills[0].Name != "demo-skill" || skills[0].Description != "Demonstrate skill loading" || !strings.Contains(skills[0].Content, "Follow these instructions") {
+		t.Fatalf("unexpected skill: %#v", skills[0])
 	}
 }
 

@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,12 +13,15 @@ type PaletteAction int
 
 const (
 	PaletteActionNone PaletteAction = iota
+	PaletteActionOpenPalette
 	PaletteActionChangeModel
 	PaletteActionSelectModel
 	PaletteActionNewSession
 	PaletteActionSwitchMode
 	PaletteActionSessionsList
 	PaletteActionSelectSession
+	PaletteActionSkillsList
+	PaletteActionSelectSkill
 )
 
 type PaletteView int
@@ -28,6 +30,7 @@ const (
 	PaletteViewCommands PaletteView = iota
 	PaletteViewModels
 	PaletteViewSessions
+	PaletteViewSkills
 )
 
 type LayoutType int
@@ -78,18 +81,21 @@ type paletteCommandItem struct {
 	Detail   string
 	Action   PaletteAction
 	Adjust   bool
+	Min      int
+	Max      int
+	Step     int
 	Disabled bool
 }
 
 type SlashCommand struct {
 	Name   string
 	Detail string
+	Action PaletteAction
 }
 
-var slashCommands = []SlashCommand{
-	{Name: "/new", Detail: "Create a fresh opencode session"},
-	{Name: "/command", Detail: "Open the command palette"},
-	{Name: "/sessions", Detail: "Open existing opencode sessions"},
+type SkillSuggestion struct {
+	Name        string
+	Description string
 }
 
 type State struct {
@@ -120,6 +126,7 @@ type State struct {
 	PendingAction  PaletteAction
 	ModelItems     []ModelListItem
 	SessionItems   []SessionListItem
+	SkillItems     []SkillListItem
 	Mode           string
 	ModelProvider  string
 	ModelID        string
@@ -127,9 +134,11 @@ type State struct {
 	GitDiff        string
 	OutputPercent  int
 	submittedInput string
+	commandConfig  *CommandConfig
 }
 
 func NewState(width int, height int) *State {
+	width, height = clampSize(width, height)
 	return &State{
 		width:         width,
 		height:        height,
@@ -137,7 +146,15 @@ func NewState(width int, height int) *State {
 		Layout:        LayoutSplit,
 		Mode:          "build",
 		OutputPercent: defaultOutputPercentage,
+		commandConfig: DefaultCommandConfig(),
 	}
+}
+
+func (s *State) SetCommandConfig(cfg *CommandConfig) {
+	if cfg == nil {
+		cfg = DefaultCommandConfig()
+	}
+	s.commandConfig = cfg
 }
 
 func (s *State) SubmitInput() string {
@@ -149,7 +166,7 @@ func (s *State) SubmitInput() string {
 	if input != "" {
 		s.messages = append(s.messages, Message{Role: "user", Content: input})
 		s.Editor.SetContent("")
-		s.submittedInput = input
+		s.submittedInput = ExpandSkillMarkers(input, s.SkillItems)
 		s.invalidateOutputMax()
 	}
 	return input
@@ -197,9 +214,20 @@ func (s *State) Messages() []Message {
 }
 
 func (s *State) Resize(w, h int) {
+	w, h = clampSize(w, h)
 	s.width = w
 	s.height = h
 	s.invalidateOutputMax()
+}
+
+func clampSize(w, h int) (int, int) {
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	return w, h
 }
 
 func (s *State) EffectiveLayout() LayoutType {
@@ -395,7 +423,10 @@ func (s *State) PaletteTitle() string {
 	if s.PaletteView == PaletteViewSessions {
 		return "Sessions"
 	}
-	return "Command Palette"
+	if s.PaletteView == PaletteViewSkills {
+		return "Skills"
+	}
+	return s.commandConfig.Palette.Title
 }
 
 func (s *State) PaletteItems() []components.PopupItem {
@@ -424,7 +455,7 @@ func (s *State) PaletteItems() []components.PopupItem {
 	if s.PaletteView == PaletteViewSessions {
 		sessions := s.visibleSessionItems()
 		if len(sessions) == 0 {
-			return []components.PopupItem{{Title: "No sessions", Detail: "No opencode sessions found", Disabled: true}}
+			return []components.PopupItem{{Title: s.commandConfig.Palette.EmptySessionsTitle, Detail: s.commandConfig.Palette.EmptySessionsDetail, Disabled: true}}
 		}
 		items := make([]components.PopupItem, len(sessions))
 		for i, session := range sessions {
@@ -440,6 +471,17 @@ func (s *State) PaletteItems() []components.PopupItem {
 		}
 		return items
 	}
+	if s.PaletteView == PaletteViewSkills {
+		skills := s.visibleSkillItems()
+		if len(skills) == 0 {
+			return []components.PopupItem{{Title: "No skills", Detail: "No opencode skills found", Disabled: true}}
+		}
+		items := make([]components.PopupItem, len(skills))
+		for i, skill := range skills {
+			items[i] = components.PopupItem{Title: skill.Name, Detail: skill.Description}
+		}
+		return items
+	}
 	commands := s.visibleCommandItems()
 	if len(commands) == 0 {
 		return []components.PopupItem{{Title: "No commands", Detail: "No matching commands", Disabled: true}}
@@ -452,10 +494,11 @@ func (s *State) PaletteItems() []components.PopupItem {
 }
 
 func (s *State) SplitOutputPercent() int {
+	min, max, _ := s.outputAdjustment()
 	if s.OutputPercent == 0 {
 		return defaultOutputPercentage
 	}
-	return clampInt(s.OutputPercent, minOutputPercentage, maxOutputPercentage)
+	return clampInt(s.OutputPercent, min, max)
 }
 
 func (s *State) SplitLeftPercent() int {
@@ -467,8 +510,9 @@ func (s *State) SplitLeftWidth() int {
 }
 
 func (s *State) AdjustOutputPercentage(delta int) bool {
+	min, max, _ := s.outputAdjustment()
 	before := s.SplitOutputPercent()
-	s.OutputPercent = clampInt(before+delta, minOutputPercentage, maxOutputPercentage)
+	s.OutputPercent = clampInt(before+delta, min, max)
 	if s.OutputPercent != before {
 		s.invalidateOutputMax()
 	}
@@ -476,18 +520,52 @@ func (s *State) AdjustOutputPercentage(delta int) bool {
 }
 
 func (s *State) AdjustSelectedPaletteItem(delta int) bool {
-	if !s.IsOutputPercentageSelected() {
+	command, ok := s.selectedAdjustableCommand()
+	if !ok {
 		return false
 	}
-	return s.AdjustOutputPercentage(delta * outputPercentageStep)
+	step := command.Step
+	if step == 0 {
+		_, _, step = s.outputAdjustment()
+	}
+	return s.AdjustOutputPercentage(delta * step)
 }
 
 func (s *State) IsOutputPercentageSelected() bool {
+	_, ok := s.selectedAdjustableCommand()
+	return ok
+}
+
+func (s *State) selectedAdjustableCommand() (paletteCommandItem, bool) {
 	if s.PaletteView != PaletteViewCommands {
-		return false
+		return paletteCommandItem{}, false
 	}
 	commands := s.visibleCommandItems()
-	return s.PaletteIndex >= 0 && s.PaletteIndex < len(commands) && commands[s.PaletteIndex].Adjust
+	if s.PaletteIndex < 0 || s.PaletteIndex >= len(commands) || !commands[s.PaletteIndex].Adjust {
+		return paletteCommandItem{}, false
+	}
+	return commands[s.PaletteIndex], true
+}
+
+func (s *State) outputAdjustment() (min, max, step int) {
+	min, max, step = minOutputPercentage, maxOutputPercentage, outputPercentageStep
+	if s.commandConfig == nil {
+		return min, max, step
+	}
+	for _, spec := range s.commandConfig.Actions {
+		if spec.Adjustment.Step == 0 {
+			continue
+		}
+		if spec.Adjustment.Min != 0 {
+			min = spec.Adjustment.Min
+		}
+		if spec.Adjustment.Max != 0 {
+			max = spec.Adjustment.Max
+		}
+		step = spec.Adjustment.Step
+		return min, max, step
+	}
+	return min, max, step
 }
 
 func (s *State) PaletteSearch() string {
@@ -540,10 +618,25 @@ func (s *State) SlashCommands() []SlashCommand {
 		return nil
 	}
 
-	items := make([]SlashCommand, 0, len(slashCommands))
-	for _, command := range slashCommands {
+	items := make([]SlashCommand, 0, len(s.commandConfig.SlashCommands))
+	for _, command := range s.commandConfig.SlashCommands {
 		if strings.HasPrefix(command.Name, input) {
-			items = append(items, command)
+			items = append(items, SlashCommand{Name: command.Name, Detail: command.Detail, Action: s.commandConfig.actionFor(command.Action)})
+		}
+	}
+	return items
+}
+
+func (s *State) SkillSuggestions() []SkillSuggestion {
+	input := s.Editor.GetContent()
+	if strings.Contains(input, "\n") || !strings.HasPrefix(input, "/skill ") {
+		return nil
+	}
+	query := normalizedQuery(strings.TrimPrefix(input, "/skill "))
+	items := make([]SkillSuggestion, 0, len(s.SkillItems))
+	for _, skill := range s.SkillItems {
+		if query == "" || paletteMatches(query, skill.Name, skill.Description) {
+			items = append(items, SkillSuggestion{Name: skill.Name, Description: skill.Description})
 		}
 	}
 	return items
@@ -594,6 +687,11 @@ func (s *State) SelectPaletteItem() {
 		s.PopupOpen = false
 		return
 	}
+	if s.PaletteView == PaletteViewSkills {
+		s.PendingAction = PaletteActionSelectSkill
+		s.PopupOpen = false
+		return
+	}
 	commands := s.visibleCommandItems()
 	if s.PaletteIndex < 0 || s.PaletteIndex >= len(commands) {
 		return
@@ -602,7 +700,7 @@ func (s *State) SelectPaletteItem() {
 	if s.PendingAction == PaletteActionNone {
 		return
 	}
-	if s.PendingAction != PaletteActionSessionsList && s.PendingAction != PaletteActionChangeModel {
+	if s.PendingAction != PaletteActionSessionsList && s.PendingAction != PaletteActionSkillsList && s.PendingAction != PaletteActionChangeModel && s.PendingAction != PaletteActionOpenPalette {
 		s.PopupOpen = false
 	}
 }
@@ -653,6 +751,18 @@ func (s *State) SetModelItems(items []ModelListItem) {
 	s.PopupOpen = true
 }
 
+func (s *State) SetSkillItems(items []SkillListItem) {
+	s.SkillItems = items
+	s.PaletteView = PaletteViewSkills
+	s.PaletteQuery = ""
+	s.PaletteIndex = 0
+	s.PopupOpen = true
+}
+
+func (s *State) SetAvailableSkills(items []SkillListItem) {
+	s.SkillItems = items
+}
+
 func (s *State) SelectedModel() (providerID, modelID string) {
 	models := s.visibleModelItems()
 	if s.PaletteView != PaletteViewModels || s.PaletteIndex < 0 || s.PaletteIndex >= len(models) {
@@ -670,18 +780,27 @@ func (s *State) SelectedSessionID() string {
 	return sessions[s.PaletteIndex].ID
 }
 
+func (s *State) SelectedSkill() (SkillListItem, bool) {
+	skills := s.visibleSkillItems()
+	if s.PaletteView != PaletteViewSkills || s.PaletteIndex < 0 || s.PaletteIndex >= len(skills) {
+		return SkillListItem{}, false
+	}
+	return skills[s.PaletteIndex], true
+}
+
+func (s *State) InsertSkillMarker(skill SkillListItem) {
+	marker := "/skill " + skill.Name
+	content := s.Editor.GetContent()
+	if strings.TrimSpace(content) != "" {
+		marker += "\n"
+	}
+	for _, ch := range marker {
+		s.Editor.InsertRune(ch)
+	}
+}
+
 func (s *State) commandItems() []paletteCommandItem {
-	modeLabel := "Switch to plan mode"
-	if s.Mode == "plan" {
-		modeLabel = "Switch to build mode"
-	}
-	return []paletteCommandItem{
-		{Title: "Change model", Detail: "Select model for future prompts", Action: PaletteActionChangeModel},
-		{Title: "Start new session", Detail: "Create a fresh opencode session", Action: PaletteActionNewSession},
-		{Title: modeLabel, Detail: "Current mode: " + s.Mode, Action: PaletteActionSwitchMode},
-		{Title: "Output percentage", Detail: "Left/Right adjust - current: " + strconv.Itoa(s.SplitOutputPercent()) + "%", Action: PaletteActionNone, Adjust: true},
-		{Title: "Sessions list", Detail: "Open existing opencode sessions", Action: PaletteActionSessionsList},
-	}
+	return s.commandConfig.commandItems(s)
 }
 
 func (s *State) visibleCommandItems() []paletteCommandItem {
@@ -722,6 +841,20 @@ func (s *State) visibleSessionItems() []SessionListItem {
 	for _, session := range s.SessionItems {
 		if paletteMatches(query, session.Title, session.ID) {
 			items = append(items, session)
+		}
+	}
+	return items
+}
+
+func (s *State) visibleSkillItems() []SkillListItem {
+	query := normalizedQuery(s.PaletteQuery)
+	if query == "" {
+		return s.SkillItems
+	}
+	items := make([]SkillListItem, 0, len(s.SkillItems))
+	for _, skill := range s.SkillItems {
+		if paletteMatches(query, skill.Name, skill.Description) {
+			items = append(items, skill)
 		}
 	}
 	return items
@@ -781,15 +914,26 @@ func (s *State) runEditorCommand(input string) bool {
 		s.Editor.SetContent("")
 		s.OpenPalette()
 		return true
-	case "new":
+	case "skills":
 		s.Editor.SetContent("")
-		s.PendingAction = PaletteActionNewSession
-		return true
-	case "sessions":
-		s.Editor.SetContent("")
-		s.PendingAction = PaletteActionSessionsList
+		s.PendingAction = PaletteActionSkillsList
 		return true
 	default:
+		for _, slashCommand := range s.SlashCommands() {
+			if strings.TrimPrefix(slashCommand.Name, "/") != command {
+				continue
+			}
+			s.Editor.SetContent("")
+			if slashCommand.Action == PaletteActionOpenPalette {
+				s.OpenPalette()
+				return true
+			}
+			if slashCommand.Action == PaletteActionNone {
+				return true
+			}
+			s.PendingAction = slashCommand.Action
+			return true
+		}
 		return false
 	}
 }
