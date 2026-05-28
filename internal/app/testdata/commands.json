@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "slash_commands": [
+    { "name": "/command", "detail": "Open the command palette", "action": "open_palette" }
+  ],
+  "palette": {
+    "title": "Command Palette",
+    "items": [
+      { "title": "Open command palette", "detail": "Test command", "action": "open_palette" }
+    ]
+  },
+  "actions": {
+    "open_palette": { "kind": "builtin" }
+  }
+}

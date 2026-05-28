@@ -53,8 +53,8 @@ func TestLoadRenderConfig(t *testing.T) {
 	if _, err := LoadRenderConfig(""); err != nil {
 		t.Fatalf("load built-in render config: %v", err)
 	}
-	if _, err := LoadRenderConfig("../../docs/config/layout.json"); err != nil {
-		t.Fatalf("load docs render config: %v", err)
+	if _, err := LoadRenderConfig("testdata/layout.json"); err != nil {
+		t.Fatalf("load test render config: %v", err)
 	}
 }
 
@@ -83,13 +83,13 @@ func TestLoadCommandConfig(t *testing.T) {
 	if _, err := LoadCommandConfig(""); err != nil {
 		t.Fatalf("load built-in command config: %v", err)
 	}
-	if _, err := LoadCommandConfig("../../docs/config/commands.json"); err != nil {
-		t.Fatalf("load docs command config: %v", err)
+	if _, err := LoadCommandConfig("testdata/commands.json"); err != nil {
+		t.Fatalf("load test command config: %v", err)
 	}
 }
 
 func TestCommandConfigControlsSlashCommands(t *testing.T) {
-	cfg, err := LoadCommandConfig("../../docs/config/commands.json")
+	cfg, err := LoadCommandConfig("testdata/commands.json")
 	if err != nil {
 		t.Fatalf("load command config: %v", err)
 	}

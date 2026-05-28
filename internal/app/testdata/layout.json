@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "layouts": {
+    "default": {
+      "component": "editor",
+      "size": { "width": "100%", "height": "100%" }
+    }
+  }
+}
