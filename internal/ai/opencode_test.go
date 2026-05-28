@@ -1,8 +1,14 @@
 package ai
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestSendMessageBodyIncludesAgentMode(t *testing.T) {
@@ -44,5 +50,26 @@ func TestSendMessageBodyOmitsEmptyAgentMode(t *testing.T) {
 	}
 	if _, ok := got["model"]; ok {
 		t.Fatalf("expected empty model to be omitted, got %#v", got["model"])
+	}
+}
+
+func TestWaitForHealthOrExitReportsStartupExit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	proc := &ServerProcess{done: make(chan struct{})}
+	proc.stderr.WriteString("startup boom")
+	proc.waitErr = errors.New("exit status 42")
+	close(proc.done)
+
+	client := NewClientWithURL(server.URL)
+	err := WaitForHealthOrExit(context.Background(), client, proc, time.Second)
+	if err == nil {
+		t.Fatalf("expected startup exit error")
+	}
+	if got := err.Error(); !strings.Contains(got, "startup boom") {
+		t.Fatalf("expected stderr in error, got %q", got)
 	}
 }
