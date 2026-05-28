@@ -166,6 +166,15 @@ type sseResult struct {
 	completed bool
 }
 
+type partKind int
+
+const (
+	partKindUnknown partKind = iota
+	partKindText
+	partKindThinking
+	partKindIgnored
+)
+
 const DefaultBaseURL = "http://127.0.0.1:4096"
 
 // ── Constructors ──────────────────────────────────────────────────────────────
@@ -476,8 +485,8 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 	}
 
 	// 3. Consume SSE events.
-	// textPartIDs tracks part IDs confirmed to belong to our session.
-	textPartIDs := make(map[string]bool)
+	// partKinds tracks part IDs confirmed to belong to our session.
+	partKinds := make(map[string]partKind)
 	// pendingDeltas holds deltas that arrived before their message.part.updated
 	// registration event (a known opencode race – see issue #26924).
 	pendingDeltas := make(map[string][]string)
@@ -523,14 +532,19 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 				if err := json.Unmarshal(env.Properties, &props); err != nil {
 					continue
 				}
-				if props.Part.SessionID == sessionID && props.Part.Type == "text" {
-					textPartIDs[props.Part.ID] = true
+				if props.Part.SessionID == sessionID {
+					kind := ssePartKind(props.Part.Type)
+					partKinds[props.Part.ID] = kind
 					// Flush any deltas that arrived before this registration.
 					for _, d := range pendingDeltas[props.Part.ID] {
+						text := streamTextForKind(kind, d)
+						if text == "" {
+							continue
+						}
 						select {
 						case <-ctx.Done():
 							return result, ctx.Err()
-						case out <- StreamEvent{Text: d}:
+						case out <- StreamEvent{Text: text}:
 							result.emitted = true
 						}
 					}
@@ -548,17 +562,20 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 				if props.SessionID != "" && props.SessionID != sessionID {
 					continue
 				}
-				if props.SessionID == sessionID || textPartIDs[props.PartID] {
-					// Newer opencode delta events include sessionID, so we can emit
-					// immediately instead of waiting for a part registration event.
+				if kind := partKinds[props.PartID]; kind != partKindUnknown {
+					text := streamTextForKind(kind, props.Delta)
+					if text == "" {
+						continue
+					}
 					select {
 					case <-ctx.Done():
 						return result, ctx.Err()
-					case out <- StreamEvent{Text: props.Delta}:
+					case out <- StreamEvent{Text: text}:
 						result.emitted = true
 					}
 				} else {
-					// Delta arrived before its part.updated – queue it.
+					// Delta arrived before its part.updated; queue it until we know
+					// whether it is answer text, thinking text, or a non-display part.
 					pendingDeltas[props.PartID] = append(pendingDeltas[props.PartID], props.Delta)
 				}
 
@@ -606,6 +623,35 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 	}
 
 	return result, fmt.Errorf("SSE stream ended before session idle")
+}
+
+func ssePartKind(partType string) partKind {
+	switch partType {
+	case "text":
+		return partKindText
+	case "reasoning", "thinking":
+		return partKindThinking
+	default:
+		return partKindIgnored
+	}
+}
+
+func streamTextForKind(kind partKind, text string) string {
+	if text == "" {
+		return ""
+	}
+	switch kind {
+	case partKindText:
+		return text
+	case partKindThinking:
+		return "<think>" + text + "</think>"
+	default:
+		return ""
+	}
+}
+
+func DisplayTextForPart(part Part) string {
+	return streamTextForKind(ssePartKind(part.Type), part.Text)
 }
 
 // sendSync is the legacy fallback: POSTs to /session/{id}/message, waits for
@@ -662,8 +708,9 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 	}
 
 	for _, part := range msgResp.Parts {
-		if part.Type == "text" && part.Text != "" {
-			for _, r := range part.Text {
+		text := DisplayTextForPart(part)
+		if text != "" {
+			for _, r := range text {
 				select {
 				case <-ctx.Done():
 					return

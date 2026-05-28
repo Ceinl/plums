@@ -23,6 +23,7 @@ const (
 	PaletteActionSkillsList
 	PaletteActionSelectSkill
 	PaletteActionAnswerQuestion
+	PaletteActionCycleThinkingVisibility
 )
 
 type PaletteView int
@@ -138,6 +139,7 @@ type State struct {
 	QuestionTitle  string
 	QuestionItems  []QuestionOptionItem
 	Mode           string
+	ThinkingMode   components.ThinkingVisibility
 	ModelProvider  string
 	ModelID        string
 	InfoView       InfoView
@@ -1045,6 +1047,30 @@ func (s *State) OutputMouseUp(x, y int) string {
 		return s.DiffLog().MouseUp(x, y)
 	}
 	return s.ChatLog().MouseUp(x, y)
+}
+
+func (s *State) ThinkingVisibilityLabel() string {
+	switch s.ThinkingMode {
+	case components.ThinkingVisibilityHidden:
+		return "hidden"
+	case components.ThinkingVisibilityTitle:
+		return "title"
+	default:
+		return "full"
+	}
+}
+
+func (s *State) CycleThinkingVisibility() {
+	switch s.ThinkingMode {
+	case components.ThinkingVisibilityFull:
+		s.ThinkingMode = components.ThinkingVisibilityTitle
+	case components.ThinkingVisibilityTitle:
+		s.ThinkingMode = components.ThinkingVisibilityHidden
+	default:
+		s.ThinkingMode = components.ThinkingVisibilityFull
+	}
+	s.invalidateOutputMax()
+	s.ChatLog().SetThinkingVisibility(s.ThinkingMode)
 }
 
 func (s *State) ToggleMode() {

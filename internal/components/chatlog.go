@@ -69,6 +69,18 @@ type textSpan struct {
 	decor string
 }
 
+type spanLine struct {
+	spans []textSpan
+}
+
+type ThinkingVisibility int
+
+const (
+	ThinkingVisibilityFull ThinkingVisibility = iota
+	ThinkingVisibilityTitle
+	ThinkingVisibilityHidden
+)
+
 // ── ChatLog component ─────────────────────────────────────────────────────────
 
 type ChatLog struct {
@@ -81,6 +93,7 @@ type ChatLog struct {
 	linesCached  bool
 	cachedWidth  int
 	cachedLines  []renderLine
+	thinkingMode ThinkingVisibility
 
 	style  layout.Style
 	parent layout.Component
@@ -123,6 +136,16 @@ func (cl *ChatLog) SetStreaming(v bool) {
 		return
 	}
 	cl.isStreaming = v
+	cl.invalidateLines()
+	cl.ClearSelection()
+	cl.isDirty = true
+}
+
+func (cl *ChatLog) SetThinkingVisibility(v ThinkingVisibility) {
+	if cl.thinkingMode == v {
+		return
+	}
+	cl.thinkingMode = v
 	cl.invalidateLines()
 	cl.ClearSelection()
 	cl.isDirty = true
@@ -467,11 +490,16 @@ func (cl *ChatLog) buildMarkdownLines(content, fg, bg string) []renderLine {
 			continue
 		}
 
-		thinkingSpans, nextThinking, hasThinkingMarkup := parseThinkingSpans(trimmed, fg, inThinking)
+		thinkingLines, nextThinking, hasThinkingMarkup := parseThinkingSpanLines(trimmed, fg, inThinking, cl.thinkingMode)
 		inThinking = nextThinking
 		if hasThinkingMarkup {
-			for _, spans := range wrapSpansHard(thinkingSpans, cl.contentWidth()) {
-				lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
+			for _, spanLine := range thinkingLines {
+				for _, spans := range wrapSpansHard(spanLine.spans, cl.contentWidth()) {
+					if len(spans) == 0 || spanTextEmpty(spans) {
+						continue
+					}
+					lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
+				}
 			}
 			continue
 		}
@@ -495,10 +523,47 @@ func (cl *ChatLog) buildMarkdownLines(content, fg, bg string) []renderLine {
 	return compactBlankLines(lines)
 }
 
-func parseThinkingSpans(text, fg string, inThinking bool) ([]textSpan, bool, bool) {
+func parseThinkingSpans(text, fg string, inThinking bool, mode ThinkingVisibility) ([]textSpan, bool, bool) {
+	lines, nextThinking, hasMarkup := parseThinkingSpanLines(text, fg, inThinking, mode)
+	if len(lines) == 0 {
+		return nil, nextThinking, hasMarkup
+	}
+	return lines[0].spans, nextThinking, hasMarkup
+}
+
+func parseThinkingSpanLines(text, fg string, inThinking bool, mode ThinkingVisibility) ([]spanLine, bool, bool) {
 	var spans []textSpan
+	var lines []spanLine
 	hasMarkup := inThinking || strings.Contains(text, "<think>") || strings.Contains(text, "</think>")
+	startedInThinking := inThinking
 	remaining := text
+	titleShown := false
+	flushLine := func() {
+		lines = append(lines, spanLine{spans: spans})
+		spans = nil
+	}
+	appendThinking := func(value string) {
+		switch mode {
+		case ThinkingVisibilityHidden:
+			return
+		case ThinkingVisibilityTitle:
+			if startedInThinking || titleShown {
+				return
+			}
+			spans = append(spans, textSpan{text: "thinking...", fg: fgThinking})
+			titleShown = true
+		default:
+			spans = append(spans, parseInlineMarkdownPlainStyle(value, fgThinking)...)
+		}
+	}
+	appendNormal := func(value string) {
+		if len(spans) == 0 {
+			value = strings.TrimLeft(value, " \t")
+		}
+		if value != "" {
+			spans = append(spans, parseInlineMarkdown(value, fg, "")...)
+		}
+	}
 
 	for remaining != "" {
 		openIdx := strings.Index(remaining, "<think>")
@@ -506,30 +571,39 @@ func parseThinkingSpans(text, fg string, inThinking bool) ([]textSpan, bool, boo
 
 		if inThinking {
 			if closeIdx == -1 {
-				spans = append(spans, parseInlineMarkdown(remaining, fgThinking, "")...)
-				return spans, true, hasMarkup
+				appendThinking(remaining)
+				if len(spans) > 0 || len(lines) == 0 {
+					flushLine()
+				}
+				return lines, true, hasMarkup
 			}
 			if closeIdx > 0 {
-				spans = append(spans, parseInlineMarkdown(remaining[:closeIdx], fgThinking, "")...)
+				appendThinking(remaining[:closeIdx])
 			}
 			remaining = remaining[closeIdx+len("</think>"):]
 			inThinking = false
+			if !strings.HasPrefix(remaining, "<think>") && (len(spans) > 0 || mode != ThinkingVisibilityHidden) {
+				flushLine()
+			}
 			continue
 		}
 
 		if openIdx == -1 {
-			spans = append(spans, parseInlineMarkdown(remaining, fg, "")...)
-			return spans, false, hasMarkup
+			appendNormal(remaining)
+			if len(spans) > 0 || len(lines) == 0 {
+				flushLine()
+			}
+			return lines, false, hasMarkup
 		}
 		if closeIdx != -1 && closeIdx < openIdx {
 			if closeIdx > 0 {
-				spans = append(spans, parseInlineMarkdown(remaining[:closeIdx], fg, "")...)
+				appendNormal(remaining[:closeIdx])
 			}
 			remaining = remaining[closeIdx+len("</think>"):]
 			continue
 		}
 		if openIdx > 0 {
-			spans = append(spans, parseInlineMarkdown(remaining[:openIdx], fg, "")...)
+			appendNormal(remaining[:openIdx])
 		}
 		remaining = remaining[openIdx+len("<think>"):]
 		inThinking = true
@@ -538,7 +612,17 @@ func parseThinkingSpans(text, fg string, inThinking bool) ([]textSpan, bool, boo
 	if len(spans) == 0 {
 		spans = append(spans, textSpan{text: "", fg: fg})
 	}
-	return spans, inThinking, hasMarkup
+	flushLine()
+	return lines, inThinking, hasMarkup
+}
+
+func spanTextEmpty(spans []textSpan) bool {
+	for _, span := range spans {
+		if span.text != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (cl *ChatLog) buildListLines(marker, body, fg, bg string) []renderLine {
@@ -757,6 +841,15 @@ func parseInlineMarkdown(text, fg, decor string) []textSpan {
 	}
 	if len(spans) == 0 {
 		spans = append(spans, textSpan{text: text, fg: fg, decor: decor})
+	}
+	return spans
+}
+
+func parseInlineMarkdownPlainStyle(text, fg string) []textSpan {
+	spans := parseInlineMarkdown(text, fg, "")
+	for i := range spans {
+		spans[i].fg = fg
+		spans[i].decor = ""
 	}
 	return spans
 }

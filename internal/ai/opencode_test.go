@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -118,5 +119,77 @@ func TestReplyQuestionPostsAnswers(t *testing.T) {
 	client := NewClientWithURL(server.URL)
 	if err := client.ReplyQuestion(context.Background(), "req-1", [][]string{{"Yes"}}); err != nil {
 		t.Fatalf("reply question: %v", err)
+	}
+}
+
+func TestSendMessageEventsWrapsReasoningDeltas(t *testing.T) {
+	promptSeen := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/event":
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				t.Fatalf("expected flusher")
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher.Flush()
+
+			select {
+			case <-promptSeen:
+			case <-r.Context().Done():
+				return
+			}
+
+			writeSSE(t, w, "message.part.delta", partDeltaProperties{SessionID: "s1", PartID: "r1", Field: "text", Delta: "secret"})
+			writeSSE(t, w, "message.part.updated", partUpdatedProperties{Part: partDetail{ID: "r1", SessionID: "s1", Type: "reasoning"}})
+			writeSSE(t, w, "message.part.updated", partUpdatedProperties{Part: partDetail{ID: "t1", SessionID: "s1", Type: "text"}})
+			writeSSE(t, w, "message.part.delta", partDeltaProperties{SessionID: "s1", PartID: "t1", Field: "text", Delta: " answer"})
+			writeSSE(t, w, "session.idle", sessionIdleProperties{SessionID: "s1"})
+			flusher.Flush()
+
+		case "/session/s1/prompt_async":
+			close(promptSeen)
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	stream := client.SendMessageEvents(context.Background(), "s1", "hello", "", "", "")
+	var got strings.Builder
+	for event := range stream {
+		got.WriteString(event.Text)
+	}
+
+	if got.String() != "<think>secret</think> answer" {
+		t.Fatalf("unexpected stream text %q", got.String())
+	}
+}
+
+func TestDisplayTextForPartWrapsReasoning(t *testing.T) {
+	if got := DisplayTextForPart(Part{Type: "reasoning", Text: "secret"}); got != "<think>secret</think>" {
+		t.Fatalf("expected wrapped reasoning, got %q", got)
+	}
+	if got := DisplayTextForPart(Part{Type: "text", Text: "answer"}); got != "answer" {
+		t.Fatalf("expected text part, got %q", got)
+	}
+}
+
+func writeSSE(t *testing.T, w http.ResponseWriter, eventType string, properties any) {
+	t.Helper()
+	rawProps, err := json.Marshal(properties)
+	if err != nil {
+		t.Fatalf("marshal properties: %v", err)
+	}
+	rawEvent, err := json.Marshal(sseEnvelope{Type: eventType, Properties: rawProps})
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", rawEvent); err != nil {
+		t.Fatalf("write event: %v", err)
 	}
 }

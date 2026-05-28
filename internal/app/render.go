@@ -124,6 +124,7 @@ func newChatLog(state *State) *components.ChatLog {
 	chatLog.SetMessages(msgs)
 	chatLog.SetAiOutput(state.aioutput)
 	chatLog.SetStreaming(state.IsStreaming())
+	chatLog.SetThinkingVisibility(state.ThinkingMode)
 	chatLog.SetScrollOffset(state.OutputScroll())
 	return chatLog
 }

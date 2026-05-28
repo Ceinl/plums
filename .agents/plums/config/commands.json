@@ -47,6 +47,11 @@
         }
       },
       {
+        "title": "Thinking visibility",
+        "detail": "Current: {thinking_visibility} (cycles full/title/hidden)",
+        "action": "cycle_thinking_visibility"
+      },
+      {
         "title": "Output percentage",
         "detail": "Left/Right adjust - current: {output_percent}%",
         "action": "adjust_output_percentage"
@@ -74,6 +79,9 @@
       "kind": "builtin"
     },
     "switch_mode": {
+      "kind": "builtin"
+    },
+    "cycle_thinking_visibility": {
       "kind": "builtin"
     },
     "adjust_output_percentage": {

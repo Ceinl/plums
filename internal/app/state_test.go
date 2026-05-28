@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"plums/internal/components"
 	"strings"
 	"testing"
 )
@@ -110,6 +111,43 @@ func TestDefaultCommandConfigIncludesSkillsCommand(t *testing.T) {
 
 	if got := state.ConsumePendingAction(); got != PaletteActionSkillsList {
 		t.Fatalf("expected /skills to open skills list, got %v", got)
+	}
+}
+
+func TestDefaultCommandConfigIncludesThinkingVisibilityCommand(t *testing.T) {
+	state := NewState(80, 24)
+	state.OpenPalette()
+	for _, ch := range "thinking" {
+		state.InsertPaletteRune(ch)
+	}
+
+	items := state.PaletteItems()
+	if len(items) != 1 || items[0].Title != "Thinking visibility" {
+		t.Fatalf("expected thinking visibility command, got %#v", items)
+	}
+	if !strings.Contains(items[0].Detail, "full") {
+		t.Fatalf("expected current visibility in detail, got %q", items[0].Detail)
+	}
+
+	state.SelectPaletteItem()
+	if got := state.ConsumePendingAction(); got != PaletteActionCycleThinkingVisibility {
+		t.Fatalf("expected thinking visibility action, got %v", got)
+	}
+}
+
+func TestCycleThinkingVisibilityUpdatesChatLog(t *testing.T) {
+	state := NewState(80, 24)
+	state.CycleThinkingVisibility()
+	if state.ThinkingMode != components.ThinkingVisibilityTitle {
+		t.Fatalf("expected title visibility, got %v", state.ThinkingMode)
+	}
+	state.CycleThinkingVisibility()
+	if state.ThinkingMode != components.ThinkingVisibilityHidden {
+		t.Fatalf("expected hidden visibility, got %v", state.ThinkingMode)
+	}
+	state.CycleThinkingVisibility()
+	if state.ThinkingMode != components.ThinkingVisibilityFull {
+		t.Fatalf("expected full visibility, got %v", state.ThinkingMode)
 	}
 }
 

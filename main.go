@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"syscall"
@@ -19,7 +21,24 @@ import (
 	"plums/internal/ui"
 )
 
-const plumsConfigPath = ".agents/plums/config/config.toml"
+const (
+	appVersion      = "0.1.0-dev"
+	plumsConfigPath = ".agents/plums/config/config.toml"
+)
+
+var (
+	version   = appVersion
+	commit    = "unknown"
+	buildDate = "unknown"
+)
+
+type versionMetadata struct {
+	Version   string
+	Commit    string
+	BuildDate string
+	GoVersion string
+	Modified  bool
+}
 
 type startupResult struct {
 	session *ai.Session
@@ -34,7 +53,12 @@ func main() {
 	configGlobalShort := flag.Bool("cg", false, "use global plums layout config")
 	configLocal := flag.Bool("config-local", false, "use local plums layout config")
 	configLocalShort := flag.Bool("cl", false, "use local plums layout config")
+	showVersion := flag.Bool("version", false, "show version metadata and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Print(formatVersionMetadata(loadVersionMetadata()))
+		return
+	}
 
 	configPath, err := resolveConfigPath(*configGlobal || *configGlobalShort, *configLocal || *configLocalShort)
 	if err != nil {
@@ -216,6 +240,42 @@ func main() {
 			}
 		}
 	}
+}
+
+func loadVersionMetadata() versionMetadata {
+	meta := versionMetadata{
+		Version:   version,
+		Commit:    commit,
+		BuildDate: buildDate,
+		GoVersion: runtime.Version(),
+	}
+
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				if meta.Commit == "unknown" {
+					meta.Commit = setting.Value
+				}
+			case "vcs.time":
+				if meta.BuildDate == "unknown" {
+					meta.BuildDate = setting.Value
+				}
+			case "vcs.modified":
+				meta.Modified = setting.Value == "true"
+			}
+		}
+	}
+
+	return meta
+}
+
+func formatVersionMetadata(meta versionMetadata) string {
+	modified := "false"
+	if meta.Modified {
+		modified = "true"
+	}
+	return fmt.Sprintf("plums %s\ncommit: %s\nbuildDate: %s\ngo: %s\nmodified: %s\n", meta.Version, meta.Commit, meta.BuildDate, meta.GoVersion, modified)
 }
 
 func loadOpencodeServerURL(path string) (string, error) {
@@ -505,6 +565,9 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 	case app.PaletteActionSwitchMode:
 		state.ToggleMode()
 		state.AddMessage("system", "switched to "+state.Mode+" mode")
+	case app.PaletteActionCycleThinkingVisibility:
+		state.CycleThinkingVisibility()
+		state.AddMessage("system", "thinking visibility: "+state.ThinkingVisibilityLabel())
 	case app.PaletteActionChangeModel:
 		providersCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		providers, connected, err := client.ListProviders(providersCtx)
@@ -566,9 +629,7 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 		for _, message := range messages {
 			content := ""
 			for _, part := range message.Parts {
-				if part.Type == "text" {
-					content += part.Text
-				}
+				content += ai.DisplayTextForPart(part)
 			}
 			if content != "" {
 				role := message.Info.Role
