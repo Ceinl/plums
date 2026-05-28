@@ -120,7 +120,8 @@ type State struct {
 
 	spinnerFrame int
 
-	Layout LayoutType
+	Layout           LayoutType
+	availableLayouts []LayoutType
 
 	SessionID      string
 	SessionTitle   string
@@ -149,14 +150,42 @@ type State struct {
 func NewState(width int, height int) *State {
 	width, height = clampSize(width, height)
 	return &State{
-		width:         width,
-		height:        height,
-		Editor:        components.NewTextEditor(),
-		Layout:        LayoutSplit,
-		Mode:          "build",
-		OutputPercent: defaultOutputPercentage,
-		commandConfig: DefaultCommandConfig(),
+		width:            width,
+		height:           height,
+		Editor:           components.NewTextEditor(),
+		Layout:           LayoutSplit,
+		availableLayouts: defaultLayoutCycle(),
+		Mode:             "build",
+		OutputPercent:    defaultOutputPercentage,
+		commandConfig:    DefaultCommandConfig(),
 	}
+}
+
+func defaultLayoutCycle() []LayoutType {
+	return []LayoutType{LayoutDefault, LayoutSplit, LayoutFullscreen}
+}
+
+func (s *State) SetAvailableLayouts(layouts []LayoutType) {
+	seen := map[LayoutType]bool{}
+	available := make([]LayoutType, 0, len(layouts))
+	for _, layoutType := range layouts {
+		if seen[layoutType] {
+			continue
+		}
+		seen[layoutType] = true
+		available = append(available, layoutType)
+	}
+	if len(available) == 0 {
+		available = defaultLayoutCycle()
+	}
+	s.availableLayouts = available
+	for _, layoutType := range available {
+		if s.Layout == layoutType {
+			return
+		}
+	}
+	s.Layout = available[0]
+	s.invalidateOutputMax()
 }
 
 func (s *State) SetCommandConfig(cfg *CommandConfig) {
@@ -385,16 +414,17 @@ func (s *State) AddMessage(role, content string) {
 }
 
 func (s *State) SwitchLayout() {
-	switch s.Layout {
-	case LayoutDefault:
-		s.Layout = LayoutSplit
-	case LayoutSplit:
-		s.Layout = LayoutFullscreen
-	case LayoutFullscreen:
-		s.Layout = LayoutDefault
-	default:
-		s.Layout = LayoutDefault
+	if len(s.availableLayouts) == 0 {
+		s.availableLayouts = defaultLayoutCycle()
 	}
+	next := 0
+	for i, layoutType := range s.availableLayouts {
+		if s.Layout == layoutType {
+			next = (i + 1) % len(s.availableLayouts)
+			break
+		}
+	}
+	s.Layout = s.availableLayouts[next]
 	s.invalidateOutputMax()
 }
 

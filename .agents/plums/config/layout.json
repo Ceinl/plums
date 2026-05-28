@@ -1,32 +1,6 @@
 {
   "version": 1,
   "layouts": {
-    "default": {
-      "type": "div",
-      "size": { "width": "100%", "height": "100%" },
-      "direction": "column",
-      "children": [
-        {
-          "component": "chat_output",
-          "size": { "width": "100%", "height": "grow" },
-          "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 },
-          "style": { "background": [22, 20, 27] }
-        },
-        {
-          "component": "status_separator",
-          "size": { "width": "100%", "height": 1 }
-        },
-        {
-          "component": "editor",
-          "size": { "width": "100%", "height": 5 },
-          "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 },
-          "style": {
-            "background": [32, 30, 40],
-            "foreground": [220, 218, 230]
-          }
-        }
-      ]
-    },
     "split": {
       "type": "div",
       "size": { "width": "100%", "height": "100%" },

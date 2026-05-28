@@ -305,6 +305,23 @@ func layoutName(t LayoutType) string {
 	}
 }
 
+func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {
+	if cfg == nil {
+		return nil
+	}
+	layouts := make([]LayoutType, 0, 3)
+	if _, ok := cfg.Layouts["default"]; ok {
+		layouts = append(layouts, LayoutDefault)
+	}
+	if _, ok := cfg.Layouts["split"]; ok {
+		layouts = append(layouts, LayoutSplit)
+	}
+	if _, ok := cfg.Layouts["fullscreen"]; ok {
+		layouts = append(layouts, LayoutFullscreen)
+	}
+	return layouts
+}
+
 func renderEditorDropdown(state *State, cfg *RenderConfig) {
 	if !overlayEnabled(state, cfg, "slash_command_dropdown") {
 		return

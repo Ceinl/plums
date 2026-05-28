@@ -83,6 +83,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGWINCH)
 
 	state := app.NewState(t.W, t.H)
+	state.SetAvailableLayouts(renderConfig.AvailableLayoutTypes())
 	state.SetCommandConfig(commandConfig)
 	if skills, err := app.DiscoverSkills(""); err == nil {
 		state.SetAvailableSkills(skills)
