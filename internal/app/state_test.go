@@ -58,6 +58,27 @@ func TestLoadRenderConfig(t *testing.T) {
 	}
 }
 
+func TestSwitchLayoutSkipsUnavailableConfiguredLayouts(t *testing.T) {
+	state := NewState(120, 40)
+	cfg := &RenderConfig{Layouts: map[string]LayoutNode{
+		"split":      {},
+		"fullscreen": {},
+	}}
+	state.SetAvailableLayouts(cfg.AvailableLayoutTypes())
+
+	if state.Layout != LayoutSplit {
+		t.Fatalf("expected initial layout to remain split, got %v", state.Layout)
+	}
+	state.SwitchLayout()
+	if state.Layout != LayoutFullscreen {
+		t.Fatalf("expected tab to switch to fullscreen, got %v", state.Layout)
+	}
+	state.SwitchLayout()
+	if state.Layout != LayoutSplit {
+		t.Fatalf("expected tab to skip missing default and return to split, got %v", state.Layout)
+	}
+}
+
 func TestLoadCommandConfig(t *testing.T) {
 	if _, err := LoadCommandConfig(""); err != nil {
 		t.Fatalf("load built-in command config: %v", err)

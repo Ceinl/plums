@@ -15,13 +15,20 @@ import (
 // ── Palette ───────────────────────────────────────────────────────────────────
 
 const (
-	fgContent    = "\x1b[38;2;200;198;212m"       // near-white for message body
-	fgDimRule    = "\x1b[38;2;72;70;84m"          // very dim, for the system rule
-	fgCursor     = "\x1b[38;2;160;220;255m"       // streaming cursor colour
-	fgSystemRole = "\x1b[1m\x1b[38;2;220;160;50m" // bold amber – system / error
-	fgSystemBody = "\x1b[38;2;200;145;60m"        // dim amber for system body
-	fgCodeFence  = "\x1b[38;2;120;118;140m"       // dim purple for code fences
-	bgAiMessage  = "\x1b[48;2;34;32;42m"          // lighter panel for AI responses
+	listIndent    = 2
+	fgContent     = "\x1b[38;2;200;198;212m" // near-white for message body
+	fgDimRule     = "\x1b[38;2;72;70;84m"    // very dim, for the system rule
+	fgCursor      = "\x1b[38;2;160;220;255m" // streaming cursor colour
+	fgHeading     = "\x1b[38;2;238;234;248m" // brighter section headings
+	fgThinking    = "\x1b[38;2;132;130;145m" // muted thinking / reasoning trace
+	fgInlineCode  = "\x1b[38;2;245;190;120m"
+	fgUserAccent  = "\x1b[38;2;247;184;90m"
+	fgSystemRole  = "\x1b[1m\x1b[38;2;220;160;50m" // bold amber – system / error
+	fgSystemBody  = "\x1b[38;2;200;145;60m"        // dim amber for system body
+	fgCodeFence   = "\x1b[38;2;120;118;140m"       // dim purple for code fences
+	fgListMarker  = "\x1b[38;2;155;188;255m"       // cool accent for bullets / numbers
+	bgUserMessage = "\x1b[48;2;34;32;42m"          // lighter panel for user prompts
+	decorBold     = "\x1b[1m"
 )
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -49,6 +56,7 @@ type renderLine struct {
 	roleFg    string // for lineKindHeader – ANSI fg of the label
 	contentFg string // for lineKindContent – overrides default if non-empty
 	contentBg string // for lineKindContent – overrides parent background if non-empty
+	accentFg  string
 }
 
 type textSpan struct {
@@ -205,7 +213,11 @@ func (cl *ChatLog) buildLines() []renderLine {
 		if msg.Role == "system" {
 			lines = append(lines, renderLine{kind: lineKindHeader, role: "!", roleFg: fgSystemRole})
 		}
-		lines = append(lines, cl.buildContentLines(msg.Content, bodyFg, bodyBg)...)
+		accentFg := ""
+		if msg.Role == "user" {
+			accentFg = fgUserAccent
+		}
+		lines = append(lines, withAccent(cl.buildContentLines(msg.Content, bodyFg, bodyBg), accentFg)...)
 	}
 
 	// In-progress streaming response.
@@ -218,7 +230,7 @@ func (cl *ChatLog) buildLines() []renderLine {
 			if cl.isStreaming {
 				content += "▌"
 			}
-			lines = append(lines, cl.buildContentLines(content, fgContent, bgAiMessage)...)
+			lines = append(lines, cl.buildContentLines(content, fgContent, "")...)
 		}
 	}
 
@@ -237,9 +249,7 @@ func (cl *ChatLog) buildContentLines(content, fg, bg string) []renderLine {
 			continue
 		}
 
-		for _, l := range wrapText(block.text, cl.contentWidth()) {
-			lines = append(lines, renderLine{kind: lineKindContent, text: l, contentFg: fg, contentBg: bg})
-		}
+		lines = append(lines, cl.buildMarkdownLines(block.text, fg, bg)...)
 	}
 
 	return lines
@@ -248,14 +258,26 @@ func (cl *ChatLog) buildContentLines(content, fg, bg string) []renderLine {
 func (cl *ChatLog) roleStyle(role string) (bodyFg, bodyBg string) {
 	switch role {
 	case "user":
-		return fgContent, ""
+		return fgContent, bgUserMessage
 	case "ai":
-		return fgContent, bgAiMessage
+		return fgContent, ""
 	case "system":
 		return fgSystemBody, ""
 	default:
 		return fgContent, ""
 	}
+}
+
+func withAccent(lines []renderLine, accentFg string) []renderLine {
+	if accentFg == "" {
+		return lines
+	}
+	for i := range lines {
+		if lines[i].kind == lineKindContent {
+			lines[i].accentFg = accentFg
+		}
+	}
+	return lines
 }
 
 func (cl *ChatLog) contentWidth() int {
@@ -264,6 +286,114 @@ func (cl *ChatLog) contentWidth() int {
 		w = 1
 	}
 	return w
+}
+
+func (cl *ChatLog) buildMarkdownLines(content, fg, bg string) []renderLine {
+	var lines []renderLine
+	inThinking := false
+	for _, para := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(para)
+		if trimmed == "" {
+			continue
+		}
+
+		thinkingSpans, nextThinking, hasThinkingMarkup := parseThinkingSpans(trimmed, fg, inThinking)
+		inThinking = nextThinking
+		if hasThinkingMarkup {
+			for _, spans := range wrapSpansHard(thinkingSpans, cl.contentWidth()) {
+				lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
+			}
+			continue
+		}
+
+		if heading, ok := parseHeading(trimmed); ok {
+			for _, spans := range wrapInlineMarkdown(heading, cl.contentWidth(), fgHeading, decorBold) {
+				lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fgHeading, contentBg: bg})
+			}
+			continue
+		}
+
+		if marker, body, ok := parseListItem(trimmed); ok {
+			lines = append(lines, cl.buildListLines(marker, body, fg, bg)...)
+			continue
+		}
+
+		for _, spans := range wrapInlineMarkdown(trimmed, cl.contentWidth(), fg, "") {
+			lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
+		}
+	}
+	return compactBlankLines(lines)
+}
+
+func parseThinkingSpans(text, fg string, inThinking bool) ([]textSpan, bool, bool) {
+	var spans []textSpan
+	hasMarkup := inThinking || strings.Contains(text, "<think>") || strings.Contains(text, "</think>")
+	remaining := text
+
+	for remaining != "" {
+		openIdx := strings.Index(remaining, "<think>")
+		closeIdx := strings.Index(remaining, "</think>")
+
+		if inThinking {
+			if closeIdx == -1 {
+				spans = append(spans, parseInlineMarkdown(remaining, fgThinking, "")...)
+				return spans, true, hasMarkup
+			}
+			if closeIdx > 0 {
+				spans = append(spans, parseInlineMarkdown(remaining[:closeIdx], fgThinking, "")...)
+			}
+			remaining = remaining[closeIdx+len("</think>"):]
+			inThinking = false
+			continue
+		}
+
+		if openIdx == -1 {
+			spans = append(spans, parseInlineMarkdown(remaining, fg, "")...)
+			return spans, false, hasMarkup
+		}
+		if closeIdx != -1 && closeIdx < openIdx {
+			if closeIdx > 0 {
+				spans = append(spans, parseInlineMarkdown(remaining[:closeIdx], fg, "")...)
+			}
+			remaining = remaining[closeIdx+len("</think>"):]
+			continue
+		}
+		if openIdx > 0 {
+			spans = append(spans, parseInlineMarkdown(remaining[:openIdx], fg, "")...)
+		}
+		remaining = remaining[openIdx+len("<think>"):]
+		inThinking = true
+	}
+
+	if len(spans) == 0 {
+		spans = append(spans, textSpan{text: "", fg: fg})
+	}
+	return spans, inThinking, hasMarkup
+}
+
+func (cl *ChatLog) buildListLines(marker, body, fg, bg string) []renderLine {
+	markerRunes := []rune(strings.Repeat(" ", listIndent) + marker + " ")
+	indent := len(markerRunes)
+	available := cl.contentWidth() - indent
+	if available < 1 {
+		available = 1
+	}
+
+	wrapped := wrapInlineMarkdown(body, available, fg, "")
+	if len(wrapped) == 0 {
+		wrapped = [][]textSpan{{}}
+	}
+	lines := make([]renderLine, 0, len(wrapped))
+	for i, spans := range wrapped {
+		prefix := markerRunes
+		if i > 0 {
+			prefix = []rune(strings.Repeat(" ", indent))
+		}
+		combined := []textSpan{{text: string(prefix), fg: fgListMarker}}
+		combined = append(combined, spans...)
+		lines = append(lines, renderLine{kind: lineKindContent, spans: combined, contentFg: fg, contentBg: bg})
+	}
+	return lines
 }
 
 // ── Per-row rendering ─────────────────────────────────────────────────────────
@@ -283,7 +413,7 @@ func (cl *ChatLog) renderLine(s *screen.Screen, y int, line renderLine, bg strin
 		if line.contentBg != "" {
 			lineBg = line.contentBg
 		}
-		cl.renderContent(s, y, line.text, line.spans, fg, lineBg)
+		cl.renderContent(s, y, line.text, line.spans, fg, lineBg, line.accentFg)
 	}
 }
 
@@ -314,8 +444,12 @@ func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg str
 }
 
 // renderContent draws "  <text><padding>" using the given foreground colour.
-func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []textSpan, fg string, bg string) {
+func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []textSpan, fg string, bg string, accentFg string) {
 	x := cl.x
+	if accentFg != "" && x < cl.x+cl.w {
+		s.Set(x, y, '▏', accentFg, bg, "")
+		x++
+	}
 
 	// 2-space indent.
 	for i := 0; i < 2 && x < cl.x+cl.w; i++ {
@@ -369,6 +503,117 @@ func sanitizeRenderableRune(r rune) rune {
 		return '�'
 	}
 	return r
+}
+
+func parseHeading(line string) (string, bool) {
+	if !strings.HasPrefix(line, "#") {
+		return "", false
+	}
+	level := 0
+	for _, r := range line {
+		if r != '#' {
+			break
+		}
+		level++
+	}
+	if level == 0 || level > 6 || len(line) <= level || line[level] != ' ' {
+		return "", false
+	}
+	return strings.TrimSpace(line[level:]), true
+}
+
+func parseListItem(line string) (marker, body string, ok bool) {
+	if len(line) >= 2 && (strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ")) {
+		return "•", strings.TrimSpace(line[2:]), true
+	}
+
+	dot := strings.IndexRune(line, '.')
+	if dot <= 0 || dot > 3 || dot+1 >= len(line) || line[dot+1] != ' ' {
+		return "", "", false
+	}
+	for _, r := range line[:dot] {
+		if r < '0' || r > '9' {
+			return "", "", false
+		}
+	}
+	return line[:dot+1], strings.TrimSpace(line[dot+2:]), true
+}
+
+func parseInlineMarkdown(text, fg, decor string) []textSpan {
+	var spans []textSpan
+	bold := false
+	code := false
+	start := 0
+	for i := 0; i < len(text); i++ {
+		if text[i] == '`' {
+			if start < i {
+				spans = append(spans, inlineSpan(text[start:i], fg, decor, bold, code))
+			}
+			code = !code
+			start = i + 1
+			continue
+		}
+		if i+1 >= len(text) || text[i] != '*' || text[i+1] != '*' {
+			continue
+		}
+		if start < i {
+			spans = append(spans, inlineSpan(text[start:i], fg, decor, bold, code))
+		}
+		bold = !bold
+		i++
+		start = i + 1
+	}
+	if start < len(text) {
+		spans = append(spans, inlineSpan(text[start:], fg, decor, bold, code))
+	}
+	if len(spans) == 0 {
+		spans = append(spans, textSpan{text: text, fg: fg, decor: decor})
+	}
+	return spans
+}
+
+func inlineSpan(text, fg, decor string, bold, code bool) textSpan {
+	if code {
+		fg = fgInlineCode
+	}
+	return textSpan{text: text, fg: fg, decor: inlineDecor(decor, bold)}
+}
+
+func wrapInlineMarkdown(text string, width int, fg, decor string) [][]textSpan {
+	wrapped := wrapParagraph(text, width)
+	spans := make([][]textSpan, 0, len(wrapped))
+	for _, line := range wrapped {
+		spans = append(spans, parseInlineMarkdown(line, fg, decor))
+	}
+	return spans
+}
+
+func inlineDecor(base string, bold bool) string {
+	if bold || base == decorBold {
+		return decorBold
+	}
+	return base
+}
+
+func compactBlankLines(lines []renderLine) []renderLine {
+	out := lines[:0]
+	previousBlank := true
+	for _, line := range lines {
+		if line.kind == lineKindBlank {
+			if previousBlank {
+				continue
+			}
+			previousBlank = true
+			out = append(out, line)
+			continue
+		}
+		previousBlank = false
+		out = append(out, line)
+	}
+	if len(out) > 0 && out[len(out)-1].kind == lineKindBlank {
+		out = out[:len(out)-1]
+	}
+	return out
 }
 
 func (cl *ChatLog) clearRow(s *screen.Screen, y int, bg string) {
