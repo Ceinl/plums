@@ -2,6 +2,7 @@ package keyboard
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -98,5 +99,12 @@ func TestParseMouseWheel(t *testing.T) {
 	ev := requireEvent(t, parseEvents([]byte("\x1b[<64;10;5M")))
 	if ev.Type != KeyMouseWheelUp || !ev.Mouse || ev.MouseX != 9 || ev.MouseY != 4 {
 		t.Fatalf("expected mouse wheel up at 9,4, got %#v", ev)
+	}
+}
+
+func TestReadInputBytesClosesOnEOF(t *testing.T) {
+	bytes := readInputBytes(context.Background(), strings.NewReader(""))
+	if b, ok := <-bytes; ok {
+		t.Fatalf("expected closed input channel, got byte %q", b)
 	}
 }

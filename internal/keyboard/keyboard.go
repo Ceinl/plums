@@ -2,6 +2,7 @@ package keyboard
 
 import (
 	"context"
+	"io"
 	"os"
 	"time"
 	"unicode/utf8"
@@ -82,7 +83,7 @@ func (r *byteReader) readByteTimeout(timeout time.Duration) (byte, bool) {
 }
 
 func Listen(ctx context.Context) <-chan Event {
-	bytes := readStdinBytes(ctx)
+	bytes := readInputBytes(ctx, os.Stdin)
 	out := make(chan Event)
 	go func() {
 		defer close(out)
@@ -104,13 +105,13 @@ func Listen(ctx context.Context) <-chan Event {
 	return out
 }
 
-func readStdinBytes(ctx context.Context) <-chan byte {
+func readInputBytes(ctx context.Context, input io.Reader) <-chan byte {
 	out := make(chan byte, 64)
 	go func() {
 		defer close(out)
 		buf := make([]byte, 1)
 		for {
-			n, err := os.Stdin.Read(buf)
+			n, err := input.Read(buf)
 			if err != nil || n == 0 {
 				return
 			}
