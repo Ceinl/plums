@@ -6,6 +6,10 @@ import (
 )
 
 func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
+	if ev.Type == keyboard.KeyCtrlC {
+		return false, true
+	}
+
 	ed := state.Editor
 	if state.PopupOpen {
 		switch ev.Type {
@@ -64,8 +68,6 @@ func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {
 	}
 
 	switch ev.Type {
-	case keyboard.KeyCtrlC:
-		return false, true
 	case keyboard.KeyEnter:
 		if !ev.Shift {
 			ed.InsertNewline()

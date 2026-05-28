@@ -32,3 +32,13 @@ func TestPlainEnterInsertsNewline(t *testing.T) {
 		t.Fatalf("expected newline insertion, got %q", got)
 	}
 }
+
+func TestCtrlCQuitsWhenPopupOpen(t *testing.T) {
+	state := app.NewState(80, 24)
+	state.OpenPalette()
+
+	handled, quit := handleKey(state, keyboard.Event{Type: keyboard.KeyCtrlC})
+	if handled || !quit {
+		t.Fatalf("expected Ctrl+C to quit through popup, handled=%v quit=%v", handled, quit)
+	}
+}
