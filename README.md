@@ -1,29 +1,18 @@
 <div align="center">
-# Plums
 
-[![License](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](LICENSE)
-[![GitHub](https://img.shields.io/badge/github-Ceinl%2Fplums-111111?style=flat-square&logo=github)](https://github.com/Ceinl/plums)
+<h1> Plums </h1>
 
-<img src="./assets/repo/split-view-preview.webp" alt="TUI with UX i like" width="1000" />
 </div>
 
-## Quick Start
+## Configuration
 
-```bash
-git clone https://github.com/YOUR_USERNAME/plums.git
-cd plums
-go run .
+Plums reads local configuration from `.agents/plums/config/config.toml`.
+
+To connect Plums to an opencode server at a specific URL, set `opencode_server_url` under `[opencode]`:
+
+```toml
+[opencode]
+opencode_server_url = "http://127.0.0.1:4096"
 ```
 
-## Keybindings
-
-| Key | Action |
-|---|---|
-| `Tab` | Switch layout |
-| `Shift + Enter` | Send message |
-| `Ctrl + S` | Submit input |
-| `Ctrl + C` | Quit |
-| `Ctrl + A` | Select all |
-| `Ctrl + K` | Delete current line |
-| `Alt + ← / →` | Jump word |
-| `Shift + Arrows` | Select text |
+If `opencode.opencode_server_url` is omitted, Plums uses `http://127.0.0.1:4096`.
