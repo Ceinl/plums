@@ -1,20 +1,14 @@
 <div align="center">
-
 <h1> Plums </h1>
-
+<h3> Open source AI agent TUI </h3>
 </div>
 
-## Configuration
-
-Plums reads local configuration from `.agents/plums/config/config.toml`.
-
-To connect Plums to an opencode server at a specific URL, set `opencode_server_url` under `[opencode]`:
-
-```toml
-[opencode]
-opencode_server_url = "http://127.0.0.1:4096"
+<h2>Install</h2>
+```bash
+go install github.com/Ceinl/plums@latest
 ```
 
-If `opencode.opencode_server_url` is omitted, Plums uses `http://127.0.0.1:4096`.
+<h3>Prerequisites</h3>
+    - Opencode
+    - Go version 1.26.2
 
-For local URLs, Plums auto-starts `opencode serve` on the configured hostname and port. For non-local URLs, Plums connects to the existing server and reports an error if it is unreachable.
