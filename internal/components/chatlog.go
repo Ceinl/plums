@@ -8,8 +8,8 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 
-	"plums/internal/layout"
-	"plums/internal/screen"
+	"github.com/Ceinl/plums/internal/layout"
+	"github.com/Ceinl/plums/internal/screen"
 )
 
 // ── Palette ───────────────────────────────────────────────────────────────────

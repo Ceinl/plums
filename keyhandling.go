@@ -1,8 +1,8 @@
 package main
 
 import (
-	"plums/internal/app"
-	"plums/internal/keyboard"
+	"github.com/Ceinl/plums/internal/app"
+	"github.com/Ceinl/plums/internal/keyboard"
 )
 
 func handleKey(state *app.State, ev keyboard.Event) (handled bool, quit bool) {

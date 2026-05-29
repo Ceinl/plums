@@ -1,6 +1,6 @@
 package layout
 
-import "plums/internal/screen"
+import "github.com/Ceinl/plums/internal/screen"
 
 type Styler interface {
 	GetStyle() Style

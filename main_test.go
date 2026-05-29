@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"plums/internal/ai"
+	"github.com/Ceinl/plums/internal/ai"
 )
 
 func TestFormatVersionMetadata(t *testing.T) {

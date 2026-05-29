@@ -3,8 +3,8 @@ package components
 import (
 	"strings"
 
-	"plums/internal/layout"
-	"plums/internal/screen"
+	"github.com/Ceinl/plums/internal/layout"
+	"github.com/Ceinl/plums/internal/screen"
 )
 
 const (

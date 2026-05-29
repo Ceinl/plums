@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
-	"plums/internal/layout"
-	"plums/internal/screen"
+	"github.com/Ceinl/plums/internal/layout"
+	"github.com/Ceinl/plums/internal/screen"
 )
 
 type CursorPos struct {

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"plums/internal/debuglog"
+	"github.com/Ceinl/plums/internal/debuglog"
 )
 
 // ServerProcess owns an opencode server process started by plums.
