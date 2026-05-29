@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"plums/internal/components"
-	"plums/internal/layout"
-	"plums/internal/screen"
+	"github.com/Ceinl/plums/internal/components"
+	"github.com/Ceinl/plums/internal/layout"
+	"github.com/Ceinl/plums/internal/screen"
 	"strconv"
 	"strings"
 )

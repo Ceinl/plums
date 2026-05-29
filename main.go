@@ -14,11 +14,11 @@ import (
 	"syscall"
 	"time"
 
-	"plums/internal/ai"
-	"plums/internal/app"
-	"plums/internal/debuglog"
-	"plums/internal/keyboard"
-	"plums/internal/ui"
+	"github.com/Ceinl/plums/internal/ai"
+	"github.com/Ceinl/plums/internal/app"
+	"github.com/Ceinl/plums/internal/debuglog"
+	"github.com/Ceinl/plums/internal/keyboard"
+	"github.com/Ceinl/plums/internal/ui"
 )
 
 const (

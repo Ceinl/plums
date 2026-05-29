@@ -1,4 +1,4 @@
-module plums
+module github.com/Ceinl/plums
 
 go 1.26.2
 

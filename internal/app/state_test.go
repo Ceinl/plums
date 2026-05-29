@@ -3,7 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
-	"plums/internal/components"
+	"github.com/Ceinl/plums/internal/components"
 	"strings"
 	"testing"
 )

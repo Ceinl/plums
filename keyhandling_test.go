@@ -3,9 +3,9 @@ package main
 import (
 	"testing"
 
-	"plums/internal/app"
-	"plums/internal/keyboard"
-	"plums/internal/screen"
+	"github.com/Ceinl/plums/internal/app"
+	"github.com/Ceinl/plums/internal/keyboard"
+	"github.com/Ceinl/plums/internal/screen"
 )
 
 func TestShiftEnterSubmitsInput(t *testing.T) {

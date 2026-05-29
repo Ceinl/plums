@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"plums/internal/components"
+	"github.com/Ceinl/plums/internal/components"
 )
 
 type PaletteAction int
