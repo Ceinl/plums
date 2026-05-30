@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"github.com/Ceinl/plums/internal/components"
-	"github.com/Ceinl/plums/internal/layout"
-	"github.com/Ceinl/plums/internal/screen"
+	"github.com/Ceinl/plums/internal/ui/tui/components"
+	"github.com/Ceinl/plums/internal/ui/tui/layout"
+	"github.com/Ceinl/plums/internal/ui/tui/screen"
 	"strconv"
 	"strings"
 )
@@ -139,7 +139,7 @@ func newGitDiffLog(state *State) *components.DiffLog {
 func newInfoTabs(state *State) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 1},
 	)
 	style := layout.Style{}
@@ -165,7 +165,7 @@ func newInfoView(state *State) layout.Component {
 func newHorizontalRule(state *State) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 1},
 	)
 	sep := components.NewSeparator()
@@ -178,7 +178,7 @@ func newVerticalSeparator() *components.Div {
 	div := components.NewDiv()
 	div.SetSize(
 		layout.Unit{Type: layout.UnitPx, Value: 1},
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 	)
 	return div
 }
@@ -186,7 +186,7 @@ func newVerticalSeparator() *components.Div {
 func newSplitStatusBar(state *State) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 1},
 	)
 	style := layout.Style{}
@@ -636,12 +636,12 @@ func resolveUnit(state *State, raw json.RawMessage, fallback layout.Unit) layout
 		return layout.Unit{Type: layout.UnitGrow, Value: 1}
 	}
 	if s == "state.SplitLeftPercent%" {
-		return layout.Unit{Type: layout.UnitPersent, Value: float64(state.SplitLeftPercent())}
+		return layout.Unit{Type: layout.UnitPercent, Value: float64(state.SplitLeftPercent())}
 	}
 	if strings.HasSuffix(s, "%") {
 		v, err := strconv.ParseFloat(strings.TrimSuffix(s, "%"), 64)
 		if err == nil {
-			return layout.Unit{Type: layout.UnitPersent, Value: v}
+			return layout.Unit{Type: layout.UnitPercent, Value: v}
 		}
 	}
 	return fallback
@@ -691,7 +691,7 @@ func isEmptyStyle(node StyleNode) bool {
 func CreateDefaultLayout(state *State) *components.Div {
 	outputDiv := newOutput()
 	outputDiv.SetSize(
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitGrow, Value: 1},
 	)
 	outputDiv.AppendChild(newChatLog(state))
@@ -700,7 +700,7 @@ func CreateDefaultLayout(state *State) *components.Div {
 
 	inputDiv := newEditorDiv(
 		state.Editor,
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 5},
 	)
 	inputDiv.SetPadding(layout.Padding{
@@ -712,8 +712,8 @@ func CreateDefaultLayout(state *State) *components.Div {
 
 	root := components.NewDiv()
 	root.SetSize(
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 	)
 	root.AppendChild(outputDiv)
 	root.AppendChild(sepDiv)
@@ -731,14 +731,14 @@ func CreateSplitLayout(state *State) *components.Div {
 	if state.PopupOpen {
 		leftDiv = newPalettePanel(
 			state,
-			layout.Unit{Type: layout.UnitPersent, Value: float64(state.SplitLeftPercent())},
-			layout.Unit{Type: layout.UnitPersent, Value: 100},
+			layout.Unit{Type: layout.UnitPercent, Value: float64(state.SplitLeftPercent())},
+			layout.Unit{Type: layout.UnitPercent, Value: 100},
 		)
 	} else {
 		leftDiv = newEditorDiv(
 			state.Editor,
-			layout.Unit{Type: layout.UnitPersent, Value: float64(state.SplitLeftPercent())},
-			layout.Unit{Type: layout.UnitPersent, Value: 100},
+			layout.Unit{Type: layout.UnitPercent, Value: float64(state.SplitLeftPercent())},
+			layout.Unit{Type: layout.UnitPercent, Value: 100},
 		)
 		leftDiv.SetPadding(layout.Padding{
 			Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
@@ -757,7 +757,7 @@ func CreateSplitLayout(state *State) *components.Div {
 	rightDiv := newOutput()
 	rightDiv.SetSize(
 		layout.Unit{Type: layout.UnitGrow, Value: 1},
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 	)
 	rightDiv.AppendChild(newInfoTabs(state))
 	rightDiv.AppendChild(newInfoView(state))
@@ -765,8 +765,8 @@ func CreateSplitLayout(state *State) *components.Div {
 
 	root := components.NewDiv()
 	root.SetSize(
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 	)
 	root.SetDirection(layout.Row)
 	root.AppendChild(leftDiv)
@@ -778,8 +778,8 @@ func CreateSplitLayout(state *State) *components.Div {
 func CreateNarrowSplitLayout(state *State) *components.Div {
 	outputDiv := newOutput()
 	outputDiv.SetSize(
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
-		layout.Unit{Type: layout.UnitPersent, Value: 50},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 50},
 	)
 	outputDiv.AppendChild(newChatLog(state))
 
@@ -787,7 +787,7 @@ func CreateNarrowSplitLayout(state *State) *components.Div {
 
 	inputDiv := newEditorDiv(
 		state.Editor,
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitGrow, Value: 1},
 	)
 	inputDiv.SetPadding(layout.Padding{
@@ -799,8 +799,8 @@ func CreateNarrowSplitLayout(state *State) *components.Div {
 
 	root := components.NewDiv()
 	root.SetSize(
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 	)
 	root.AppendChild(outputDiv)
 	root.AppendChild(sepDiv)
@@ -811,8 +811,8 @@ func CreateNarrowSplitLayout(state *State) *components.Div {
 func CreateFullscreenLayout(state *State) *components.Div {
 	div := newEditorDiv(
 		state.Editor,
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
-		layout.Unit{Type: layout.UnitPersent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
 	)
 	div.SetPadding(layout.Padding{
 		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
@@ -866,6 +866,6 @@ const defaultLayoutJSON = `{
   },
   "overlays": {
     "slash_command_dropdown": { "enabled_when": "!state.PopupOpen && len(state.SlashCommands()) > 0", "width": { "preferred": 44, "min": 20, "max": "state.width - 2" }, "style": { "background": [30, 27, 38], "foreground": [232, 229, 241], "muted": [159, 153, 176], "accent": [247, 184, 90] } },
-    "command_palette_popup": { "enabled_when": "state.PopupOpen && (state.EffectiveLayout() != split || state.width < MinSplitLayoutWidth)" }
+    "command_palette_popup": { "enabled_when": "state.PopupOpen && (state.EffectiveLayout() != \"split\" || state.width < MinSplitLayoutWidth)" }
   }
 }`

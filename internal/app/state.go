@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Ceinl/plums/internal/components"
+	"github.com/Ceinl/plums/internal/ui/tui/components"
 )
 
 type PaletteAction int
@@ -165,6 +165,7 @@ func NewState(width int, height int) *State {
 		Mode:             "build",
 		OutputPercent:    defaultOutputPercentage,
 		commandConfig:    DefaultCommandConfig(),
+		ThinkingMode:     components.ThinkingVisibilityHidden,
 	}
 }
 

@@ -3,7 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
-	"github.com/Ceinl/plums/internal/components"
+	"github.com/Ceinl/plums/internal/ui/tui/components"
 	"strings"
 	"testing"
 )
@@ -137,6 +137,13 @@ func TestDefaultCommandConfigIncludesThinkingVisibilityCommand(t *testing.T) {
 
 func TestCycleThinkingVisibilityUpdatesChatLog(t *testing.T) {
 	state := NewState(80, 24)
+	if state.ThinkingMode != components.ThinkingVisibilityHidden {
+		t.Fatalf("expected hidden visibility by default, got %v", state.ThinkingMode)
+	}
+	state.CycleThinkingVisibility()
+	if state.ThinkingMode != components.ThinkingVisibilityFull {
+		t.Fatalf("expected full visibility, got %v", state.ThinkingMode)
+	}
 	state.CycleThinkingVisibility()
 	if state.ThinkingMode != components.ThinkingVisibilityTitle {
 		t.Fatalf("expected title visibility, got %v", state.ThinkingMode)
@@ -144,10 +151,6 @@ func TestCycleThinkingVisibilityUpdatesChatLog(t *testing.T) {
 	state.CycleThinkingVisibility()
 	if state.ThinkingMode != components.ThinkingVisibilityHidden {
 		t.Fatalf("expected hidden visibility, got %v", state.ThinkingMode)
-	}
-	state.CycleThinkingVisibility()
-	if state.ThinkingMode != components.ThinkingVisibilityFull {
-		t.Fatalf("expected full visibility, got %v", state.ThinkingMode)
 	}
 }
 

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Plums Structural Refactor Plan</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #222; background:#fafafa; }
+  h1 { border-bottom: 3px solid #4a90d9; padding-bottom: .3rem; }
+  h2 { color: #2c5aa0; margin-top: 2rem; }
+  h3 { color: #444; }
+  code, pre { background: #f4f4f4; padding: .2rem .4rem; border-radius: 4px; font-family: ui-monospace, monospace; }
+  pre { padding: .8rem; overflow-x: auto; }
+  ul { padding-left: 1.2rem; }
+  .step { background: #fff; border-left: 4px solid #4a90d9; padding: 1rem; margin: 1rem 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .warn { background: #fffbe6; border-left-color: #f5a623; }
+  .ok { background: #f0fff4; border-left-color: #28a745; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ddd; padding: .5rem; text-align: left; }
+  th { background: #f0f0f0; }
+  .file { color: #0366d6; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Plums Structural Refactor Plan</h1>
+<p><strong>Goal:</strong> De-spaghetti the codebase into clean, abstracted packages with zero behavior changes. Everything that is hard-coded becomes a configurable default.</p>
+
+<h2>Current State Diagnosis</h2>
+<div class="step warn">
+  <strong>Critical issues found:</strong>
+  <ul>
+    <li><code>cmd/plums/main.go</code> is 776 lines and still references the deleted <code>internal/ai</code> package.</li>
+    <li><code>keyhandling.go</code> and <code>clipboard.go</code> are stranded in <code>package main</code> at project root.</li>
+    <li><code>internal/app/*.go</code> files exist but are completely empty.</li>
+    <li><code>internal/ui/tui/app/*.go</code> imports non-existent packages (<code>internal/components</code>, <code>internal/layout</code>, <code>internal/screen</code>) because files were moved but imports were not updated.</li>
+    <li><code>go:embed</code> targets in <code>cmd/plums/main.go</code> are broken because embed paths are relative to the source file's directory.</li>
+    <li><code>internal/core/provider/opencode/opencode_test.go</code> has a corrupted package name (<code>opencodeopencodeopencode</code>).</li>
+  </ul>
+</div>
+
+<h2>Target Architecture</h2>
+<pre>
+plums/
+├── cmd/plums/
+│   └── main.go              ← 5-10 lines: flags + api.Run()
+│   └── .agents/plums/config/ ← embedded defaults (moved from root)
+├── api/
+│   └── api.go               ← wiring layer: builds Config, deps, calls app.Run()
+├── core/
+│   └── registry.go          ← agent registry factory + fake outputs (stubs for later)
+├── internal/
+│   ├── app/
+│   │   ├── run.go           ← event loop (extracted from old main.go)
+│   │   ├── cli.go           ← flag parsing, version metadata, config path resolution
+│   │   ├── config.go        ← layout & command config loading
+│   │   ├── keyboard.go      ← handleKey + copyEditorSelection
+│   │   ├── clipboard.go     ← writeClipboard (configurable command)
+│   │   ├── version.go       ← version metadata helpers
+│   │   └── defaults/        ← embedded config files + default config loader
+│   │       ├── config.toml
+│   │       ├── layout.json
+│   │       ├── commands.json
+│   │       └── defaults.go
+│   ├── adapter/
+│   │   ├── types.go         ← domain types: Session, Model, Provider, Message, Part, StreamEvent, QuestionRequest, etc.
+│   │   └── backend.go       ← Backend interface (implemented by opencode provider)
+│   ├── provider/
+│   │   └── opencode/
+│   │       ├── client.go    ← renamed from opencode.go, implements adapter.Backend
+│   │       └── server.go    ← ServerProcess + startup helpers
+│   ├── ui/
+│   │   ├── terminal.go      ← Terminal setup (raw mode, mouse, kitty kb)
+│   │   └── tui/
+│   │       ├── app/
+│   │       │   ├── state.go
+│   │       │   ├── render.go
+│   │       │   ├── commands.go
+│   │       │   ├── skills.go
+│   │       │   └── state_test.go
+│   │       ├── components/   ← all visual components
+│   │       ├── layout/       ← layout engine
+│   │       └── screen/       ← screen buffer + flush
+│   ├── keyboard/
+│   │   └── keyboard.go
+│   └── debuglog/
+│       └── debuglog.go
+</pre>
+
+<h2>Step-by-Step Execution Plan</h2>
+
+<div class="step ok">
+  <h3>Step 1 — Move & fix embedded defaults</h3>
+  <ul>
+    <li>Copy <code>.agents/plums/config/*</code> from project root into <code>cmd/plums/.agents/plums/config/</code> so <code>go:embed</code> resolves correctly.</li>
+    <li>Move the embed directive and loading helpers out of <code>main.go</code> into <code>internal/app/defaults/defaults.go</code>.</li>
+    <li>This keeps <code>main.go</code> minimal and makes defaults reusable.</li>
+  </ul>
+</div>
+
+<div class="step ok">
+  <h3>Step 2 — Fix broken import paths in UI packages</h3>
+  <table>
+    <tr><th>Old (broken) import</th><th>New (correct) import</th></tr>
+    <tr><td><code>internal/components</code></td><td><code>internal/ui/tui/components</code></td></tr>
+    <tr><td><code>internal/layout</code></td><td><code>internal/ui/tui/layout</code></td></tr>
+    <tr><td><code>internal/screen</code></td><td><code>internal/ui/tui/screen</code></td></tr>
+  </table>
+  <p>Files to patch:</p>
+  <ul>
+    <li><code>internal/ui/tui/app/state.go</code></li>
+    <li><code>internal/ui/tui/app/state_test.go</code></li>
+    <li><code>internal/ui/tui/app/render.go</code></li>
+    <li><code>internal/ui/tui/layout/component.go</code></li>
+    <li>All <code>internal/ui/tui/components/*.go</code></li>
+  </ul>
+</div>
+
+<div class="step ok">
+  <h3>Step 3 — Extract domain types & backend interface into <code>internal/adapter/</code></h3>
+  <ul>
+    <li>Create <code>internal/adapter/types.go</code> containing:</li>
+    <ul>
+      <li><code>Session</code>, <code>SessionTime</code>, <code>ModelRef</code>, <code>MessageModelRef</code></li>
+      <li><code>Provider</code>, <code>Model</code></li>
+      <li><code>Part</code>, <code>StreamEvent</code></li>
+      <li><code>QuestionOption</code>, <code>QuestionInfo</code>, <code>QuestionRequest</code></li>
+      <li><code>MessageInfo</code>, <code>MessageResponse</code> (renamed from internal types)</li>
+    </ul>
+    <li>Create <code>internal/adapter/backend.go</code> with the <code>Backend</code> interface:</li>
+    <pre>
+type Backend interface {
+    Health(ctx context.Context) error
+    CreateSession(ctx context.Context, directory string) (*Session, error)
+    ListSessions(ctx context.Context) ([]Session, error)
+    GetSession(ctx context.Context, sessionID string) (*Session, error)
+    ListMessages(ctx context.Context, sessionID string) ([]MessageResponse, error)
+    ListProviders(ctx context.Context) ([]Provider, []string, error)
+    SendMessageEvents(ctx context.Context, sessionID, text, providerID, modelID, agent string) &lt;-chan StreamEvent
+    ReplyQuestion(ctx context.Context, requestID string, answers [][]string) error
+    BaseURL() string
+}
+    </pre>
+  </ul>
+</div>
+
+<div class="step ok">
+  <h3>Step 4 — Refactor <code>internal/provider/opencode/</code> to implement <code>adapter.Backend</code></h3>
+  <ul>
+    <li>Rename <code>opencode.go</code> → <code>client.go</code> (keeps all HTTP/SSE logic).</li>
+    <li>Change all type references from local copies to <code>adapter.TypeName</code>.</li>
+    <li>Add a constructor <code>NewBackend(baseURL string) adapter.Backend</code> that returns the client.</li>
+    <li>Keep unexported helpers (<code>sendWithSSE</code>, <code>sendSync</code>, etc.) private.</li>
+    <li>Fix <code>opencode_test.go</code> package name to <code>opencode</code>.</li>
+  </ul>
+</div>
+
+<div class="step ok">
+  <h3>Step 5 — Create <code>core/registry.go</code> with temporary fake outputs</h3>
+  <ul>
+    <li>Create <code>core/registry.go</code> (package <code>core</code>).</li>
+    <li>Define <code>AgentRegistry</code> struct + constructor <code>NewAgentRegistry()</code>.</li>
+    <li>Provide <code>ResolveAgent(mode string) string</code> that returns mode or <code>"build"</code> as default.</li>
+    <li>Add stub functions that mirror planned core behavior so the API layer can call them later without breakage:</li>
+    <pre>
+func (r *AgentRegistry) DefaultAgent() string
+func (r *AgentRegistry) ResolveAgent(mode string) string
+func (r *AgentRegistry) ListAgents() []string     // fake: returns ["build", "plan"]
+func (r *AgentRegistry) AgentCapabilities(agent string) []string // fake: returns nil
+    </pre>
+  </ul>
+</div>
+
+<div class="step ok">
+  <h3>Step 6 — Build <code>api/api.go</code> wiring layer</h3>
+  <ul>
+    <li>Define <code>type Config struct { ... }</code> with every previously hard-coded value as a field with a sensible default.</li>
+    <li>Fields include:</li>
+    <ul>
+      <li><code>OpencodeServerURL</code> (default: <code>http://127.0.0.1:4096</code>)</li>
+      <li><code>GlobalConfigDir</code> (default: <code>~/.config/plums/config</code>)</li>
+      <li><code>LocalConfigDir</code> (default: <code>./.agents/plums/config</code>)</li>
+      <li><code>ClipboardCommand</code> (default: <code>pbcopy</code>)</li>
+      <li><code>SpinnerInterval</code> (default: <code>80ms</code>)</li>
+      <li><code>HealthTimeout</code>, <code>QuestionReplyTimeout</code>, <code>RecentModelTimeout</code>, etc.</li>
+      <li><code>DefaultLayoutType</code>, <code>DefaultMode</code>, <code>DefaultOutputPercent</code></li>
+    </ul>
+    <li>Provide <code>DefaultConfig() *Config</code>.</li>
+    <li>Implement <code>func Run(cfg *Config) error</code> which:</li>
+    <ol>
+      <li>Loads render & command configs.</li>
+      <li>Initializes terminal + keyboard listener.</li>
+      <li>Creates the opencode backend via adapter.</li>
+      <li>Creates <code>core.AgentRegistry</code>.</li>
+      <li>Builds an <code>app.Deps</code> struct holding all wired dependencies.</li>
+      <li>Calls <code>app.Run(ctx, deps)</code>.</li>
+    </ol>
+  </ul>
+</div>
+
+<div class="step ok">
+  <h3>Step 7 — Migrate main logic into <code>internal/app/</code></h3>
+  <p>Extract everything from the old <code>main.go</code>, <code>keyhandling.go</code>, and <code>clipboard.go</code> into clean <code>internal/app/</code> files.</p>
+  <table>
+    <tr><th>Source</th><th>Destination</th><th>Content</th></tr>
+    <tr>
+      <td><code>cmd/plums/main.go</code></td>
+      <td><code>internal/app/run.go</code></td>
+      <td>Event loop, startup goroutine, signal handling, stream handling</td>
+    </tr>
+    <tr>
+      <td><code>cmd/plums/main.go</code></td>
+      <td><code>internal/app/cli.go</code></td>
+      <td>Flag definitions, version metadata, config path resolution, init-config</td>
+    </tr>
+    <tr>
+      <td><code>cmd/plums/main.go</code></td>
+      <td><code>internal/app/config.go</code></td>
+      <td>TOML parsing, <code>loadOpencodeServerURL</code>, <code>resolve*</code> helpers</td>
+    </tr>
+    <tr>
+      <td><code>cmd/plums/main.go</code></td>
+      <td><code>internal/app/version.go</code></td>
+      <td><code>loadVersionMetadata</code>, <code>formatVersionMetadata</code></td>
+    </tr>
+    <tr>
+      <td><code>keyhandling.go</code></td>
+      <td><code>internal/app/keyboard.go</code></td>
+      <td><code>handleKey</code>, <code>copyEditorSelection</code></td>
+    </tr>
+    <tr>
+      <td><code>clipboard.go</code></td>
+      <td><code>internal/app/clipboard.go</code></td>
+      <td><code>writeClipboard</code> (accepts command from Config)</td>
+    </tr>
+  </table>
+  <p><code>app.Run</code> will accept a <code>Deps</code> struct containing:</p>
+  <pre>
+type Deps struct {
+    Terminal      *ui.Terminal
+    Keyboard      &lt;-chan keyboard.Event
+    Backend       adapter.Backend
+    RenderConfig  *ui.RenderConfig
+    CommandConfig *app.CommandConfig
+    Config        *api.Config
+    Registry      *core.AgentRegistry
+}
+  </pre>
+</div>
+
+<div class="step ok">
+  <h3>Step 8 — Make everything configurable (defaults + overrides)</h3>
+  <ul>
+    <li>All timeouts move from literals to <code>api.Config</code> fields.</li>
+    <li>Clipboard command becomes a field in Config (default <code>pbcopy</code>, overridable).</li>
+    <li>Config paths become fields (default global/local dirs).</li>
+    <li>App version remains a build-time ldflag but has a constant fallback.</li>
+    <li>Spinner ticker interval configurable (default 80ms).</li>
+  </ul>
+</div>
+
+<div class="step ok">
+  <h3>Step 9 — Rewrite <code>cmd/plums/main.go</code> to minimal entry point</h3>
+  <pre>
+package main
+
+import (
+    "flag"
+    "fmt"
+    "os"
+    "github.com/Ceinl/plums/api"
+)
+
+func main() {
+    cfg := api.DefaultConfig()
+    // define flags that override cfg fields
+    flag.StringVar(&cfg.OpencodeServerURL, "server-url", cfg.OpencodeServerURL, "opencode server URL")
+    // ... other flags
+    flag.Parse()
+
+    if err := api.Run(cfg); err != nil {
+        fmt.Fprintf(os.Stderr, "plums: %v\n", err)
+        os.Exit(1)
+    }
+}
+  </pre>
+</div>
+
+<div class="step ok">
+  <h3>Step 10 — Update & migrate tests</h3>
+  <ul>
+    <li><code>main_test.go</code> → <code>internal/app/*_test.go</code> (split by subject).</li>
+    <li><code>keyhandling_test.go</code> → <code>internal/app/keyboard_test.go</code>.</li>
+    <li>Fix import paths in <code>state_test.go</code>.</li>
+    <li>Fix package name in <code>opencode_test.go</code>.</li>
+    <li>Add testdata fixtures if referenced by tests.</li>
+  </ul>
+</div>
+
+<div class="step ok">
+  <h3>Step 11 — Documentation update</h3>
+  <ul>
+    <li>Update <code>AGENTS.md</code> with the new package layout and conventions.</li>
+    <li>Add a brief architecture section describing each package's responsibility.</li>
+    <li>Document the <code>api.Config</code> override points for users who want customization.</li>
+  </ul>
+</div>
+
+<div class="step ok">
+  <h3>Step 12 — Build & verify</h3>
+  <ul>
+    <li><code>go build ./...</code></li>
+    <li><code>go test ./...</code></li>
+    <li>Fix any remaining import or visibility issues.</li>
+  </ul>
+</div>
+
+<h2>Risk Mitigation</h2>
+<ul>
+  <li><strong>Behavior preservation:</strong> Every function body is copied verbatim; only package boundaries and import paths change.</li>
+  <li><strong>Interface safety:</strong> The <code>adapter.Backend</code> interface is derived directly from the existing opencode client public methods, so it is 100% compatible.</li>
+  <li><strong>Core stubs:</strong> Fake outputs in <code>core/</code> use the exact signatures planned for the real implementation. When you replace them later, only the function bodies change.</li>
+  <li><strong>Test coverage:</strong> All existing tests are migrated and import paths corrected before the final build.</li>
+</ul>
+
+<h2>Estimated Outcome</h2>
+<ul>
+  <li><code>cmd/plums/main.go</code>: ~15 lines (flags + <code>api.Run</code>).</li>
+  <li><code>api/api.go</code>: ~80 lines (wiring + Config defaults).</li>
+  <li><code>internal/app/run.go</code>: ~120 lines (event loop only).</li>
+  <li><code>internal/app/cli.go</code>: ~60 lines (flags, version, config paths).</li>
+  <li><code>internal/app/keyboard.go</code>: ~310 lines (key handling).</li>
+  <li><code>internal/adapter/</code>: ~80 lines (types + interface).</li>
+  <li><code>core/registry.go</code>: ~30 lines (stubs).</li>
+  <li>Zero broken imports. All tests pass.</li>
+</ul>
+
+</body>
+</html>
