@@ -102,7 +102,8 @@ type messageInfo struct {
 }
 
 type createSessionBody struct {
-	Title string `json:"title,omitempty"`
+	Title     string `json:"title,omitempty"`
+	Directory string `json:"directory,omitempty"`
 }
 
 type sendMessageBody struct {
@@ -224,8 +225,8 @@ func (c *Client) Health(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) CreateSession(ctx context.Context) (*Session, error) {
-	body := createSessionBody{}
+func (c *Client) CreateSession(ctx context.Context, directory string) (*Session, error) {
+	body := createSessionBody{Directory: strings.TrimSpace(directory)}
 	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshal session body: %w", err)

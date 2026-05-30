@@ -27,7 +27,7 @@ type ServerProcess struct {
 
 // StartServer starts `opencode serve` for baseURL and returns once the process
 // has been launched. Call WaitForHealth before using the client.
-func StartServer(ctx context.Context, baseURL string) (*ServerProcess, error) {
+func StartServer(ctx context.Context, baseURL, directory string) (*ServerProcess, error) {
 	args, err := serverCommandArgs(baseURL)
 	if err != nil {
 		return nil, err
@@ -38,6 +38,7 @@ func StartServer(ctx context.Context, baseURL string) (*ServerProcess, error) {
 
 	debuglog.Printf("server: exec opencode %s", strings.Join(args, " "))
 	cmd := exec.CommandContext(ctx, "opencode", args...)
+	cmd.Dir = directory
 	proc := &ServerProcess{
 		cmd:  cmd,
 		done: make(chan struct{}),

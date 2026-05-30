@@ -92,6 +92,61 @@ func TestResolveCommandsConfigPathDefaultsWhenMissing(t *testing.T) {
 	}
 }
 
+func TestResolveOpencodeConfigPathUsesLayoutConfigDir(t *testing.T) {
+	layoutPath := filepath.Join("/tmp", "plums", "config", "layout.json")
+	got := resolveOpencodeConfigPath(layoutPath)
+	want := filepath.Join("/tmp", "plums", "config", "config.toml")
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestWriteDefaultConfigFileDoesNotOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("custom"), 0o600); err != nil {
+		t.Fatalf("write existing config: %v", err)
+	}
+	if err := writeDefaultConfigFile(dir, "config.toml"); err == nil {
+		t.Fatal("expected existing config error")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if string(data) != "custom" {
+		t.Fatalf("expected existing config to remain unchanged, got %q", string(data))
+	}
+}
+
+func TestInitLocalConfigFilesCreatesProjectConfig(t *testing.T) {
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get wd: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWd); err != nil {
+			t.Fatalf("restore wd: %v", err)
+		}
+	})
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	dir, err := initLocalConfigFiles()
+	if err != nil {
+		t.Fatalf("init local config: %v", err)
+	}
+	if dir != filepath.Join(".", ".agents", "plums", "config") {
+		t.Fatalf("expected local config dir, got %q", dir)
+	}
+	for _, name := range []string{"config.toml", "layout.json", "commands.json"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("expected %s to exist: %v", name, err)
+		}
+	}
+}
+
 func TestParseQuestionAnswersSingleCustom(t *testing.T) {
 	req := &ai.QuestionRequest{Questions: []ai.QuestionInfo{{Question: "Name?"}}}
 	got := parseQuestionAnswers("  Alice  ", req)

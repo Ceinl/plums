@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"context"
+	"embed"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"sort"
@@ -20,6 +22,9 @@ import (
 	"github.com/Ceinl/plums/internal/keyboard"
 	"github.com/Ceinl/plums/internal/ui"
 )
+
+//go:embed .agents/plums/config/config.toml .agents/plums/config/layout.json .agents/plums/config/commands.json
+var defaultConfigFiles embed.FS
 
 const (
 	appVersion      = "0.1.0-dev"
@@ -53,10 +58,30 @@ func main() {
 	configGlobalShort := flag.Bool("cg", false, "use global plums layout config")
 	configLocal := flag.Bool("config-local", false, "use local plums layout config")
 	configLocalShort := flag.Bool("cl", false, "use local plums layout config")
+	initConfig := flag.Bool("init-config", false, "create default config files in ~/.config/plums/config and exit")
+	initLocalConfig := flag.Bool("init-config-local", false, "create default config files in ./.agents/plums/config and exit")
 	showVersion := flag.Bool("version", false, "show version metadata and exit")
 	flag.Parse()
 	if *showVersion {
 		fmt.Print(formatVersionMetadata(loadVersionMetadata()))
+		return
+	}
+	if *initConfig {
+		path, err := initGlobalConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to initialize config: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stdout, "created plums config in %s\n", path)
+		return
+	}
+	if *initLocalConfig {
+		path, err := initLocalConfigFiles()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to initialize local config: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stdout, "created local plums config in %s\n", path)
 		return
 	}
 
@@ -115,7 +140,7 @@ func main() {
 		debuglog.Printf("skills: discovery failed: %v", err)
 	}
 
-	opencodeServerURL, err := loadOpencodeServerURL(plumsConfigPath)
+	opencodeServerURL, err := loadOpencodeServerURL(resolveOpencodeConfigPath(configPath))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load opencode server URL: %v\n", err)
 		os.Exit(1)
@@ -124,10 +149,15 @@ func main() {
 	client := ai.NewClientWithURL(opencodeServerURL)
 	var serverProc *ai.ServerProcess
 	defer func() { serverProc.Stop() }()
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to get working directory: %v\n", err)
+		os.Exit(1)
+	}
 
 	startupCh := make(chan startupResult, 1)
 	state.SetServerStarting(true)
-	go startOpencode(ctx, client, startupCh)
+	go startOpencode(ctx, client, wd, startupCh)
 
 	app.Render(state, renderConfig)
 
@@ -332,6 +362,46 @@ func parseTomlString(value string) (string, error) {
 	return strings.TrimSpace(value[1 : len(value)-1]), nil
 }
 
+func initGlobalConfig() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".config", "plums", "config")
+	return initConfigDir(dir)
+}
+
+func initLocalConfigFiles() (string, error) {
+	return initConfigDir(filepath.Join(".", ".agents", "plums", "config"))
+}
+
+func initConfigDir(dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	for _, name := range []string{"config.toml", "layout.json", "commands.json"} {
+		if err := writeDefaultConfigFile(dir, name); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
+}
+
+func writeDefaultConfigFile(dir, name string) error {
+	dst := filepath.Join(dir, name)
+	if _, err := os.Stat(dst); err == nil {
+		return fmt.Errorf("%s already exists", dst)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	src := filepath.Join(".agents", "plums", "config", name)
+	data, err := defaultConfigFiles.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0o644)
+}
+
 func resolveConfigPath(global, local bool) (string, error) {
 	if global && local {
 		return "", fmt.Errorf("use only one of --config-global/-cg or --config-local/-cl")
@@ -361,6 +431,13 @@ func resolveCommandsConfigPath(layoutConfigPath string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+func resolveOpencodeConfigPath(layoutConfigPath string) string {
+	if layoutConfigPath == "" {
+		return plumsConfigPath
+	}
+	return filepath.Join(filepath.Dir(layoutConfigPath), "config.toml")
 }
 
 func replyQuestion(ctx context.Context, state *app.State, client *ai.Client, requestID string, answers [][]string) bool {
@@ -445,12 +522,12 @@ func splitCommaAnswers(input string) []string {
 	return out
 }
 
-func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupResult) {
+func startOpencode(ctx context.Context, client *ai.Client, directory string, out chan<- startupResult) {
 	var serverProc *ai.ServerProcess
 	debuglog.Printf("startup: checking opencode health")
 	if err := client.Health(ctx); err != nil {
 		debuglog.Printf("startup: health check failed: %v", err)
-		proc, err := ai.StartServer(ctx, client.BaseURL())
+		proc, err := ai.StartServer(ctx, client.BaseURL(), directory)
 		if err != nil {
 			debuglog.Printf("startup: start server failed: %v", err)
 			out <- startupResult{err: fmt.Errorf("failed to start opencode server: %w", err)}
@@ -469,11 +546,16 @@ func startOpencode(ctx context.Context, client *ai.Client, out chan<- startupRes
 	}
 
 	debuglog.Printf("startup: creating session")
-	session, err := client.CreateSession(ctx)
+	session, err := client.CreateSession(ctx, directory)
 	if err != nil {
 		debuglog.Printf("startup: create session failed: %v", err)
 		serverProc.Stop()
 		out <- startupResult{err: fmt.Errorf("failed to create session: %w", err)}
+		return
+	}
+	if session.Directory != "" && session.Directory != directory {
+		serverProc.Stop()
+		out <- startupResult{err: fmt.Errorf("opencode session directory is %q, expected %q; stop the existing opencode server or configure plums to use a different port", session.Directory, directory)}
 		return
 	}
 	debuglog.Printf("startup: session ready: %s", session.ID)
@@ -551,7 +633,12 @@ func handlePaletteAction(ctx context.Context, state *app.State, client *ai.Clien
 	case app.PaletteActionOpenPalette:
 		state.OpenPalette()
 	case app.PaletteActionNewSession:
-		session, err := client.CreateSession(ctx)
+		wd, err := os.Getwd()
+		if err != nil {
+			state.AddMessage("system", fmt.Sprintf("failed to get working directory: %v", err))
+			return
+		}
+		session, err := client.CreateSession(ctx, wd)
 		if err != nil {
 			state.AddMessage("system", fmt.Sprintf("failed to create session: %v", err))
 			return

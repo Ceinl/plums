@@ -97,6 +97,38 @@ func TestServerCommandArgsRejectsRemoteURL(t *testing.T) {
 	}
 }
 
+func TestCreateSessionPostsDirectory(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/session" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		var body createSessionBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body.Directory != "/tmp/project" {
+			t.Fatalf("expected directory %q, got %q", "/tmp/project", body.Directory)
+		}
+		w.WriteHeader(http.StatusCreated)
+		if _, err := fmt.Fprintf(w, `{"id":"s1","directory":"%s"}`, body.Directory); err != nil {
+			t.Fatalf("write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	session, err := client.CreateSession(context.Background(), " /tmp/project ")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if session.Directory != "/tmp/project" {
+		t.Fatalf("expected session directory %q, got %q", "/tmp/project", session.Directory)
+	}
+}
+
 func TestReplyQuestionPostsAnswers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
