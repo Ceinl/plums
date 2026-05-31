@@ -176,8 +176,8 @@ func TestSendMessageEventsEmitsReasoningDeltasRaw(t *testing.T) {
 			}
 
 			writeSSE(t, w, "message.part.delta", partDeltaProperties{SessionID: "s1", PartID: "r1", Field: "text", Delta: "secret"})
-			writeSSE(t, w, "message.part.updated", partUpdatedProperties{Part: partDetail{ID: "r1", SessionID: "s1", Type: "reasoning"}})
-			writeSSE(t, w, "message.part.updated", partUpdatedProperties{Part: partDetail{ID: "t1", SessionID: "s1", Type: "text"}})
+			writeSSE(t, w, "message.part.updated", partUpdatedProperties{Part: opencodePart{ID: "r1", SessionID: "s1", Type: "reasoning"}})
+			writeSSE(t, w, "message.part.updated", partUpdatedProperties{Part: opencodePart{ID: "t1", SessionID: "s1", Type: "text"}})
 			writeSSE(t, w, "message.part.delta", partDeltaProperties{SessionID: "s1", PartID: "t1", Field: "text", Delta: " answer"})
 			writeSSE(t, w, "session.idle", sessionIdleProperties{SessionID: "s1"})
 			flusher.Flush()
@@ -210,6 +210,79 @@ func TestDisplayTextForPartWrapsReasoning(t *testing.T) {
 	}
 	if got := adapter.DisplayTextForPart(adapter.Part{Type: "text", Text: "answer"}); got != "answer" {
 		t.Fatalf("expected text part, got %q", got)
+	}
+}
+
+func TestSendMessageEventsEmitsToolPartUpdates(t *testing.T) {
+	promptSeen := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/event":
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				t.Fatalf("expected flusher")
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher.Flush()
+
+			select {
+			case <-promptSeen:
+			case <-r.Context().Done():
+				return
+			}
+
+			writeSSE(t, w, "message.part.updated", partUpdatedProperties{Part: opencodePart{
+				ID:        "tool1",
+				SessionID: "s1",
+				Type:      "tool",
+				Tool:      "read",
+				State: opencodeToolState{
+					Status: "running",
+					Input:  map[string]any{"filePath": "/tmp/example.go"},
+				},
+			}})
+			writeSSE(t, w, "message.part.updated", partUpdatedProperties{Part: opencodePart{
+				ID:        "tool1",
+				SessionID: "s1",
+				Type:      "tool",
+				Tool:      "read",
+				State: opencodeToolState{
+					Status: "completed",
+					Input:  map[string]any{"filePath": "/tmp/example.go"},
+					Output: "package main",
+				},
+			}})
+			writeSSE(t, w, "session.idle", sessionIdleProperties{SessionID: "s1"})
+			flusher.Flush()
+
+		case "/session/s1/prompt_async":
+			close(promptSeen)
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	stream := client.SendMessageEvents(context.Background(), "s1", "hello", "", "", "")
+	var got []adapter.ToolEvent
+	for event := range stream {
+		if event.Tool != nil {
+			got = append(got, *event.Tool)
+		}
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 tool events, got %#v", got)
+	}
+	if got[0].ID != "tool1" || got[0].Name != "read" || got[0].Input != `{"filePath":"/tmp/example.go"}` {
+		t.Fatalf("unexpected tool call event %#v", got[0])
+	}
+	if got[1].ID != "tool1" || got[1].Input != "" || got[1].Output != "package main" {
+		t.Fatalf("unexpected tool output event %#v", got[1])
 	}
 }
 

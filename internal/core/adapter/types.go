@@ -46,13 +46,23 @@ type Model struct {
 
 // Part is a content part within a message.
 type Part struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type string     `json:"type"`
+	Text string     `json:"text,omitempty"`
+	Tool *ToolEvent `json:"tool,omitempty"`
 }
 
 type StreamEvent struct {
 	Text     string
+	Tool     *ToolEvent
 	Question *QuestionRequest
+}
+
+type ToolEvent struct {
+	ID     string
+	Name   string
+	Input  string
+	Output string
+	Error  string
 }
 
 type QuestionOption struct {

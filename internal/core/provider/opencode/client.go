@@ -152,9 +152,13 @@ func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]adapter.
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("opencode server returned status %d", resp.StatusCode)
 	}
-	var messages []adapter.MessageResponse
-	if err := json.NewDecoder(resp.Body).Decode(&messages); err != nil {
+	var raw []messageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, err
+	}
+	messages := make([]adapter.MessageResponse, 0, len(raw))
+	for _, msg := range raw {
+		messages = append(messages, convertMessageResponse(msg))
 	}
 	return messages, nil
 }
@@ -198,7 +202,7 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 				return
 			}
 			if !result.emitted {
-				c.sendSync(ctx, sessionID, text, providerID, modelID, agent, out)
+				c.sendSync(ctx, sessionID, text, providerID, modelID, agent, events)
 				return
 			}
 			select {
@@ -233,18 +237,7 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, provide
 		}
 		if !result.emitted {
 			// SSE path unavailable before streaming tokens; fall back safely.
-			textOut := make(chan string)
-			go func() {
-				defer close(textOut)
-				c.sendSync(ctx, sessionID, text, providerID, modelID, agent, textOut)
-			}()
-			for s := range textOut {
-				select {
-				case <-ctx.Done():
-					return
-				case out <- adapter.StreamEvent{Text: s}:
-				}
-			}
+			c.sendSync(ctx, sessionID, text, providerID, modelID, agent, out)
 			return
 		}
 		select {
@@ -339,6 +332,7 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 	// pendingDeltas holds deltas that arrived before their message.part.updated
 	// registration event (a known opencode race – see issue #26924).
 	pendingDeltas := make(map[string][]string)
+	toolCallsEmitted := make(map[string]bool)
 
 	scanner := bufio.NewScanner(sseResp.Body)
 	scanner.Buffer(make([]byte, 1<<20), 1<<20)
@@ -382,6 +376,24 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 					continue
 				}
 				if props.Part.SessionID == sessionID {
+					if props.Part.Type == "tool" {
+						tool := convertToolPart(props.Part)
+						if tool == nil {
+							continue
+						}
+						if toolCallsEmitted[props.Part.ID] {
+							tool.Input = ""
+						} else {
+							toolCallsEmitted[props.Part.ID] = true
+						}
+						select {
+						case <-ctx.Done():
+							return result, ctx.Err()
+						case out <- adapter.StreamEvent{Tool: tool}:
+							result.emitted = true
+						}
+						continue
+					}
 					partType := props.Part.Type
 					partTypes[props.Part.ID] = partType
 					// Flush any deltas that arrived before this registration.
@@ -476,13 +488,13 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 
 // sendSync is the legacy fallback: POSTs to /session/{id}/message, waits for
 // the full JSON response, then emits the text character by character.
-func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, modelID, agent string, out chan<- string) {
+func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, modelID, agent string, out chan<- adapter.StreamEvent) {
 	b := newSendMessageBody(text, providerID, modelID, agent)
 	data, err := json.Marshal(b)
 	if err != nil {
 		select {
 		case <-ctx.Done():
-		case out <- fmt.Sprintf("\n⚠️  marshal error: %v\n", err):
+		case out <- adapter.StreamEvent{Text: fmt.Sprintf("\n⚠️  marshal error: %v\n", err)}:
 		}
 		return
 	}
@@ -493,7 +505,7 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 	if err != nil {
 		select {
 		case <-ctx.Done():
-		case out <- fmt.Sprintf("\n⚠️  request error: %v\n", err):
+		case out <- adapter.StreamEvent{Text: fmt.Sprintf("\n⚠️  request error: %v\n", err)}:
 		}
 		return
 	}
@@ -504,7 +516,7 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 		select {
 		case <-ctx.Done():
 			return
-		case out <- "\n⚠️  Opencode server not available (is `opencode serve` running?)\n":
+		case out <- adapter.StreamEvent{Text: "\n⚠️  Opencode server not available (is `opencode serve` running?)\n"}:
 		}
 		return
 	}
@@ -513,7 +525,7 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 	if resp.StatusCode != http.StatusOK {
 		select {
 		case <-ctx.Done():
-		case out <- fmt.Sprintf("\n⚠️  opencode server returned status %d\n", resp.StatusCode):
+		case out <- adapter.StreamEvent{Text: fmt.Sprintf("\n⚠️  opencode server returned status %d\n", resp.StatusCode)}:
 		}
 		return
 	}
@@ -522,19 +534,27 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 	if err := json.NewDecoder(resp.Body).Decode(&msgResp); err != nil {
 		select {
 		case <-ctx.Done():
-		case out <- fmt.Sprintf("\n⚠️  decode error: %v\n", err):
+		case out <- adapter.StreamEvent{Text: fmt.Sprintf("\n⚠️  decode error: %v\n", err)}:
 		}
 		return
 	}
 
-	for _, part := range msgResp.Parts {
+	for _, part := range convertMessageResponse(msgResp).Parts {
+		if part.Tool != nil {
+			select {
+			case <-ctx.Done():
+				return
+			case out <- adapter.StreamEvent{Tool: part.Tool}:
+			}
+			continue
+		}
 		text := adapter.DisplayTextForPart(part)
 		if text != "" {
 			for _, r := range text {
 				select {
 				case <-ctx.Done():
 					return
-				case out <- string(r):
+				case out <- adapter.StreamEvent{Text: string(r)}:
 				}
 				time.Sleep(3 * time.Millisecond)
 			}
@@ -585,15 +605,24 @@ type sseEnvelope struct {
 
 // partUpdatedProperties is the payload of a "message.part.updated" event.
 type partUpdatedProperties struct {
-	Part partDetail `json:"part"`
+	Part opencodePart `json:"part"`
 }
 
-// partDetail describes a single message part.
-type partDetail struct {
-	ID        string `json:"id"`
-	SessionID string `json:"sessionID"`
-	Type      string `json:"type"`
-	Text      string `json:"text"`
+type opencodePart struct {
+	ID        string            `json:"id"`
+	SessionID string            `json:"sessionID"`
+	Type      string            `json:"type"`
+	Text      string            `json:"text"`
+	Tool      string            `json:"tool"`
+	State     opencodeToolState `json:"state"`
+}
+
+type opencodeToolState struct {
+	Status string         `json:"status"`
+	Input  map[string]any `json:"input,omitempty"`
+	Raw    string         `json:"raw,omitempty"`
+	Output string         `json:"output,omitempty"`
+	Error  string         `json:"error,omitempty"`
 }
 
 // partDeltaProperties is the payload of a "message.part.delta" event.
@@ -627,5 +656,43 @@ type sseResult struct {
 
 type messageResponse struct {
 	Info  adapter.MessageInfo `json:"info"`
-	Parts []adapter.Part      `json:"parts"`
+	Parts []opencodePart      `json:"parts"`
+}
+
+func convertMessageResponse(msg messageResponse) adapter.MessageResponse {
+	parts := make([]adapter.Part, 0, len(msg.Parts))
+	for _, part := range msg.Parts {
+		if part.Type == "tool" {
+			if tool := convertToolPart(part); tool != nil {
+				parts = append(parts, adapter.Part{Type: "tool", Tool: tool})
+			}
+			continue
+		}
+		parts = append(parts, adapter.Part{Type: part.Type, Text: part.Text})
+	}
+	return adapter.MessageResponse{Info: msg.Info, Parts: parts}
+}
+
+func convertToolPart(part opencodePart) *adapter.ToolEvent {
+	input := part.State.Raw
+	if input == "" && part.State.Input != nil {
+		if data, err := json.Marshal(part.State.Input); err == nil {
+			input = string(data)
+		}
+	}
+	tool := &adapter.ToolEvent{
+		ID:    part.ID,
+		Name:  part.Tool,
+		Input: input,
+	}
+	switch part.State.Status {
+	case "completed":
+		tool.Output = part.State.Output
+	case "error":
+		tool.Error = part.State.Error
+	}
+	if tool.Name == "" && tool.Input == "" && tool.Output == "" && tool.Error == "" {
+		return nil
+	}
+	return tool
 }
