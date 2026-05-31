@@ -54,6 +54,7 @@ const defaultCommandsJSON = `{
   "slash_commands": [
     { "name": "/new", "detail": "Create a fresh opencode session", "action": "new_session" },
     { "name": "/command", "detail": "Open the command palette", "action": "open_palette" },
+    { "name": "/backend", "detail": "Switch backend provider", "action": "backend_list" },
     { "name": "/skills", "detail": "Load an opencode skill", "action": "skills_list" },
     { "name": "/sessions", "detail": "Open existing opencode sessions", "action": "sessions_list" }
   ],
@@ -63,6 +64,7 @@ const defaultCommandsJSON = `{
     "empty_sessions_detail": "No opencode sessions found",
     "items": [
       { "title": "Change model", "detail": "Select model for future prompts", "action": "change_model" },
+      { "title": "Backend provider", "detail": "Current backend: {backend_provider}", "action": "backend_list" },
       { "title": "Start new session", "detail": "Create a fresh opencode session", "action": "new_session" },
       {
         "title": "Switch mode",
@@ -78,6 +80,7 @@ const defaultCommandsJSON = `{
   },
   "actions": {
     "change_model": { "kind": "builtin" },
+    "backend_list": { "kind": "builtin" },
     "new_session": { "kind": "builtin" },
     "open_palette": { "kind": "builtin" },
     "switch_mode": { "kind": "builtin" },
@@ -165,6 +168,8 @@ func builtinAction(name string) PaletteAction {
 	switch name {
 	case "change_model":
 		return PaletteActionChangeModel
+	case "backend_list":
+		return PaletteActionBackendList
 	case "open_palette":
 		return PaletteActionOpenPalette
 	case "new_session":
@@ -215,5 +220,6 @@ func (s *State) expandCommandTemplate(value string) string {
 	value = strings.ReplaceAll(value, "{mode}", s.Mode)
 	value = strings.ReplaceAll(value, "{thinking_visibility}", s.ThinkingVisibilityLabel())
 	value = strings.ReplaceAll(value, "{output_percent}", strconv.Itoa(s.SplitOutputPercent()))
+	value = strings.ReplaceAll(value, "{backend_provider}", s.BackendProvider)
 	return value
 }

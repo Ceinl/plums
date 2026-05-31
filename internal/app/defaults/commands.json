@@ -12,6 +12,11 @@
       "action": "open_palette"
     },
     {
+      "name": "/backend",
+      "detail": "Switch backend provider",
+      "action": "backend_list"
+    },
+    {
       "name": "/skills",
       "detail": "Load an opencode skill",
       "action": "skills_list"
@@ -31,6 +36,11 @@
         "title": "Change model",
         "detail": "Select model for future prompts",
         "action": "change_model"
+      },
+      {
+        "title": "Backend provider",
+        "detail": "Current backend: {backend_provider}",
+        "action": "backend_list"
       },
       {
         "title": "Start new session",
@@ -70,6 +80,9 @@
   },
   "actions": {
     "change_model": {
+      "kind": "builtin"
+    },
+    "backend_list": {
       "kind": "builtin"
     },
     "new_session": {

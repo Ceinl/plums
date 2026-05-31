@@ -17,6 +17,7 @@ import (
 // RunConfig holds timing and behaviour overrides for the event loop.
 type RunConfig struct {
 	OpencodeServerURL    string
+	BackendProvider      string
 	ClipboardCommand     string
 	SpinnerInterval      time.Duration
 	HealthTimeout        time.Duration
@@ -38,16 +39,26 @@ type Deps struct {
 	Keyboard      <-chan keyboard.Event
 	Backend       adapter.Backend
 	Startup       func(ctx context.Context, backend adapter.Backend, out chan<- StartupResult)
+	Backends      []BackendRuntime
 	RenderConfig  *RenderConfig
 	CommandConfig *CommandConfig
 	Registry      *core.AgentRegistry
 }
 
+// BackendRuntime describes one selectable application backend.
+type BackendRuntime struct {
+	ID      string
+	Name    string
+	Backend adapter.Backend
+	Startup func(ctx context.Context, backend adapter.Backend, out chan<- StartupResult)
+}
+
 // StartupResult is delivered on the startup channel once the backend is ready.
 type StartupResult struct {
-	Session *adapter.Session
-	Server  ServerProcess
-	Err     error
+	BackendID string
+	Session   *adapter.Session
+	Server    ServerProcess
+	Err       error
 }
 
 // Run executes the main event loop. It returns the server process (if any)
@@ -56,6 +67,11 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 	state := NewState(deps.Terminal.W, deps.Terminal.H)
 	state.SetAvailableLayouts(deps.RenderConfig.AvailableLayoutTypes())
 	state.SetCommandConfig(deps.CommandConfig)
+	runtimes := normalizeBackendRuntimes(deps)
+	runtime := selectBackendRuntime(runtimes, cfg.BackendProvider)
+	backend := runtime.Backend
+	state.SetBackendProvider(runtime.ID)
+	state.SetAvailableBackends(backendItemsFromRuntimes(runtimes, runtime.ID))
 	if skills, err := DiscoverSkills(""); err == nil {
 		state.SetAvailableSkills(skills)
 	} else {
@@ -66,8 +82,19 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 	signal.Notify(sigCh, syscall.SIGWINCH)
 
 	startupCh := make(chan StartupResult, 1)
-	state.SetServerStarting(true)
-	go deps.Startup(ctx, deps.Backend, startupCh)
+	startBackend := func(rt BackendRuntime) {
+		state.SetBackendProvider(rt.ID)
+		state.SetServerStarting(true)
+		state.SetServerReady(false)
+		go func() {
+			ch := make(chan StartupResult, 1)
+			rt.Startup(ctx, rt.Backend, ch)
+			result := <-ch
+			result.BackendID = rt.ID
+			startupCh <- result
+		}()
+	}
+	startBackend(runtime)
 
 	Render(state, deps.RenderConfig)
 
@@ -104,13 +131,32 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 				if action == PaletteActionAnswerQuestion {
 					if pendingQuestion != nil {
 						if answer, ok := state.SelectedQuestionAnswer(); ok {
-							if replyQuestion(ctx, state, deps.Backend, pendingQuestion.ID, [][]string{{answer}}, cfg.QuestionReplyTimeout) {
+							if replyQuestion(ctx, state, backend, pendingQuestion.ID, [][]string{{answer}}, cfg.QuestionReplyTimeout) {
 								pendingQuestion = nil
 							}
 						}
 					}
+				} else if action == PaletteActionBackendList {
+					state.SetBackendItems(backendItemsFromRuntimes(runtimes, runtime.ID))
+				} else if action == PaletteActionSelectBackend {
+					backendID := state.SelectedBackendID()
+					if selected, ok := backendRuntimeByID(runtimes, backendID); ok && selected.ID != runtime.ID {
+						if cancelStream != nil {
+							cancelStream()
+							cancelStream = nil
+						}
+						if serverProc != nil {
+							serverProc.Stop()
+							serverProc = nil
+						}
+						runtime = selected
+						backend = selected.Backend
+						state.ResetBackendSession()
+						state.AddMessage("system", "switching backend provider to "+selected.ID)
+						startBackend(selected)
+					}
 				} else {
-					handlePaletteAction(ctx, state, deps.Backend, action, cfg)
+					handlePaletteAction(ctx, state, backend, action, cfg)
 				}
 			}
 			if handled {
@@ -119,7 +165,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 					if input != "" {
 						if pendingQuestion != nil {
 							answers := parseQuestionAnswers(input, pendingQuestion)
-							if replyQuestion(ctx, state, deps.Backend, pendingQuestion.ID, answers, cfg.QuestionReplyTimeout) {
+							if replyQuestion(ctx, state, backend, pendingQuestion.ID, answers, cfg.QuestionReplyTimeout) {
 								pendingQuestion = nil
 							}
 							Render(state, deps.RenderConfig)
@@ -135,9 +181,9 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 							state.ClearAiOutput()
 							emittedTools = make(map[string]bool)
 							agent := deps.Registry.ResolveAgent(state.Mode)
-							aiStream = deps.Backend.SendMessageEvents(sctx, state.SessionID, input, state.ModelProvider, state.ModelID, agent)
+							aiStream = backend.SendMessageEvents(sctx, state.SessionID, input, state.ModelProvider, state.ModelID, agent)
 						} else {
-							state.AddMessage("system", "no active session – is opencode serve running?")
+							state.AddMessage("system", "no active session for backend provider "+runtime.ID)
 						}
 					}
 				}
@@ -155,7 +201,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 				Render(state, deps.RenderConfig)
 			} else {
 				state.FinalizeAiOutput()
-				refreshSessionModel(ctx, state, deps.Backend, cfg)
+				refreshSessionModel(ctx, state, backend, cfg)
 				aiStream = nil
 				cancelStream = nil
 				Render(state, deps.RenderConfig)
@@ -165,6 +211,9 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 				Render(state, deps.RenderConfig)
 			}
 		case result := <-startupCh:
+			if result.BackendID != runtime.ID {
+				break
+			}
 			state.SetServerStarting(false)
 			if result.Err != nil {
 				state.AddMessage("system", result.Err.Error())
@@ -172,7 +221,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 				serverProc = result.Server
 				state.SetServerReady(true)
 				applySession(state, result.Session)
-				applyRecentModel(ctx, state, deps.Backend, cfg)
+				applyRecentModel(ctx, state, backend, cfg)
 			}
 			Render(state, deps.RenderConfig)
 		case <-sigCh:
@@ -184,4 +233,39 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 			}
 		}
 	}
+}
+
+func normalizeBackendRuntimes(deps Deps) []BackendRuntime {
+	if len(deps.Backends) > 0 {
+		return deps.Backends
+	}
+	return []BackendRuntime{{ID: "opencode", Name: "Opencode", Backend: deps.Backend, Startup: deps.Startup}}
+}
+
+func selectBackendRuntime(runtimes []BackendRuntime, id string) BackendRuntime {
+	if rt, ok := backendRuntimeByID(runtimes, id); ok {
+		return rt
+	}
+	return runtimes[0]
+}
+
+func backendRuntimeByID(runtimes []BackendRuntime, id string) (BackendRuntime, bool) {
+	for _, runtime := range runtimes {
+		if runtime.ID == id {
+			return runtime, true
+		}
+	}
+	return BackendRuntime{}, false
+}
+
+func backendItemsFromRuntimes(runtimes []BackendRuntime, current string) []BackendListItem {
+	items := make([]BackendListItem, 0, len(runtimes))
+	for _, runtime := range runtimes {
+		name := runtime.Name
+		if name == "" {
+			name = runtime.ID
+		}
+		items = append(items, BackendListItem{ID: runtime.ID, Name: name, Current: runtime.ID == current})
+	}
+	return items
 }
