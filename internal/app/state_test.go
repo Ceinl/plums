@@ -1,9 +1,9 @@
 package app
 
 import (
+	"github.com/Ceinl/plums/internal/ui/tui/components"
 	"os"
 	"path/filepath"
-	"github.com/Ceinl/plums/internal/components"
 	"strings"
 	"testing"
 )
@@ -114,6 +114,34 @@ func TestDefaultCommandConfigIncludesSkillsCommand(t *testing.T) {
 	}
 }
 
+func TestDefaultCommandConfigIncludesBackendCommand(t *testing.T) {
+	state := NewState(80, 24)
+	state.Editor.SetContent("/backend")
+	state.SubmitInput()
+
+	if got := state.ConsumePendingAction(); got != PaletteActionBackendList {
+		t.Fatalf("expected /backend to open backend list, got %v", got)
+	}
+}
+
+func TestBackendPaletteSelection(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetBackendProvider("opencode")
+	state.SetBackendItems([]BackendListItem{
+		{ID: "opencode", Name: "Opencode", Current: true},
+		{ID: "codex", Name: "Codex"},
+	})
+	state.MovePalette(1)
+	state.SelectPaletteItem()
+
+	if got := state.ConsumePendingAction(); got != PaletteActionSelectBackend {
+		t.Fatalf("expected select backend action, got %v", got)
+	}
+	if got := state.SelectedBackendID(); got != "codex" {
+		t.Fatalf("expected codex backend selection, got %q", got)
+	}
+}
+
 func TestDefaultCommandConfigIncludesThinkingVisibilityCommand(t *testing.T) {
 	state := NewState(80, 24)
 	state.OpenPalette()
@@ -137,6 +165,13 @@ func TestDefaultCommandConfigIncludesThinkingVisibilityCommand(t *testing.T) {
 
 func TestCycleThinkingVisibilityUpdatesChatLog(t *testing.T) {
 	state := NewState(80, 24)
+	if state.ThinkingMode != components.ThinkingVisibilityHidden {
+		t.Fatalf("expected hidden visibility by default, got %v", state.ThinkingMode)
+	}
+	state.CycleThinkingVisibility()
+	if state.ThinkingMode != components.ThinkingVisibilityFull {
+		t.Fatalf("expected full visibility, got %v", state.ThinkingMode)
+	}
 	state.CycleThinkingVisibility()
 	if state.ThinkingMode != components.ThinkingVisibilityTitle {
 		t.Fatalf("expected title visibility, got %v", state.ThinkingMode)
@@ -144,10 +179,6 @@ func TestCycleThinkingVisibilityUpdatesChatLog(t *testing.T) {
 	state.CycleThinkingVisibility()
 	if state.ThinkingMode != components.ThinkingVisibilityHidden {
 		t.Fatalf("expected hidden visibility, got %v", state.ThinkingMode)
-	}
-	state.CycleThinkingVisibility()
-	if state.ThinkingMode != components.ThinkingVisibilityFull {
-		t.Fatalf("expected full visibility, got %v", state.ThinkingMode)
 	}
 }
 

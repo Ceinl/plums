@@ -1,15 +1,102 @@
 {
   "version": 1,
   "slash_commands": [
-    { "name": "/command", "detail": "Open the command palette", "action": "open_palette" }
+    {
+      "name": "/new",
+      "detail": "Create a fresh opencode session",
+      "action": "new_session"
+    },
+    {
+      "name": "/command",
+      "detail": "Open the command palette",
+      "action": "open_palette"
+    },
+    {
+      "name": "/skills",
+      "detail": "Load an opencode skill",
+      "action": "skills_list"
+    },
+    {
+      "name": "/sessions",
+      "detail": "Open existing opencode sessions",
+      "action": "sessions_list"
+    }
   ],
   "palette": {
     "title": "Command Palette",
+    "empty_sessions_title": "No sessions",
+    "empty_sessions_detail": "No opencode sessions found",
     "items": [
-      { "title": "Open command palette", "detail": "Test command", "action": "open_palette" }
+      {
+        "title": "Change model",
+        "detail": "Select model for future prompts",
+        "action": "change_model"
+      },
+      {
+        "title": "Start new session",
+        "detail": "Create a fresh opencode session",
+        "action": "new_session"
+      },
+      {
+        "title": "Switch mode",
+        "detail": "Current mode: {mode}",
+        "action": "switch_mode",
+        "title_when": {
+          "mode=plan": "Switch to build mode",
+          "mode=build": "Switch to plan mode"
+        }
+      },
+      {
+        "title": "Thinking visibility",
+        "detail": "Current: {thinking_visibility} (cycles full/title/hidden)",
+        "action": "cycle_thinking_visibility"
+      },
+      {
+        "title": "Output percentage",
+        "detail": "Left/Right adjust - current: {output_percent}%",
+        "action": "adjust_output_percentage"
+      },
+      {
+        "title": "Skills list",
+        "detail": "Load an opencode skill for the next prompt",
+        "action": "skills_list"
+      },
+      {
+        "title": "Sessions list",
+        "detail": "Open existing opencode sessions",
+        "action": "sessions_list"
+      }
     ]
   },
   "actions": {
-    "open_palette": { "kind": "builtin" }
+    "change_model": {
+      "kind": "builtin"
+    },
+    "new_session": {
+      "kind": "builtin"
+    },
+    "open_palette": {
+      "kind": "builtin"
+    },
+    "switch_mode": {
+      "kind": "builtin"
+    },
+    "cycle_thinking_visibility": {
+      "kind": "builtin"
+    },
+    "adjust_output_percentage": {
+      "kind": "builtin",
+      "adjustment": {
+        "min": 25,
+        "max": 75,
+        "step": 5
+      }
+    },
+    "skills_list": {
+      "kind": "builtin"
+    },
+    "sessions_list": {
+      "kind": "builtin"
+    }
   }
 }

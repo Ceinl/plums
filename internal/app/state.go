@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Ceinl/plums/internal/components"
+	"github.com/Ceinl/plums/internal/ui/tui/components"
 )
 
 type PaletteAction int
@@ -24,6 +24,8 @@ const (
 	PaletteActionSelectSkill
 	PaletteActionAnswerQuestion
 	PaletteActionCycleThinkingVisibility
+	PaletteActionBackendList
+	PaletteActionSelectBackend
 )
 
 type PaletteView int
@@ -34,6 +36,7 @@ const (
 	PaletteViewSessions
 	PaletteViewSkills
 	PaletteViewQuestions
+	PaletteViewBackends
 )
 
 type LayoutType int
@@ -77,6 +80,12 @@ type ModelListItem struct {
 	ModelID      string
 	ModelName    string
 	Current      bool
+}
+
+type BackendListItem struct {
+	ID      string
+	Name    string
+	Current bool
 }
 
 type paletteCommandItem struct {
@@ -124,29 +133,31 @@ type State struct {
 	Layout           LayoutType
 	availableLayouts []LayoutType
 
-	SessionID      string
-	SessionTitle   string
-	ServerStarting bool
-	ServerReady    bool
-	PopupOpen      bool
-	PaletteIndex   int
-	PaletteView    PaletteView
-	PaletteQuery   string
-	PendingAction  PaletteAction
-	ModelItems     []ModelListItem
-	SessionItems   []SessionListItem
-	SkillItems     []SkillListItem
-	QuestionTitle  string
-	QuestionItems  []QuestionOptionItem
-	Mode           string
-	ThinkingMode   components.ThinkingVisibility
-	ModelProvider  string
-	ModelID        string
-	InfoView       InfoView
-	GitDiff        string
-	OutputPercent  int
-	submittedInput string
-	commandConfig  *CommandConfig
+	SessionID       string
+	SessionTitle    string
+	ServerStarting  bool
+	ServerReady     bool
+	PopupOpen       bool
+	PaletteIndex    int
+	PaletteView     PaletteView
+	PaletteQuery    string
+	PendingAction   PaletteAction
+	ModelItems      []ModelListItem
+	SessionItems    []SessionListItem
+	SkillItems      []SkillListItem
+	QuestionTitle   string
+	QuestionItems   []QuestionOptionItem
+	BackendItems    []BackendListItem
+	BackendProvider string
+	Mode            string
+	ThinkingMode    components.ThinkingVisibility
+	ModelProvider   string
+	ModelID         string
+	InfoView        InfoView
+	GitDiff         string
+	OutputPercent   int
+	submittedInput  string
+	commandConfig   *CommandConfig
 
 	chatLog *components.ChatLog
 	diffLog *components.DiffLog
@@ -165,6 +176,7 @@ func NewState(width int, height int) *State {
 		Mode:             "build",
 		OutputPercent:    defaultOutputPercentage,
 		commandConfig:    DefaultCommandConfig(),
+		ThinkingMode:     components.ThinkingVisibilityHidden,
 	}
 }
 
@@ -484,6 +496,9 @@ func (s *State) PaletteTitle() string {
 		}
 		return "Question"
 	}
+	if s.PaletteView == PaletteViewBackends {
+		return "Backend Providers"
+	}
 	return s.commandConfig.Palette.Title
 }
 
@@ -548,6 +563,21 @@ func (s *State) PaletteItems() []components.PopupItem {
 		items := make([]components.PopupItem, len(options))
 		for i, option := range options {
 			items[i] = components.PopupItem{Title: option.Label, Detail: option.Description}
+		}
+		return items
+	}
+	if s.PaletteView == PaletteViewBackends {
+		backends := s.visibleBackendItems()
+		if len(backends) == 0 {
+			return []components.PopupItem{{Title: "No backends", Detail: "No backend providers configured", Disabled: true}}
+		}
+		items := make([]components.PopupItem, len(backends))
+		for i, backend := range backends {
+			detail := backend.ID
+			if backend.Current {
+				detail = "current - " + detail
+			}
+			items[i] = components.PopupItem{Title: backend.Name, Detail: detail}
 		}
 		return items
 	}
@@ -766,6 +796,11 @@ func (s *State) SelectPaletteItem() {
 		s.PopupOpen = false
 		return
 	}
+	if s.PaletteView == PaletteViewBackends {
+		s.PendingAction = PaletteActionSelectBackend
+		s.PopupOpen = false
+		return
+	}
 	commands := s.visibleCommandItems()
 	if s.PaletteIndex < 0 || s.PaletteIndex >= len(commands) {
 		return
@@ -774,7 +809,7 @@ func (s *State) SelectPaletteItem() {
 	if s.PendingAction == PaletteActionNone {
 		return
 	}
-	if s.PendingAction != PaletteActionSessionsList && s.PendingAction != PaletteActionSkillsList && s.PendingAction != PaletteActionChangeModel && s.PendingAction != PaletteActionOpenPalette {
+	if s.PendingAction != PaletteActionSessionsList && s.PendingAction != PaletteActionSkillsList && s.PendingAction != PaletteActionChangeModel && s.PendingAction != PaletteActionOpenPalette && s.PendingAction != PaletteActionBackendList {
 		s.PopupOpen = false
 	}
 }
@@ -843,6 +878,30 @@ func (s *State) SetQuestionItems(title string, items []QuestionOptionItem) {
 	s.ensurePaletteSelection()
 }
 
+func (s *State) SetBackendItems(items []BackendListItem) {
+	s.BackendItems = items
+	s.PaletteView = PaletteViewBackends
+	s.PaletteQuery = ""
+	s.PaletteIndex = 0
+	if len(items) > 0 {
+		for i, item := range items {
+			if item.ID == s.BackendProvider {
+				s.PaletteIndex = i
+				break
+			}
+		}
+	}
+	s.PopupOpen = true
+}
+
+func (s *State) SetAvailableBackends(items []BackendListItem) {
+	s.BackendItems = items
+}
+
+func (s *State) SetBackendProvider(provider string) {
+	s.BackendProvider = provider
+}
+
 func (s *State) SetAvailableSkills(items []SkillListItem) {
 	s.SkillItems = items
 }
@@ -878,6 +937,14 @@ func (s *State) SelectedQuestionAnswer() (string, bool) {
 		return "", false
 	}
 	return items[s.PaletteIndex].Label, true
+}
+
+func (s *State) SelectedBackendID() string {
+	backends := s.visibleBackendItems()
+	if s.PaletteView != PaletteViewBackends || s.PaletteIndex < 0 || s.PaletteIndex >= len(backends) {
+		return ""
+	}
+	return backends[s.PaletteIndex].ID
 }
 
 func (s *State) InsertSkillMarker(skill SkillListItem) {
@@ -966,6 +1033,20 @@ func (s *State) visibleQuestionItems() []QuestionOptionItem {
 	return items
 }
 
+func (s *State) visibleBackendItems() []BackendListItem {
+	query := normalizedQuery(s.PaletteQuery)
+	if query == "" {
+		return s.BackendItems
+	}
+	items := make([]BackendListItem, 0, len(s.BackendItems))
+	for _, backend := range s.BackendItems {
+		if paletteMatches(query, backend.Name, backend.ID) {
+			items = append(items, backend)
+		}
+	}
+	return items
+}
+
 func normalizedQuery(query string) string {
 	return strings.ToLower(strings.TrimSpace(query))
 }
@@ -982,6 +1063,18 @@ func paletteMatches(query string, values ...string) bool {
 func (s *State) SetModel(providerID, modelID string) {
 	s.ModelProvider = providerID
 	s.ModelID = modelID
+}
+
+func (s *State) ResetBackendSession() {
+	s.SessionID = ""
+	s.SessionTitle = ""
+	s.ServerReady = false
+	s.ModelProvider = ""
+	s.ModelID = ""
+	s.aioutput = ""
+	s.isStreaming = false
+	s.outputScroll = 0
+	s.invalidateOutputMax()
 }
 
 func (s *State) ClearConversation() {
