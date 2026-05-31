@@ -100,8 +100,9 @@ func handlePaletteAction(ctx context.Context, state *State, client adapter.Backe
 		conversation := make([]Message, 0, len(messages))
 		for _, message := range messages {
 			content := ""
+			emittedTools := make(map[string]bool)
 			for _, part := range message.Parts {
-				content += adapter.DisplayTextForPart(part)
+				content += displayTextForPart(part, emittedTools)
 			}
 			if content != "" {
 				role := message.Info.Role

@@ -7,8 +7,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/core"
+	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/debuglog"
 	"github.com/Ceinl/plums/internal/keyboard"
 	"github.com/Ceinl/plums/internal/ui"
@@ -18,7 +18,7 @@ import (
 type RunConfig struct {
 	OpencodeServerURL    string
 	ClipboardCommand     string
-	SpinnerInterval        time.Duration
+	SpinnerInterval      time.Duration
 	HealthTimeout        time.Duration
 	QuestionReplyTimeout time.Duration
 	RecentModelTimeout   time.Duration
@@ -82,6 +82,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 	var cancelStream context.CancelFunc
 	var pendingQuestion *adapter.QuestionRequest
 	var serverProc ServerProcess
+	emittedTools := make(map[string]bool)
 
 	for {
 		select {
@@ -132,6 +133,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 							sctx, cancelStream = context.WithCancel(ctx)
 							state.SetStreaming(true)
 							state.ClearAiOutput()
+							emittedTools = make(map[string]bool)
 							agent := deps.Registry.ResolveAgent(state.Mode)
 							aiStream = deps.Backend.SendMessageEvents(sctx, state.SessionID, input, state.ModelProvider, state.ModelID, agent)
 						} else {
@@ -147,8 +149,8 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 					pendingQuestion = event.Question
 					state.SetStreaming(false)
 					state.SetQuestionItems(questionTitle(event.Question), questionOptionItems(event.Question))
-				} else if event.Text != "" {
-					state.AppendAiOutput(event.Text)
+				} else if text := displayTextForStreamEvent(event, emittedTools); text != "" {
+					state.AppendAiOutput(text)
 				}
 				Render(state, deps.RenderConfig)
 			} else {

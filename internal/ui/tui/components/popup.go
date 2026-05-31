@@ -93,12 +93,12 @@ func (p *Popup) Render(s *screen.Screen) {
 			s.Set(x, y, ch, muted, bg, "")
 		}
 	}
-	s.Set(mx, my, '┌', muted, bg, "")
-	s.Set(mx+modalW-1, my, '┐', muted, bg, "")
-	s.Set(mx, my+modalH-1, '└', muted, bg, "")
-	s.Set(mx+modalW-1, my+modalH-1, '┘', muted, bg, "")
+	s.Set(mx, my, '╭', muted, bg, "")
+	s.Set(mx+modalW-1, my, '╮', muted, bg, "")
+	s.Set(mx, my+modalH-1, '╰', muted, bg, "")
+	s.Set(mx+modalW-1, my+modalH-1, '╯', muted, bg, "")
 
-	drawText(s, mx+3, my+1, modalW-6, p.title, accent, bg)
+	drawCenteredText(s, mx+3, my+1, modalW-6, p.title, accent, bg)
 	drawSearch(s, mx+3, my+2, modalW-6, p.query, fg, muted, ansiBg(20, 18, 26))
 	visibleItems := (modalH - 6) / 2
 	start, end := visibleWindow(p.active, len(p.items), visibleItems)
@@ -108,6 +108,7 @@ func (p *Popup) Render(s *screen.Screen) {
 	}
 
 	row := my + 5
+	activeBg := ansiBg(48, 43, 61)
 	for i := start; i < end; i++ {
 		item := p.items[i]
 		itemFg := fg
@@ -115,12 +116,15 @@ func (p *Popup) Render(s *screen.Screen) {
 			itemFg = muted
 		}
 		if i == p.active && !item.Disabled {
-			drawFill(s, mx+2, row, modalW-4, ansiBg(48, 43, 61))
-			drawText(s, mx+4, row, modalW-8, "› "+item.Title, accent, ansiBg(48, 43, 61))
-			drawText(s, mx+6, row+1, modalW-10, item.Detail, muted, ansiBg(48, 43, 61))
+			drawFill(s, mx+2, row, modalW-4, activeBg)
+			drawFill(s, mx+2, row+1, modalW-4, activeBg)
+			drawCenteredText(s, mx+2, row, modalW-4, "› "+item.Title+" ‹", accent, activeBg)
+			drawCenteredText(s, mx+2, row+1, modalW-4, item.Detail, muted, activeBg)
 		} else {
-			drawText(s, mx+4, row, modalW-8, "  "+item.Title, itemFg, bg)
-			drawText(s, mx+6, row+1, modalW-10, item.Detail, muted, bg)
+			drawFill(s, mx+2, row, modalW-4, bg)
+			drawFill(s, mx+2, row+1, modalW-4, bg)
+			drawCenteredText(s, mx+2, row, modalW-4, item.Title, itemFg, bg)
+			drawCenteredText(s, mx+2, row+1, modalW-4, item.Detail, muted, bg)
 		}
 		row += 2
 	}
@@ -139,7 +143,7 @@ func (p *Popup) renderPanel(s *screen.Screen) {
 		}
 	}
 
-	drawText(s, p.x, p.y, p.w, p.title, accent, bg)
+	drawCenteredText(s, p.x, p.y, p.w, p.title, accent, bg)
 	drawSearch(s, p.x, p.y+1, p.w, p.query, fg, muted, ansiBg(20, 18, 26))
 	visibleItems := (p.h - 2) / 3
 	start, end := visibleWindow(p.active, len(p.items), visibleItems)
@@ -160,15 +164,23 @@ func (p *Popup) renderPanel(s *screen.Screen) {
 		}
 		if i == p.active && !item.Disabled {
 			drawFill(s, p.x, row, p.w, activeBg)
-			drawText(s, p.x+1, row, p.w-1, "> "+item.Title, accent, activeBg)
+			drawCenteredText(s, p.x, row, p.w, "› "+item.Title+" ‹", accent, activeBg)
 			if row+1 < p.y+p.h {
 				drawFill(s, p.x, row+1, p.w, activeBg)
-				drawText(s, p.x+3, row+1, p.w-3, item.Detail, muted, activeBg)
+				drawCenteredText(s, p.x, row+1, p.w, item.Detail, muted, activeBg)
+			}
+			if row+2 < p.y+p.h {
+				drawFill(s, p.x, row+2, p.w, activeBg)
 			}
 		} else {
-			drawText(s, p.x+1, row, p.w-1, "  "+item.Title, itemFg, bg)
+			drawFill(s, p.x, row, p.w, bg)
+			drawCenteredText(s, p.x, row, p.w, item.Title, itemFg, bg)
 			if row+1 < p.y+p.h {
-				drawText(s, p.x+3, row+1, p.w-3, item.Detail, muted, bg)
+				drawFill(s, p.x, row+1, p.w, bg)
+				drawCenteredText(s, p.x, row+1, p.w, item.Detail, muted, bg)
+			}
+			if row+2 < p.y+p.h {
+				drawFill(s, p.x, row+2, p.w, bg)
 			}
 		}
 		row += 3
@@ -247,17 +259,30 @@ func drawFill(s *screen.Screen, x, y, w int, bg string) {
 	}
 }
 
+func drawCenteredText(s *screen.Screen, x, y, w int, text, fg, bg string) {
+	runes := []rune(text)
+	textLen := len(runes)
+	if textLen > w {
+		textLen = w
+		runes = runes[:w]
+	}
+	pad := (w - textLen) / 2
+	for i := 0; i < textLen; i++ {
+		s.Set(x+pad+i, y, runes[i], fg, bg, "")
+	}
+}
+
 func drawSearch(s *screen.Screen, x, y, w int, query, fg, muted, bg string) {
 	if w <= 0 {
 		return
 	}
 	drawFill(s, x, y, w, bg)
-	text := "> " + query
+	text := query
 	if query == "" {
-		text = "> Search"
+		text = "Search..."
 		fg = muted
 	}
-	drawText(s, x+1, y, w-2, text, fg, bg)
+	drawCenteredText(s, x, y, w, text, fg, bg)
 }
 
 func ansiFg(r, g, b uint8) string {

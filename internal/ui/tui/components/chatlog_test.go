@@ -1,6 +1,9 @@
 package components
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestChatLogRendersMarkdownHeadingsAndBold(t *testing.T) {
 	cl := NewChatLog()
@@ -214,6 +217,23 @@ func TestChatLogGivesUserMessagesBackgroundAndAiMessagesPlainBackground(t *testi
 	}
 }
 
+func TestChatLogRendersPlainToolCallTranscriptAsSingleLine(t *testing.T) {
+	cl := NewChatLog()
+	cl.Layout(0, 0, 80, 10)
+	cl.SetAiOutput(`Called the Read tool with the following input: {"filePath":"/tmp/example.go"}`)
+
+	lines := cl.lines()
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 rendered line, got %d", len(lines))
+	}
+	if got := spanText(lines[0].spans); got != `◆ Called Read with {"filePath":"/tmp/example.go"}` {
+		t.Fatalf("expected tool call summary, got %q", got)
+	}
+	if lines[0].spans[0].fg != fgToolIndicator || lines[0].spans[1].fg != fgToolCall {
+		t.Fatalf("expected tool call colors")
+	}
+}
+
 func TestChatLogSelectionSurvivesUnchangedSetters(t *testing.T) {
 	cl := NewChatLog()
 	cl.Layout(0, 0, 80, 10)
@@ -224,6 +244,78 @@ func TestChatLogSelectionSurvivesUnchangedSetters(t *testing.T) {
 	got := cl.MouseUp(5, 0)
 	if got != "hello" {
 		t.Fatalf("expected selected text after unchanged render update, got %q", got)
+	}
+}
+
+func TestChatLogRendersMarkdownTable(t *testing.T) {
+	cl := NewChatLog()
+	cl.Layout(0, 0, 60, 10)
+	cl.SetAiOutput("| Name | Age | City |\n|------|-----|------|\n| Alice | 30 | NYC |\n| Bob | 25 | LA |")
+
+	lines := cl.lines()
+	if len(lines) != 4 {
+		t.Fatalf("expected 4 table rows, got %d", len(lines))
+	}
+
+	// Header row should have bold/heading styling via inline markdown? No, pipes use fgCodeFence
+	// Check that the structure is reasonable — at least pipes are present
+	headerText := spanText(lines[0].spans)
+	if !strings.Contains(headerText, "|") {
+		t.Fatalf("expected header row to contain pipes, got %q", headerText)
+	}
+	if !strings.Contains(headerText, "Name") {
+		t.Fatalf("expected header row to contain 'Name', got %q", headerText)
+	}
+
+	sepText := spanText(lines[1].spans)
+	if !strings.Contains(sepText, "─") {
+		t.Fatalf("expected separator row to contain dashes, got %q", sepText)
+	}
+
+	// Verify columns are aligned by checking positions of pipes or cell content
+	row3 := spanText(lines[2].spans)
+	if !strings.Contains(row3, "Alice") || !strings.Contains(row3, "30") {
+		t.Fatalf("expected data row with Alice and 30, got %q", row3)
+	}
+
+	row4 := spanText(lines[3].spans)
+	if !strings.Contains(row4, "Bob") || !strings.Contains(row4, "25") {
+		t.Fatalf("expected data row with Bob and 25, got %q", row4)
+	}
+}
+
+func TestChatLogTableTruncatesWhenTooWide(t *testing.T) {
+	cl := NewChatLog()
+	cl.Layout(0, 0, 20, 10)
+	cl.SetAiOutput("| VeryLongColumnA | VeryLongColumnB |\n| data | more |")
+
+	lines := cl.lines()
+	if len(lines) < 2 {
+		t.Fatalf("expected at least header and data rows, got %d", len(lines))
+	}
+
+	totalWidth := 0
+	for _, span := range lines[0].spans {
+		totalWidth += len([]rune(span.text))
+	}
+	if totalWidth > 20 {
+		t.Fatalf("expected table to fit within 20 cols, got width %d: %q", totalWidth, spanText(lines[0].spans))
+	}
+}
+
+func TestChatLogTableFallsBackToTextWhenExtremelyNarrow(t *testing.T) {
+	cl := NewChatLog()
+	cl.Layout(0, 0, 4, 10)
+	cl.SetAiOutput("| a | b |\n| 1 | 2 |")
+
+	lines := cl.lines()
+	if len(lines) == 0 {
+		t.Fatalf("expected some output")
+	}
+	// When too narrow it should fall back to plain text rendering
+	got := spanText(lines[0].spans)
+	if !strings.Contains(got, "a") {
+		t.Fatalf("expected fallback text to contain 'a', got %q", got)
 	}
 }
 

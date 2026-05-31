@@ -33,6 +33,10 @@ const (
 	// selection highlight colours
 	selFg = "\x1b[38;2;22;20;27m"
 	selBg = "\x1b[48;2;200;198;212m"
+
+	fgToolCall      = "\x1b[38;2;160;230;180m" // soft green for tool calls
+	fgToolOutput    = "\x1b[38;2;160;180;220m" // soft blue-gray for tool output
+	fgToolIndicator = "\x1b[38;2;245;190;120m" // soft yellow-orange for the diamond indicator
 )
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -431,18 +435,50 @@ func (cl *ChatLog) buildLines() []renderLine {
 }
 
 func (cl *ChatLog) buildContentLines(content, fg, bg string) []renderLine {
-	blocks := parseMarkdownBlocks(content)
+	blocks := parseChatBlocks(content)
 	var lines []renderLine
 
 	for _, block := range blocks {
-		if block.isCode {
-			for _, spans := range wrapSpanLines(highlightCode(block.lang, block.text, fg), cl.contentWidth()) {
-				lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
+		switch block.kind {
+		case blockKindCode:
+			bgCodeBlock := "\x1b[48;2;24;22;30m"
+			langLabel := block.lang
+			if langLabel == "" {
+				langLabel = "code"
 			}
-			continue
-		}
+			headerText := "╭─ " + langLabel + " ─"
+			headerSpans := []textSpan{{text: headerText, fg: fgCodeFence}}
+			lines = append(lines, renderLine{kind: lineKindContent, spans: headerSpans, contentFg: fgCodeFence, contentBg: bgCodeBlock})
 
-		lines = append(lines, cl.buildMarkdownLines(block.text, fg, bg)...)
+			for _, spans := range wrapSpanLines(highlightCode(block.lang, block.text, fg), cl.contentWidth()) {
+				lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bgCodeBlock})
+			}
+
+			footerSpans := []textSpan{{text: "╰" + strings.Repeat("─", 20), fg: fgCodeFence}}
+			lines = append(lines, renderLine{kind: lineKindContent, spans: footerSpans, contentFg: fgCodeFence, contentBg: bgCodeBlock})
+
+		case blockKindToolCall:
+			displayText := truncateToolSummary(toolCallSummary(block.toolName, block.text), cl.contentWidth()-4)
+
+			spans := []textSpan{
+				{text: "◆ ", fg: fgToolIndicator},
+				{text: displayText, fg: fgToolCall},
+			}
+			lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fgToolCall, contentBg: bg})
+
+		case blockKindToolOutput:
+			outputCompact := compactToOneLine(block.text)
+			displayText := truncateToolSummary("response: "+outputCompact, cl.contentWidth()-4)
+
+			spans := []textSpan{
+				{text: "◇ ", fg: fgToolIndicator},
+				{text: displayText, fg: fgToolOutput},
+			}
+			lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fgToolOutput, contentBg: bg})
+
+		case blockKindText:
+			lines = append(lines, cl.buildMarkdownLines(block.text, fg, bg)...)
+		}
 	}
 
 	return lines
@@ -484,8 +520,9 @@ func (cl *ChatLog) contentWidth() int {
 func (cl *ChatLog) buildMarkdownLines(content, fg, bg string) []renderLine {
 	var lines []renderLine
 	inThinking := false
-	for _, para := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(para)
+	paras := strings.Split(content, "\n")
+	for i := 0; i < len(paras); i++ {
+		trimmed := strings.TrimSpace(paras[i])
 		if trimmed == "" {
 			continue
 		}
@@ -498,10 +535,34 @@ func (cl *ChatLog) buildMarkdownLines(content, fg, bg string) []renderLine {
 					if len(spans) == 0 || spanTextEmpty(spans) {
 						continue
 					}
-					lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
+					lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg, accentFg: fgThinking})
 				}
 			}
 			continue
+		}
+
+		if !inThinking && isTableRow(trimmed) {
+			var rawRows []string
+			var parsedRows [][]string
+			j := i
+			for j < len(paras) {
+				rowTrimmed := strings.TrimSpace(paras[j])
+				if rowTrimmed == "" {
+					break
+				}
+				if isTableRow(rowTrimmed) {
+					rawRows = append(rawRows, rowTrimmed)
+					parsedRows = append(parsedRows, parseTableCells(rowTrimmed))
+					j++
+				} else {
+					break
+				}
+			}
+			if len(parsedRows) >= 2 {
+				lines = append(lines, cl.buildTableLines(rawRows, parsedRows, fg, bg)...)
+				i = j - 1
+				continue
+			}
 		}
 
 		if heading, ok := parseHeading(trimmed); ok {
@@ -812,6 +873,230 @@ func parseListItem(line string) (marker, body string, ok bool) {
 	return line[:dot+1], strings.TrimSpace(line[dot+2:]), true
 }
 
+// ── Table rendering ───────────────────────────────────────────────────────────
+
+func isTableRow(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|")
+}
+
+func isTableSeparator(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "|") || !strings.HasSuffix(trimmed, "|") {
+		return false
+	}
+	inner := trimmed[1 : len(trimmed)-1]
+	for _, part := range strings.Split(inner, "|") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		for _, r := range part {
+			if r != '-' && r != ':' && r != ' ' {
+				return false
+			}
+		}
+	}
+	return strings.Contains(inner, "-")
+}
+
+func parseTableCells(line string) []string {
+	trimmed := strings.TrimSpace(line)
+	inner := trimmed[1 : len(trimmed)-1]
+	parts := strings.Split(inner, "|")
+	cells := make([]string, len(parts))
+	for i, p := range parts {
+		cells[i] = strings.TrimSpace(p)
+	}
+	return cells
+}
+
+func runeWidth(s string) int {
+	return len([]rune(s))
+}
+
+func spansWidth(spans []textSpan) int {
+	w := 0
+	for _, s := range spans {
+		w += len([]rune(s.text))
+	}
+	return w
+}
+
+func truncateSpans(spans []textSpan, maxWidth int, fg string) []textSpan {
+	width := spansWidth(spans)
+	if width <= maxWidth {
+		return spans
+	}
+	if maxWidth <= 0 {
+		return nil
+	}
+	if maxWidth <= 3 {
+		return []textSpan{{text: strings.Repeat(".", maxWidth), fg: fg}}
+	}
+
+	result := make([]textSpan, 0, len(spans))
+	remaining := maxWidth - 3
+	for _, s := range spans {
+		sw := len([]rune(s.text))
+		if sw <= remaining {
+			result = append(result, s)
+			remaining -= sw
+		} else {
+			runes := []rune(s.text)
+			if remaining > 0 {
+				result = append(result, textSpan{text: string(runes[:remaining]), fg: s.fg, decor: s.decor})
+			}
+			break
+		}
+	}
+	result = append(result, textSpan{text: "...", fg: fg})
+	return result
+}
+
+func scaleColumnWidths(maxWidths []int, available int) []int {
+	total := 0
+	for _, w := range maxWidths {
+		total += w
+	}
+	if total <= available {
+		return maxWidths
+	}
+
+	result := make([]int, len(maxWidths))
+	const minW = 3
+	if len(maxWidths)*minW > available {
+		for i := range result {
+			result[i] = minW
+		}
+		return result
+	}
+
+	extra := available - len(maxWidths)*minW
+	for i, w := range maxWidths {
+		if total > 0 {
+			result[i] = minW + int(float64(w)/float64(total)*float64(extra))
+		} else {
+			result[i] = minW
+		}
+	}
+
+	used := 0
+	for _, w := range result {
+		used += w
+	}
+	for used < available {
+		best := -1
+		bestDiff := -1
+		for i, w := range maxWidths {
+			diff := w - result[i]
+			if diff > bestDiff {
+				bestDiff = diff
+				best = i
+			}
+		}
+		if best == -1 || bestDiff <= 0 {
+			break
+		}
+		result[best]++
+		used++
+	}
+
+	return result
+}
+
+func (cl *ChatLog) buildTableLines(rawRows []string, parsedRows [][]string, fg, bg string) []renderLine {
+	width := cl.contentWidth()
+
+	cols := 0
+	for _, row := range parsedRows {
+		if len(row) > cols {
+			cols = len(row)
+		}
+	}
+	if cols == 0 {
+		return nil
+	}
+
+	overhead := (cols + 1) + 2*cols // pipes + spaces around cells
+	if width <= overhead {
+		return cl.buildTableLinesAsText(parsedRows, fg, bg)
+	}
+
+	isSep := make([]bool, len(rawRows))
+	for i, raw := range rawRows {
+		isSep[i] = isTableSeparator(raw)
+	}
+
+	maxWidths := make([]int, cols)
+	for i, row := range parsedRows {
+		if isSep[i] {
+			continue
+		}
+		for ci, cell := range row {
+			w := runeWidth(cell)
+			if w > maxWidths[ci] {
+				maxWidths[ci] = w
+			}
+		}
+	}
+
+	available := width - overhead
+	colWidths := scaleColumnWidths(maxWidths, available)
+
+	var lines []renderLine
+	pipeSpan := textSpan{text: "|", fg: fgCodeFence}
+	spaceSpan := textSpan{text: " ", fg: fg}
+
+	for ri, row := range parsedRows {
+		if isSep[ri] {
+			var spans []textSpan
+			spans = append(spans, pipeSpan)
+			for ci := 0; ci < cols; ci++ {
+				dashLen := colWidths[ci] + 2
+				spans = append(spans, textSpan{text: strings.Repeat("─", dashLen), fg: fgDimRule})
+				spans = append(spans, pipeSpan)
+			}
+			lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
+			continue
+		}
+
+		var spans []textSpan
+		spans = append(spans, pipeSpan)
+		for ci := 0; ci < cols; ci++ {
+			cell := ""
+			if ci < len(row) {
+				cell = row[ci]
+			}
+			cellSpans := parseInlineMarkdown(cell, fg, "")
+			cellSpans = truncateSpans(cellSpans, colWidths[ci], fg)
+			pad := colWidths[ci] - spansWidth(cellSpans)
+
+			spans = append(spans, spaceSpan)
+			spans = append(spans, cellSpans...)
+			if pad > 0 {
+				spans = append(spans, textSpan{text: strings.Repeat(" ", pad), fg: fg})
+			}
+			spans = append(spans, spaceSpan)
+			spans = append(spans, pipeSpan)
+		}
+		lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
+	}
+
+	return lines
+}
+
+func (cl *ChatLog) buildTableLinesAsText(parsedRows [][]string, fg, bg string) []renderLine {
+	var lines []renderLine
+	for _, row := range parsedRows {
+		text := strings.Join(row, " | ")
+		for _, spans := range wrapInlineMarkdown(text, cl.contentWidth(), fg, "") {
+			lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fg, contentBg: bg})
+		}
+	}
+	return lines
+}
+
 func parseInlineMarkdown(text, fg, decor string) []textSpan {
 	var spans []textSpan
 	bold := false
@@ -907,35 +1192,79 @@ func (cl *ChatLog) clearRow(s *screen.Screen, y int, bg string) {
 
 // ── Markdown/code highlighting ───────────────────────────────────────────────
 
-type markdownBlock struct {
-	isCode bool
-	lang   string
-	text   string
+type blockKind int
+
+const (
+	blockKindText blockKind = iota
+	blockKindCode
+	blockKindToolCall
+	blockKindToolOutput
+)
+
+type chatBlock struct {
+	kind     blockKind
+	toolName string
+	lang     string
+	text     string
 }
 
-func parseMarkdownBlocks(content string) []markdownBlock {
-	var blocks []markdownBlock
-	var textLines []string
-	var codeLines []string
-	var codeLang string
+func parseChatBlocks(content string) []chatBlock {
+	var blocks []chatBlock
+	var currentText []string
+	var currentCode []string
+	var currentTool []string
+
 	inCode := false
+	inToolCall := false
+	inToolOutput := false
+	toolName := ""
+	codeLang := ""
 
 	flushText := func() {
-		if len(textLines) == 0 {
+		if len(currentText) == 0 {
 			return
 		}
-		blocks = append(blocks, markdownBlock{text: strings.Join(textLines, "\n")})
-		textLines = nil
+		blocks = append(blocks, chatBlock{
+			kind: blockKindText,
+			text: strings.Join(currentText, "\n"),
+		})
+		currentText = nil
 	}
+
 	flushCode := func() {
-		blocks = append(blocks, markdownBlock{isCode: true, lang: codeLang, text: strings.Join(codeLines, "\n")})
-		codeLines = nil
+		blocks = append(blocks, chatBlock{
+			kind: blockKindCode,
+			lang: codeLang,
+			text: strings.Join(currentCode, "\n"),
+		})
+		currentCode = nil
 		codeLang = ""
 	}
 
-	for _, line := range strings.Split(content, "\n") {
+	flushToolCall := func() {
+		blocks = append(blocks, chatBlock{
+			kind:     blockKindToolCall,
+			toolName: toolName,
+			text:     strings.Join(currentTool, "\n"),
+		})
+		currentTool = nil
+		toolName = ""
+	}
+
+	flushToolOutput := func() {
+		blocks = append(blocks, chatBlock{
+			kind: blockKindToolOutput,
+			text: strings.Join(currentTool, "\n"),
+		})
+		currentTool = nil
+	}
+
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
+
+		// 1. Code Block boundary
+		if strings.HasPrefix(trimmed, "```") && !inToolCall && !inToolOutput {
 			if inCode {
 				flushCode()
 				inCode = false
@@ -948,19 +1277,212 @@ func parseMarkdownBlocks(content string) []markdownBlock {
 		}
 
 		if inCode {
-			codeLines = append(codeLines, line)
-		} else {
-			textLines = append(textLines, line)
+			currentCode = append(currentCode, line)
+			continue
 		}
+
+		if name, input, ok := parsePlainToolCall(trimmed); ok {
+			flushText()
+			blocks = append(blocks, chatBlock{
+				kind:     blockKindToolCall,
+				toolName: name,
+				text:     input,
+			})
+			continue
+		}
+
+		// 2. Tool Call / Output boundary checks
+		if strings.Contains(trimmed, "<tool_call") {
+			flushText()
+
+			// Extract tool name if present: name="xyz" or name='xyz'
+			name := ""
+			if idx := strings.Index(trimmed, "name=\""); idx != -1 {
+				sub := trimmed[idx+6:]
+				if endIdx := strings.Index(sub, "\""); endIdx != -1 {
+					name = sub[:endIdx]
+				}
+			} else if idx := strings.Index(trimmed, "name='"); idx != -1 {
+				sub := trimmed[idx+6:]
+				if endIdx := strings.Index(sub, "'"); endIdx != -1 {
+					name = sub[:endIdx]
+				}
+			}
+
+			if strings.Contains(trimmed, "</tool_call>") {
+				contentInside := extractTagContent(trimmed, "<tool_call", "</tool_call>")
+				blocks = append(blocks, chatBlock{
+					kind:     blockKindToolCall,
+					toolName: name,
+					text:     contentInside,
+				})
+			} else {
+				inToolCall = true
+				toolName = name
+				if tagEnd := strings.Index(line, ">"); tagEnd != -1 && tagEnd+1 < len(line) {
+					rem := strings.TrimSpace(line[tagEnd+1:])
+					if rem != "" {
+						currentTool = append(currentTool, rem)
+					}
+				}
+			}
+			continue
+		}
+
+		if inToolCall {
+			if strings.Contains(trimmed, "</tool_call>") {
+				if idx := strings.Index(line, "</tool_call>"); idx != -1 {
+					before := strings.TrimSpace(line[:idx])
+					if before != "" {
+						currentTool = append(currentTool, before)
+					}
+				}
+				flushToolCall()
+				inToolCall = false
+			} else {
+				currentTool = append(currentTool, line)
+			}
+			continue
+		}
+
+		isOutputStart := strings.Contains(trimmed, "<tool_output") || strings.Contains(trimmed, "<tool_response")
+		if isOutputStart {
+			flushText()
+
+			closingTag := "</tool_output>"
+			if strings.Contains(trimmed, "<tool_response") {
+				closingTag = "</tool_response>"
+			}
+
+			if strings.Contains(trimmed, closingTag) {
+				contentInside := extractTagContent(trimmed, "<tool_output", closingTag)
+				if contentInside == "" && closingTag == "</tool_response>" {
+					contentInside = extractTagContent(trimmed, "<tool_response", closingTag)
+				}
+				blocks = append(blocks, chatBlock{
+					kind: blockKindToolOutput,
+					text: contentInside,
+				})
+			} else {
+				inToolOutput = true
+				if tagEnd := strings.Index(line, ">"); tagEnd != -1 && tagEnd+1 < len(line) {
+					rem := strings.TrimSpace(line[tagEnd+1:])
+					if rem != "" {
+						currentTool = append(currentTool, rem)
+					}
+				}
+			}
+			continue
+		}
+
+		if inToolOutput {
+			hasClosingOutput := strings.Contains(trimmed, "</tool_output>")
+			hasClosingResponse := strings.Contains(trimmed, "</tool_response>")
+			if hasClosingOutput || hasClosingResponse {
+				closingTag := "</tool_output>"
+				if hasClosingResponse {
+					closingTag = "</tool_response>"
+				}
+				if idx := strings.Index(line, closingTag); idx != -1 {
+					before := strings.TrimSpace(line[:idx])
+					if before != "" {
+						currentTool = append(currentTool, before)
+					}
+				}
+				flushToolOutput()
+				inToolOutput = false
+			} else {
+				currentTool = append(currentTool, line)
+			}
+			continue
+		}
+
+		// 3. Normal text line
+		currentText = append(currentText, line)
 	}
 
 	if inCode {
 		flushCode()
+	} else if inToolCall {
+		flushToolCall()
+	} else if inToolOutput {
+		flushToolOutput()
 	} else {
 		flushText()
 	}
 
 	return blocks
+}
+
+func extractTagContent(s, tagOpen, tagClose string) string {
+	idxOpen := strings.Index(s, tagOpen)
+	if idxOpen == -1 {
+		return ""
+	}
+	sub := s[idxOpen:]
+	idxEndOpen := strings.Index(sub, ">")
+	if idxEndOpen == -1 {
+		return ""
+	}
+	start := idxOpen + idxEndOpen + 1
+
+	idxClose := strings.Index(s, tagClose)
+	if idxClose == -1 || idxClose <= start {
+		return strings.TrimSpace(s[start:])
+	}
+	return strings.TrimSpace(s[start:idxClose])
+}
+
+func compactToOneLine(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\t", " ")
+	words := strings.Fields(s)
+	return strings.Join(words, " ")
+}
+
+func parsePlainToolCall(line string) (name, input string, ok bool) {
+	const prefix = "Called the "
+	const marker = " tool with the following input:"
+	if !strings.HasPrefix(line, prefix) {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(line, prefix)
+	idx := strings.Index(rest, marker)
+	if idx == -1 {
+		return "", "", false
+	}
+	name = strings.TrimSpace(rest[:idx])
+	input = strings.TrimSpace(rest[idx+len(marker):])
+	if name == "" {
+		return "", "", false
+	}
+	return name, input, true
+}
+
+func toolCallSummary(name, input string) string {
+	if name == "" {
+		name = "tool"
+	}
+	input = compactToOneLine(input)
+	if input == "" {
+		return "Called " + name
+	}
+	return "Called " + name + " with " + input
+}
+
+func truncateToolSummary(s string, max int) string {
+	if max <= 0 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	if max <= 3 {
+		return string(runes[:max])
+	}
+	return string(runes[:max-3]) + "..."
 }
 
 func highlightCode(lang, code, fallbackFg string) [][]textSpan {
