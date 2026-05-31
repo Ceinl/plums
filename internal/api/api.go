@@ -5,13 +5,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/app"
 	"github.com/Ceinl/plums/internal/core"
+	"github.com/Ceinl/plums/internal/core/adapter"
+	"github.com/Ceinl/plums/internal/core/provider/codex"
+	"github.com/Ceinl/plums/internal/core/provider/opencode"
 	"github.com/Ceinl/plums/internal/debuglog"
 	"github.com/Ceinl/plums/internal/keyboard"
-	"github.com/Ceinl/plums/internal/core/provider/opencode"
 	"github.com/Ceinl/plums/internal/ui"
 )
 
@@ -22,6 +24,7 @@ type Config struct {
 	BuildDate string
 
 	OpencodeServerURL string
+	BackendProvider   string
 	ClipboardCommand  string
 
 	UseGlobalConfig bool
@@ -39,6 +42,7 @@ func DefaultConfig() *Config {
 		Commit:            "unknown",
 		BuildDate:         "unknown",
 		OpencodeServerURL: defs.DefaultBaseURL,
+		BackendProvider:   "opencode",
 		ClipboardCommand:  defs.ClipboardCommand,
 	}
 }
@@ -46,6 +50,7 @@ func DefaultConfig() *Config {
 // RegisterFlags binds CLI flags to the supplied Config.
 func RegisterFlags(cfg *Config) {
 	flag.StringVar(&cfg.OpencodeServerURL, "server-url", cfg.OpencodeServerURL, "opencode server URL")
+	flag.StringVar(&cfg.BackendProvider, "provider", cfg.BackendProvider, "backend provider: opencode or codex")
 	flag.BoolVar(&cfg.UseGlobalConfig, "config-global", false, "use global plums layout config")
 	flag.BoolVar(&cfg.UseGlobalConfig, "cg", false, "use global plums layout config")
 	flag.BoolVar(&cfg.UseLocalConfig, "config-local", false, "use local plums layout config")
@@ -131,14 +136,21 @@ func Run(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to load opencode server URL: %w", err)
 	}
+	backendProvider, err := app.LoadBackendProvider(opencodeConfigPath, cfg.BackendProvider)
+	if err != nil {
+		return fmt.Errorf("failed to load backend provider: %w", err)
+	}
 	debuglog.Printf("config: opencode server URL %s", serverURL)
-	backend := opencode.NewBackend(serverURL)
+	debuglog.Printf("config: backend provider %s", backendProvider)
+	opencodeBackend := opencode.NewBackend(serverURL)
+	codexBackend := codex.NewBackend()
 
 	registry := core.NewAgentRegistry()
 	defs := adapter.NewDefaultConfig()
 
 	runCfg := app.RunConfig{
 		OpencodeServerURL:    serverURL,
+		BackendProvider:      backendProvider,
 		ClipboardCommand:     cfg.ClipboardCommand,
 		SpinnerInterval:      defs.SpinnerInterval,
 		HealthTimeout:        defs.HealthTimeout,
@@ -151,52 +163,12 @@ func Run(cfg *Config) error {
 	deps := app.Deps{
 		Terminal:      t,
 		Keyboard:      keys,
-		Backend:       backend,
 		RenderConfig:  renderConfig,
 		CommandConfig: commandConfig,
 		Registry:      registry,
-		Startup: func(startCtx context.Context, b adapter.Backend, out chan<- app.StartupResult) {
-			var serverProc *opencode.ServerProcess
-			debuglog.Printf("startup: checking opencode health")
-			if err := b.Health(startCtx); err != nil {
-				debuglog.Printf("startup: health check failed: %v", err)
-				proc, err := opencode.StartServer(startCtx, b.BaseURL(), wd)
-				if err != nil {
-					debuglog.Printf("startup: start server failed: %v", err)
-					out <- app.StartupResult{Err: fmt.Errorf("failed to start opencode server: %w", err)}
-					return
-				}
-				serverProc = proc
-				debuglog.Printf("startup: started opencode server process")
-				if err := opencode.WaitForHealthOrExit(startCtx, b, serverProc, runCfg.HealthTimeout); err != nil {
-					debuglog.Printf("startup: wait for health failed: %v", err)
-					serverProc.Stop()
-					out <- app.StartupResult{Err: fmt.Errorf("failed to start opencode server: %w", err)}
-					return
-				}
-			} else {
-				debuglog.Printf("startup: existing opencode server is healthy")
-			}
-
-			debuglog.Printf("startup: creating session")
-			session, err := b.CreateSession(startCtx, wd)
-			if err != nil {
-				debuglog.Printf("startup: create session failed: %v", err)
-				if serverProc != nil {
-					serverProc.Stop()
-				}
-				out <- app.StartupResult{Err: fmt.Errorf("failed to create session: %w", err)}
-				return
-			}
-			if session.Directory != "" && session.Directory != wd {
-				if serverProc != nil {
-					serverProc.Stop()
-				}
-				out <- app.StartupResult{Err: fmt.Errorf("opencode session directory is %q, expected %q; stop the existing opencode server or configure plums to use a different port", session.Directory, wd)}
-				return
-			}
-			debuglog.Printf("startup: session ready: %s", session.ID)
-			out <- app.StartupResult{Session: session, Server: serverProc}
+		Backends: []app.BackendRuntime{
+			{ID: "opencode", Name: "Opencode", Backend: opencodeBackend, Startup: opencodeStartup(wd, runCfg.HealthTimeout)},
+			{ID: "codex", Name: "Codex", Backend: codexBackend, Startup: codexStartup(wd, codexBackend)},
 		},
 	}
 
@@ -205,4 +177,72 @@ func Run(cfg *Config) error {
 		server.Stop()
 	}
 	return err
+}
+
+func opencodeStartup(wd string, healthTimeout time.Duration) func(context.Context, adapter.Backend, chan<- app.StartupResult) {
+	return func(startCtx context.Context, b adapter.Backend, out chan<- app.StartupResult) {
+		var serverProc *opencode.ServerProcess
+		debuglog.Printf("startup: checking opencode health")
+		if err := b.Health(startCtx); err != nil {
+			debuglog.Printf("startup: health check failed: %v", err)
+			proc, err := opencode.StartServer(startCtx, b.BaseURL(), wd)
+			if err != nil {
+				debuglog.Printf("startup: start server failed: %v", err)
+				out <- app.StartupResult{Err: fmt.Errorf("failed to start opencode server: %w", err)}
+				return
+			}
+			serverProc = proc
+			debuglog.Printf("startup: started opencode server process")
+			if err := opencode.WaitForHealthOrExit(startCtx, b, serverProc, healthTimeout); err != nil {
+				debuglog.Printf("startup: wait for health failed: %v", err)
+				serverProc.Stop()
+				out <- app.StartupResult{Err: fmt.Errorf("failed to start opencode server: %w", err)}
+				return
+			}
+		} else {
+			debuglog.Printf("startup: existing opencode server is healthy")
+		}
+
+		debuglog.Printf("startup: creating opencode session")
+		session, err := b.CreateSession(startCtx, wd)
+		if err != nil {
+			debuglog.Printf("startup: create session failed: %v", err)
+			if serverProc != nil {
+				serverProc.Stop()
+			}
+			out <- app.StartupResult{Err: fmt.Errorf("failed to create session: %w", err)}
+			return
+		}
+		if session.Directory != "" && session.Directory != wd {
+			if serverProc != nil {
+				serverProc.Stop()
+			}
+			out <- app.StartupResult{Err: fmt.Errorf("opencode session directory is %q, expected %q; stop the existing opencode server or configure plums to use a different port", session.Directory, wd)}
+			return
+		}
+		debuglog.Printf("startup: opencode session ready: %s", session.ID)
+		out <- app.StartupResult{Session: session, Server: serverProc}
+	}
+}
+
+func codexStartup(wd string, backend adapter.Backend) func(context.Context, adapter.Backend, chan<- app.StartupResult) {
+	return func(startCtx context.Context, b adapter.Backend, out chan<- app.StartupResult) {
+		debuglog.Printf("startup: creating codex session")
+		session, err := b.CreateSession(startCtx, wd)
+		if err != nil {
+			out <- app.StartupResult{Err: fmt.Errorf("failed to create codex session: %w", err)}
+			return
+		}
+		client, ok := b.(interface {
+			ServerProcess() interface {
+				Stop()
+				Done() <-chan struct{}
+			}
+		})
+		if !ok {
+			out <- app.StartupResult{Err: fmt.Errorf("codex backend does not expose ServerProcess")}
+			return
+		}
+		out <- app.StartupResult{Session: session, Server: client.ServerProcess()}
+	}
 }

@@ -1,6 +1,10 @@
 default_layout = "split"
 hide_thinking = true
 
+# Backend provider: "opencode" or "codex".
+[backend]
+provider = "opencode"
+
 # Opencode server URL. When omitted, plums picks a port automatically from
 # your project directory so different worktrees don't collide.
 # [opencode]

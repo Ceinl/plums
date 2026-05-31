@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/app/defaults"
+	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
 // InitGlobalConfig creates the default config files in ~/.config/plums/config.
@@ -129,6 +129,71 @@ func LoadOpencodeServerURL(path, fallback string) (string, error) {
 		return "", err
 	}
 	return fallback, nil
+}
+
+// LoadBackendProvider reads backend.provider from the TOML file at path. If the
+// file or key is missing, fallback is returned.
+func LoadBackendProvider(path, fallback string) (string, error) {
+	if fallback == "" {
+		fallback = "opencode"
+	}
+	fallback = strings.ToLower(strings.TrimSpace(fallback))
+	if !validBackendProvider(fallback) {
+		return "", fmt.Errorf("unsupported backend provider %q", fallback)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fallback, nil
+		}
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+
+	section := ""
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "["), "]"))
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(key) != "provider" || section != "backend" {
+			continue
+		}
+		provider, err := parseTomlString(value)
+		if err != nil {
+			return "", fmt.Errorf("%s backend.provider: %w", path, err)
+		}
+		provider = strings.ToLower(strings.TrimSpace(provider))
+		if provider == "" {
+			return "", fmt.Errorf("%s backend.provider is empty", path)
+		}
+		if !validBackendProvider(provider) {
+			return "", fmt.Errorf("%s backend.provider %q is unsupported", path, provider)
+		}
+		return provider, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return fallback, nil
+}
+
+func validBackendProvider(provider string) bool {
+	switch provider {
+	case "opencode", "codex":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseTomlString(value string) (string, error) {

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/app/defaults"
+	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
 func TestLoadOpencodeServerURLFromConfig(t *testing.T) {
@@ -31,6 +31,48 @@ func TestLoadOpencodeServerURLDefault(t *testing.T) {
 	}
 	if got != adapter.DefaultBaseURL {
 		t.Fatalf("expected default URL, got %q", got)
+	}
+}
+
+func TestLoadBackendProviderFromConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[backend]\nprovider = \"codex\"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	got, err := LoadBackendProvider(path, "opencode")
+	if err != nil {
+		t.Fatalf("load backend provider: %v", err)
+	}
+	if got != "codex" {
+		t.Fatalf("expected codex, got %q", got)
+	}
+}
+
+func TestLoadBackendProviderDefault(t *testing.T) {
+	got, err := LoadBackendProvider(filepath.Join(t.TempDir(), "missing.toml"), "opencode")
+	if err != nil {
+		t.Fatalf("load missing config: %v", err)
+	}
+	if got != "opencode" {
+		t.Fatalf("expected opencode, got %q", got)
+	}
+}
+
+func TestLoadBackendProviderRejectsUnknownProvider(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[backend]\nprovider = \"codez\"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := LoadBackendProvider(path, "opencode"); err == nil {
+		t.Fatalf("expected unsupported provider error")
+	}
+}
+
+func TestLoadBackendProviderRejectsUnknownFallback(t *testing.T) {
+	if _, err := LoadBackendProvider(filepath.Join(t.TempDir(), "missing.toml"), "codez"); err == nil {
+		t.Fatalf("expected unsupported fallback error")
 	}
 }
 
