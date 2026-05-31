@@ -47,6 +47,11 @@
         }
       },
       {
+        "title": "Layouts",
+        "detail": "Select layout - current: {layout}",
+        "action": "switch_layout"
+      },
+      {
         "title": "Thinking visibility",
         "detail": "Current: {thinking_visibility} (cycles full/title/hidden)",
         "action": "cycle_thinking_visibility"
@@ -79,6 +84,9 @@
       "kind": "builtin"
     },
     "switch_mode": {
+      "kind": "builtin"
+    },
+    "switch_layout": {
       "kind": "builtin"
     },
     "cycle_thinking_visibility": {

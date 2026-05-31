@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
+
 	"github.com/Ceinl/plums/internal/ui/tui/components"
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
-	"strconv"
-	"strings"
 )
 
 var scr *screen.Screen
@@ -155,11 +156,65 @@ func newInfoTabs(state *State) *components.Div {
 	return div
 }
 
+func newSessions(state *State, orientation components.SessionsOrientation) *components.Sessions {
+	sessions := state.Sessions()
+	sessions.SetOrientation(orientation)
+	items := make([]components.SessionItem, 0, len(state.SessionItems)+1)
+	foundCurrent := false
+	for _, item := range state.SessionItems {
+		current := item.Current || item.ID == state.SessionID
+		if current {
+			foundCurrent = true
+		}
+		items = append(items, components.SessionItem{ID: item.ID, Title: item.Title, Current: current})
+	}
+	if !foundCurrent && (state.SessionID != "" || state.SessionTitle != "") {
+		items = append([]components.SessionItem{{ID: state.SessionID, Title: state.SessionTitle, Current: true}}, items...)
+	}
+	sessions.SetItems(items)
+	return sessions
+}
+
 func newInfoView(state *State) layout.Component {
 	if state.InfoView == InfoViewGitDiff {
 		return newGitDiffLog(state)
 	}
 	return newChatLog(state)
+}
+
+func newFullscreenView(state *State) layout.Component {
+	if state.FullscreenTab == FullscreenTabEditor {
+		div := newEditorDiv(
+			state.Editor,
+			layout.Unit{Type: layout.UnitPercent, Value: 100},
+			layout.Unit{Type: layout.UnitPercent, Value: 100},
+		)
+		div.SetPadding(layout.Padding{
+			Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+			Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+			Top:    layout.Unit{Type: layout.UnitPx, Value: 3},
+			Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
+		})
+		return div
+	}
+
+	outputDiv := newOutput()
+	outputDiv.SetSize(
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+	)
+	outputDiv.SetPadding(layout.Padding{
+		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+		Top:    layout.Unit{Type: layout.UnitPx, Value: 3},
+		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
+	})
+	if state.FullscreenOutputView() == InfoViewGitDiff {
+		outputDiv.AppendChild(newGitDiffLog(state))
+	} else {
+		outputDiv.AppendChild(newChatLog(state))
+	}
+	return outputDiv
 }
 
 func newHorizontalRule(state *State) *components.Div {
@@ -230,6 +285,18 @@ func newEditorDiv(ed *components.Editor, w, h layout.Unit) *components.Div {
 	return div
 }
 
+func newInputBoxDiv(ed *components.Editor, w, h layout.Unit) *components.Div {
+	div := components.NewDiv()
+	div.SetSize(w, h)
+
+	style := layout.Style{}
+	style.SetBackground(15, 18, 16)
+	style.SetForeground(220, 228, 216)
+	div.SetStyle(style)
+	div.AppendChild(components.NewInputBox(ed))
+	return div
+}
+
 func newPalettePanel(state *State, w, h layout.Unit) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(w, h)
@@ -272,6 +339,7 @@ func Render(state *State, cfg *RenderConfig) {
 
 	root.Layout(0, 0, state.width, state.height)
 	root.Render(scr)
+	renderFullscreenTabs(state)
 	renderEditorDropdown(state, cfg)
 	if overlayEnabled(state, cfg, "command_palette_popup") {
 		popup := components.NewPopup()
@@ -286,9 +354,136 @@ func Render(state *State, cfg *RenderConfig) {
 	if state.PopupOpen {
 		return
 	}
+	if !state.FullscreenShowsEditor() {
+		return
+	}
 	cx, cy := state.Editor.CursorScreenPos()
 	scr.SetCursor(cx, cy)
 	scr.ShowCursor()
+}
+
+func renderFullscreenTabs(state *State) {
+	if state.EffectiveLayout() != LayoutFullscreen || state.width < 20 || state.height < 1 {
+		return
+	}
+
+	y := 0
+	if state.height > 2 {
+		y = 1
+	}
+
+	bg := ansiBg(24, 22, 31)
+	fg := ansiFg(145, 140, 160)
+	activeBg := ansiBg(150, 58, 80)
+	activeFg := ansiFg(255, 245, 248)
+	sideFg := ansiFg(185, 180, 200)
+
+	for col := 0; col < state.width; col++ {
+		scr.Set(col, y, ' ', fg, bg, "")
+	}
+
+	tabs := []struct {
+		label string
+		tab   FullscreenTab
+	}{
+		{"editor", FullscreenTabEditor},
+		{"output", FullscreenTabOutput},
+		{"diff", FullscreenTabDiff},
+	}
+	labels := make([]string, len(tabs))
+	totalW := 0
+	for i, tab := range tabs {
+		labels[i] = " " + tab.label + " "
+		totalW += len(labels[i])
+	}
+	totalW += len(tabs) - 1
+	tabsX := (state.width - totalW) / 2
+	if tabsX < 0 {
+		tabsX = 0
+	}
+	tabsEnd := tabsX + totalW
+
+	drawText := func(x int, text string, fgColor, bgColor string) {
+		for _, r := range text {
+			if x < 0 {
+				x++
+				continue
+			}
+			if x >= state.width {
+				return
+			}
+			scr.Set(x, y, r, fgColor, bgColor, "")
+			x++
+		}
+	}
+
+	x := tabsX
+	writeTab := func(text string, fgColor, bgColor string) {
+		for _, r := range text {
+			if x >= state.width {
+				return
+			}
+			scr.Set(x, y, r, fgColor, bgColor, "")
+			x++
+		}
+	}
+
+	left := truncateRunes(fullscreenModelLabel(state), tabsX-3)
+	if left != "" {
+		drawText(2, left, sideFg, bg)
+	}
+
+	right := fullscreenSessionLabel(state)
+	rightMax := state.width - tabsEnd - 3
+	right = truncateRunes(right, rightMax)
+	if right != "" {
+		drawText(state.width-2-len([]rune(right)), right, sideFg, bg)
+	}
+
+	for i, tab := range tabs {
+		if i > 0 {
+			writeTab(" ", fg, bg)
+		}
+		if state.FullscreenTab == tab.tab {
+			writeTab(labels[i], activeFg, activeBg)
+		} else {
+			writeTab(labels[i], fg, bg)
+		}
+	}
+}
+
+func fullscreenModelLabel(state *State) string {
+	if state.ModelProvider != "" && state.ModelID != "" {
+		return state.ModelProvider + "/" + state.ModelID
+	}
+	if state.ModelID != "" {
+		return state.ModelID
+	}
+	return "no model"
+}
+
+func fullscreenSessionLabel(state *State) string {
+	if state.SessionTitle != "" {
+		return state.SessionTitle
+	}
+	if state.SessionID != "" {
+		return state.SessionID
+	}
+	return "no session"
+}
+
+func truncateRunes(value string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= max {
+		return value
+	}
+	if max <= 1 {
+		return string(runes[:max])
+	}
+	return string(runes[:max-1]) + "~"
 }
 
 func layoutName(t LayoutType) string {
@@ -297,6 +492,8 @@ func layoutName(t LayoutType) string {
 		return "default"
 	case LayoutSplit:
 		return "split"
+	case LayoutSessions:
+		return "sessions"
 	case LayoutFullscreen:
 		return "fullscreen"
 	default:
@@ -308,12 +505,15 @@ func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {
 	if cfg == nil {
 		return nil
 	}
-	layouts := make([]LayoutType, 0, 3)
+	layouts := make([]LayoutType, 0, 4)
 	if _, ok := cfg.Layouts["default"]; ok {
 		layouts = append(layouts, LayoutDefault)
 	}
 	if _, ok := cfg.Layouts["split"]; ok {
 		layouts = append(layouts, LayoutSplit)
+	}
+	if _, ok := cfg.Layouts["sessions"]; ok {
+		layouts = append(layouts, LayoutSessions)
 	}
 	if _, ok := cfg.Layouts["fullscreen"]; ok {
 		layouts = append(layouts, LayoutFullscreen)
@@ -577,6 +777,8 @@ func buildComponent(state *State, node LayoutNode) (layout.Component, error) {
 		return sep, nil
 	case "editor", "editor_or_palette":
 		return state.Editor, nil
+	case "input_box", "text_box":
+		return components.NewInputBox(state.Editor), nil
 	case "command_palette_panel":
 		popup := components.NewPopup()
 		popup.SetPanel(true)
@@ -591,11 +793,17 @@ func buildComponent(state *State, node LayoutNode) (layout.Component, error) {
 			{Label: "Git diff", Active: state.InfoView == InfoViewGitDiff},
 		})
 		return tabs, nil
+	case "sessions", "sessions_vertical":
+		return newSessions(state, components.SessionsVertical), nil
+	case "sessions_horizontal":
+		return newSessions(state, components.SessionsHorizontal), nil
 	case "info_view":
 		if state.InfoView == InfoViewGitDiff && node.Variants["git_diff"] == "git_diff_log" {
 			return newGitDiffLog(state), nil
 		}
 		return newChatLog(state), nil
+	case "fullscreen_view":
+		return newFullscreenView(state), nil
 	case "split_status_bar":
 		bar := components.NewStatusBar()
 		bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
@@ -775,6 +983,56 @@ func CreateSplitLayout(state *State) *components.Div {
 	return root
 }
 
+func CreateSessionsLayout(state *State) *components.Div {
+	if state.width < MinSplitLayoutWidth {
+		return CreateNarrowSessionsLayout(state)
+	}
+
+	leftDiv := components.NewDiv()
+	leftDiv.SetSize(
+		layout.Unit{Type: layout.UnitPercent, Value: 15},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+	)
+	leftDiv.AppendChild(newSessions(state, components.SessionsVertical))
+
+	sep := newVerticalSeparator()
+	statusSep := components.NewSeparator()
+	sep.AppendChild(statusSep)
+
+	rightDiv := newOutput()
+	rightDiv.SetSize(
+		layout.Unit{Type: layout.UnitGrow, Value: 1},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+	)
+	rightDiv.SetPadding(layout.Padding{})
+
+	chatDiv := newOutput()
+	chatDiv.SetSize(
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitGrow, Value: 1},
+	)
+	chatDiv.AppendChild(newChatLog(state))
+
+	inputDiv := newInputBoxDiv(
+		state.Editor,
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 10},
+	)
+	rightDiv.AppendChild(chatDiv)
+	rightDiv.AppendChild(inputDiv)
+
+	root := components.NewDiv()
+	root.SetSize(
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+	)
+	root.SetDirection(layout.Row)
+	root.AppendChild(leftDiv)
+	root.AppendChild(sep)
+	root.AppendChild(rightDiv)
+	return root
+}
+
 func CreateNarrowSplitLayout(state *State) *components.Div {
 	outputDiv := newOutput()
 	outputDiv.SetSize(
@@ -808,19 +1066,50 @@ func CreateNarrowSplitLayout(state *State) *components.Div {
 	return root
 }
 
-func CreateFullscreenLayout(state *State) *components.Div {
-	div := newEditorDiv(
+func CreateNarrowSessionsLayout(state *State) *components.Div {
+	sessionsDiv := components.NewDiv()
+	sessionsDiv.SetSize(
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPx, Value: 3},
+	)
+	sessionsDiv.AppendChild(newSessions(state, components.SessionsHorizontal))
+
+	outputDiv := newOutput()
+	outputDiv.SetSize(
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitGrow, Value: 1},
+	)
+	outputDiv.AppendChild(newChatLog(state))
+
+	sepDiv := newHorizontalRule(state)
+
+	inputDiv := newInputBoxDiv(
 		state.Editor,
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 10},
+	)
+	inputDiv.SetPadding(layout.Padding{
+		Left:  layout.Unit{Type: layout.UnitPx, Value: 2},
+		Right: layout.Unit{Type: layout.UnitPx, Value: 2},
+	})
+
+	root := components.NewDiv()
+	root.SetSize(
 		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitPercent, Value: 100},
 	)
-	div.SetPadding(layout.Padding{
-		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
-		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
-		Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
-		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
-	})
-	return div
+	root.AppendChild(sessionsDiv)
+	root.AppendChild(outputDiv)
+	root.AppendChild(sepDiv)
+	root.AppendChild(inputDiv)
+	return root
+}
+
+func CreateFullscreenLayout(state *State) *components.Div {
+	if div, ok := newFullscreenView(state).(*components.Div); ok {
+		return div
+	}
+	return CreateDefaultLayout(state)
 }
 
 const defaultLayoutJSON = `{
@@ -852,6 +1141,21 @@ const defaultLayoutJSON = `{
       ],
       "fallback": "narrow_split"
     },
+    "sessions": {
+      "type": "div",
+      "size": { "width": "100%", "height": "100%" },
+      "direction": "row",
+      "min_width": "MinSplitLayoutWidth",
+      "children": [
+        { "component": "sessions", "size": { "width": "15%", "height": "100%" } },
+        { "component": "vertical_status_separator", "size": { "width": 1, "height": "100%" } },
+        { "type": "div", "size": { "width": "grow", "height": "100%" }, "direction": "column", "padding": { "top": 0, "right": 0, "bottom": 0, "left": 0 }, "style": { "background": [22, 20, 27] }, "children": [
+          { "component": "chat_output", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 0, "right": 2, "bottom": 0, "left": 2 }, "style": { "background": [22, 20, 27] } },
+          { "component": "input_box", "size": { "width": "100%", "height": "10%" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [15, 18, 16], "foreground": [220, 228, 216] } }
+        ] }
+      ],
+      "fallback": "narrow_sessions"
+    },
     "narrow_split": {
       "type": "div",
       "size": { "width": "100%", "height": "100%" },
@@ -862,7 +1166,18 @@ const defaultLayoutJSON = `{
         { "component": "editor", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [32, 30, 40], "foreground": [220, 218, 230] } }
       ]
     },
-    "fullscreen": { "component": "editor", "size": { "width": "100%", "height": "100%" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [32, 30, 40], "foreground": [220, 218, 230] } }
+    "narrow_sessions": {
+      "type": "div",
+      "size": { "width": "100%", "height": "100%" },
+      "direction": "column",
+      "children": [
+        { "component": "sessions_horizontal", "size": { "width": "100%", "height": 3 } },
+        { "component": "chat_output", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 0, "right": 2, "bottom": 0, "left": 2 }, "style": { "background": [22, 20, 27] } },
+        { "component": "status_separator", "size": { "width": "100%", "height": 1 } },
+        { "component": "input_box", "size": { "width": "100%", "height": "10%" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [15, 18, 16], "foreground": [220, 228, 216] } }
+      ]
+    },
+    "fullscreen": { "component": "fullscreen_view" }
   },
   "overlays": {
     "slash_command_dropdown": { "enabled_when": "!state.PopupOpen && len(state.SlashCommands()) > 0", "width": { "preferred": 44, "min": 20, "max": "state.width - 2" }, "style": { "background": [30, 27, 38], "foreground": [232, 229, 241], "muted": [159, 153, 176], "accent": [247, 184, 90] } },

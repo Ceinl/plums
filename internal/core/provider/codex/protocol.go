@@ -36,10 +36,21 @@ type AppServer struct {
 	listeners   map[string]chan CodexEvent
 	listenersMu sync.Mutex
 
+	inputMu      sync.Mutex
+	inputPending map[int64]json.RawMessage
+	inputEvents  chan UserInputEvent
+
 	done     chan struct{}
 	doneOnce sync.Once
 	stopOnce sync.Once
 	wg       sync.WaitGroup
+}
+
+// UserInputEvent is emitted when the app-server asks for user input via
+// item/tool/requestUserInput.
+type UserInputEvent struct {
+	ID     int64
+	Params json.RawMessage
 }
 
 type rpcMessage struct {
@@ -106,6 +117,7 @@ func NewAppServer(ctx context.Context, directory string) (*AppServer, error) {
 		scanner:   bufio.NewScanner(stdout),
 		pending:   make(map[int64]chan *rpcResponse),
 		listeners: make(map[string]chan CodexEvent),
+		inputEvents: make(chan UserInputEvent, 8),
 		done:      make(chan struct{}),
 	}
 	s.scanner.Buffer(make([]byte, 0, bufferSize), maxLineSize)
@@ -274,7 +286,17 @@ func (s *AppServer) handleServerRequest(id int64, method string, params json.Raw
 	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
 		_ = s.respond(id, map[string]string{"decision": "approve"})
 	case "item/tool/requestUserInput":
-		_ = s.respond(id, map[string]interface{}{"answers": map[string]interface{}{}})
+		// Defer the response until the user answers via ReplyUserInput.
+		s.inputMu.Lock()
+		if s.inputPending == nil {
+			s.inputPending = make(map[int64]json.RawMessage)
+		}
+		s.inputPending[id] = params
+		s.inputMu.Unlock()
+		select {
+		case s.inputEvents <- UserInputEvent{ID: id, Params: params}:
+		default:
+		}
 	default:
 		_ = s.respondError(id, -32601, "Method not found: "+method)
 	}
@@ -342,6 +364,26 @@ func (s *AppServer) Unsubscribe(threadID string) {
 	s.listenersMu.Unlock()
 }
 
+// InputEvents returns a channel that receives user-input requests from the
+// app-server. Only one caller should read from this channel at a time.
+func (s *AppServer) InputEvents() <-chan UserInputEvent {
+	return s.inputEvents
+}
+
+// ReplyUserInput sends the user's answer for a deferred item/tool/requestUserInput
+// request back to the app-server.
+func (s *AppServer) ReplyUserInput(id int64, answers interface{}) error {
+	s.inputMu.Lock()
+	_, ok := s.inputPending[id]
+	if !ok {
+		s.inputMu.Unlock()
+		return fmt.Errorf("input request %d not found", id)
+	}
+	delete(s.inputPending, id)
+	s.inputMu.Unlock()
+	return s.respond(id, map[string]interface{}{"answers": answers})
+}
+
 func (s *AppServer) closeAllListeners() {
 	s.listenersMu.Lock()
 	for id, ch := range s.listeners {
@@ -359,6 +401,9 @@ func (s *AppServer) Stop() {
 		if s.cmd.Process != nil {
 			_ = s.cmd.Process.Kill()
 		}
+		s.inputMu.Lock()
+		s.inputPending = nil
+		s.inputMu.Unlock()
 		s.wg.Wait()
 		debuglog.Printf("codex: app-server stopped")
 	})

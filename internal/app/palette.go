@@ -40,6 +40,15 @@ func handlePaletteAction(ctx context.Context, state *State, client adapter.Backe
 	case PaletteActionCycleThinkingVisibility:
 		state.CycleThinkingVisibility()
 		state.AddMessage("system", "thinking visibility: "+state.ThinkingVisibilityLabel())
+	case PaletteActionLayoutsList:
+		state.SetLayoutItems()
+	case PaletteActionSelectLayout:
+		layoutType, ok := state.SelectedLayout()
+		if !ok {
+			return
+		}
+		state.SetLayout(layoutType)
+		state.AddMessage("system", "layout: "+state.LayoutLabel())
 	case PaletteActionChangeModel:
 		providersCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
 		providers, connected, err := client.ListProviders(providersCtx)

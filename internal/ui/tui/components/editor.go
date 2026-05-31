@@ -58,6 +58,7 @@ type Editor struct {
 	cursorScreenX  int
 	cursorScreenY  int
 	mouseSelecting bool
+	inputBoxMode   bool
 }
 
 type editorSnapshot struct {
@@ -84,6 +85,7 @@ func (e *Editor) SetStyle(s layout.Style)      { e.style = s }
 
 func (e *Editor) Layout(x, y, w, h int) {
 	e.x, e.y, e.w, e.h = x, y, w, h
+	e.inputBoxMode = false
 }
 
 func (e *Editor) SetMultiline(v bool) {}
@@ -234,7 +236,11 @@ func (e *Editor) cursorPosForScreenPoint(x, y int) CursorPos {
 	}
 
 	vl := visLines[vlIdx]
-	col := vl.start + x - (e.x + 4)
+	contentX := e.x + 4
+	if e.inputBoxMode {
+		contentX = e.x + 1
+	}
+	col := vl.start + x - contentX
 	if col < vl.start {
 		col = vl.start
 	}

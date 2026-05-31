@@ -53,10 +53,38 @@ func TestParseShiftEnterCSIU(t *testing.T) {
 	}
 }
 
+func TestParseTabCSIU(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[9u")))
+	if ev.Type != KeyTab || ev.Shift || ev.Alt || ev.Ctrl {
+		t.Fatalf("expected Tab, got %#v", ev)
+	}
+}
+
+func TestParseShiftTabCSIU(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[9;2u")))
+	if ev.Type != KeyTab || !ev.Shift || ev.Alt || ev.Ctrl {
+		t.Fatalf("expected Shift+Tab, got %#v", ev)
+	}
+}
+
+func TestParseShiftTabCSI(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[Z")))
+	if ev.Type != KeyTab || !ev.Shift || ev.Alt || ev.Ctrl {
+		t.Fatalf("expected Shift+Tab, got %#v", ev)
+	}
+}
+
 func TestParseShiftEnterModifyOtherKeys(t *testing.T) {
 	ev := requireEvent(t, parseEvents([]byte("\x1b[27;2;13~")))
 	if ev.Type != KeyEnter || !ev.Shift || ev.Alt || ev.Ctrl {
 		t.Fatalf("expected Shift+Enter, got %#v", ev)
+	}
+}
+
+func TestParseShiftTabModifyOtherKeys(t *testing.T) {
+	ev := requireEvent(t, parseEvents([]byte("\x1b[27;2;9~")))
+	if ev.Type != KeyTab || !ev.Shift || ev.Alt || ev.Ctrl {
+		t.Fatalf("expected Shift+Tab, got %#v", ev)
 	}
 }
 
