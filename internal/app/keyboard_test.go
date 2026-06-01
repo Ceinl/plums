@@ -7,8 +7,37 @@ import (
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
 )
 
-func TestShiftEnterSubmitsInput(t *testing.T) {
+func TestPlainEnterSubmitsInputInChat(t *testing.T) {
 	state := NewState(80, 24)
+	state.Layout = LayoutChat
+	state.Editor.SetContent("send me")
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected handled submit without quit, handled=%v quit=%v", handled, quit)
+	}
+	if got := state.ConsumeSubmittedInput(); got != "send me" {
+		t.Fatalf("expected submitted input, got %q", got)
+	}
+}
+
+func TestShiftEnterInsertsNewlineInChat(t *testing.T) {
+	state := NewState(80, 24)
+	state.Layout = LayoutChat
+	state.Editor.SetContent("line")
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter, Shift: true}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected handled newline without quit, handled=%v quit=%v", handled, quit)
+	}
+	if got := state.Editor.GetContent(); got != "line\n" {
+		t.Fatalf("expected newline insertion, got %q", got)
+	}
+}
+
+func TestShiftEnterSubmitsInputInSplit(t *testing.T) {
+	state := NewState(80, 24)
+	state.Layout = LayoutSplit
 	state.Editor.SetContent("send me")
 
 	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter, Shift: true}, DefaultClipboardCommand())
@@ -20,8 +49,9 @@ func TestShiftEnterSubmitsInput(t *testing.T) {
 	}
 }
 
-func TestPlainEnterInsertsNewline(t *testing.T) {
+func TestPlainEnterInsertsNewlineInSplit(t *testing.T) {
 	state := NewState(80, 24)
+	state.Layout = LayoutSplit
 	state.Editor.SetContent("line")
 
 	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter}, DefaultClipboardCommand())
@@ -100,6 +130,92 @@ func TestCtrlZUndoesPastedTextAsOneChange(t *testing.T) {
 	}
 }
 
+func TestTabCyclesOutputPanelsNotLayout(t *testing.T) {
+	state := NewState(120, 40)
+	state.Layout = LayoutSplit
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyTab}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected Tab handled without quit, handled=%v quit=%v", handled, quit)
+	}
+	if state.Layout != LayoutSplit {
+		t.Fatalf("expected Tab to leave layout unchanged, got %v", state.Layout)
+	}
+	if state.InfoView != InfoViewGitDiff {
+		t.Fatalf("expected Tab to switch output panel, got %v", state.InfoView)
+	}
+}
+
+func TestFullscreenTabCyclesViews(t *testing.T) {
+	state := NewState(120, 40)
+	state.Layout = LayoutFullscreen
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyTab}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected Tab handled without quit, handled=%v quit=%v", handled, quit)
+	}
+	if state.Layout != LayoutFullscreen {
+		t.Fatalf("expected Tab to keep fullscreen layout, got %v", state.Layout)
+	}
+	if state.FullscreenTab != FullscreenTabOutput {
+		t.Fatalf("expected Tab to move to output tab, got %v", state.FullscreenTab)
+	}
+
+	handled, quit = HandleKey(state, keyboard.Event{Type: keyboard.KeyTab}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected second Tab handled without quit, handled=%v quit=%v", handled, quit)
+	}
+	if state.FullscreenTab != FullscreenTabDiff {
+		t.Fatalf("expected second Tab to move to diff tab, got %v", state.FullscreenTab)
+	}
+
+	handled, quit = HandleKey(state, keyboard.Event{Type: keyboard.KeyTab, Shift: true}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected Shift+Tab handled without quit, handled=%v quit=%v", handled, quit)
+	}
+	if state.FullscreenTab != FullscreenTabOutput {
+		t.Fatalf("expected Shift+Tab to move back to output tab, got %v", state.FullscreenTab)
+	}
+}
+
+func TestFullscreenTabAcceptsTabRune(t *testing.T) {
+	state := NewState(120, 40)
+	state.Layout = LayoutFullscreen
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyRune, Ch: '\t'}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected tab rune handled without quit, handled=%v quit=%v", handled, quit)
+	}
+	if state.FullscreenTab != FullscreenTabOutput {
+		t.Fatalf("expected tab rune to move to output tab, got %v", state.FullscreenTab)
+	}
+}
+
+func TestFullscreenTabAcceptsCtrlI(t *testing.T) {
+	state := NewState(120, 40)
+	state.Layout = LayoutFullscreen
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyRune, Ch: 'I', Ctrl: true}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected Ctrl+I handled without quit, handled=%v quit=%v", handled, quit)
+	}
+	if state.FullscreenTab != FullscreenTabOutput {
+		t.Fatalf("expected Ctrl+I to move to output tab, got %v", state.FullscreenTab)
+	}
+}
+
+func TestCtrlTDoesNotCycleOutputPanels(t *testing.T) {
+	state := NewState(120, 40)
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyRune, Ch: 't', Ctrl: true}, DefaultClipboardCommand())
+	if handled || quit {
+		t.Fatalf("expected Ctrl+T unhandled without quit, handled=%v quit=%v", handled, quit)
+	}
+	if state.InfoView != InfoViewAI {
+		t.Fatalf("expected Ctrl+T to leave output panel unchanged, got %v", state.InfoView)
+	}
+}
+
 func TestMouseDragCopiesOutputSelection(t *testing.T) {
 	state := NewState(80, 24)
 	state.Layout = LayoutDefault
@@ -118,9 +234,9 @@ func TestMouseDragCopiesOutputSelection(t *testing.T) {
 	t.Cleanup(func() { writeClipboard = oldWriteClipboard })
 
 	for _, ev := range []keyboard.Event{
-		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 1},
-		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 1},
-		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 1},
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 4},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 4},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 4},
 	} {
 		handled, quit := HandleKey(state, ev, DefaultClipboardCommand())
 		if !handled || quit {
@@ -150,9 +266,9 @@ func TestOutputMouseSelectionCopiesWhenReleasedOutsideOutput(t *testing.T) {
 	t.Cleanup(func() { writeClipboard = oldWriteClipboard })
 
 	for _, ev := range []keyboard.Event{
-		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 1},
-		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 20},
-		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 4},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 22},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 22},
 	} {
 		handled, quit := HandleKey(state, ev, DefaultClipboardCommand())
 		if !handled || quit {
@@ -174,9 +290,9 @@ func TestMouseDragSelectsEditorTextThroughKeyHandling(t *testing.T) {
 	root.Render(screen.NewScreen(80, 24))
 
 	for _, ev := range []keyboard.Event{
-		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 6, MouseY: 20},
-		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 11, MouseY: 20},
-		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 11, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 12, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 17, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 17, MouseY: 20},
 	} {
 		handled, quit := HandleKey(state, ev, DefaultClipboardCommand())
 		if !handled || quit {

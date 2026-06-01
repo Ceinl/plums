@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/Ceinl/plums/internal/core/adapter"
@@ -76,4 +77,32 @@ func refreshSessionModel(ctx context.Context, state *State, client adapter.Backe
 		return
 	}
 	applySession(state, session)
+}
+
+func ensureSession(ctx context.Context, state *State, client adapter.Backend, cfg RunConfig) error {
+	if state.SessionID != "" {
+		return nil
+	}
+	wd := cfg.WorkingDirectory
+	if wd == "" {
+		var err error
+		wd, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get working directory: %w", err)
+		}
+	}
+	sessionCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
+	defer cancel()
+	session, err := client.CreateSession(sessionCtx, wd)
+	if err != nil {
+		return fmt.Errorf("failed to create session: %w", err)
+	}
+	if session.Directory != "" && session.Directory != wd {
+		return fmt.Errorf("opencode session directory is %q, expected %q; stop the existing opencode server or configure plums to use a different port", session.Directory, wd)
+	}
+	applySession(state, session)
+	if session.Model == nil && state.ModelID == "" {
+		applyRecentModel(ctx, state, client, cfg)
+	}
+	return nil
 }

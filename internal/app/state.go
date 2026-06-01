@@ -26,6 +26,9 @@ const (
 	PaletteActionCycleThinkingVisibility
 	PaletteActionBackendList
 	PaletteActionSelectBackend
+	PaletteActionLayoutsList
+	PaletteActionSelectLayout
+	PaletteActionChatLayout
 )
 
 type PaletteView int
@@ -37,11 +40,14 @@ const (
 	PaletteViewSkills
 	PaletteViewQuestions
 	PaletteViewBackends
+	PaletteViewLayouts
 )
 
 type LayoutType int
 
 type InfoView int
+
+type FullscreenTab int
 
 const MinSplitLayoutWidth = 90
 
@@ -53,14 +59,23 @@ const (
 )
 
 const (
-	LayoutDefault LayoutType = iota
-	LayoutFullscreen
+	LayoutChat LayoutType = iota
 	LayoutSplit
+	LayoutFullscreen
 )
+
+const LayoutDefault = LayoutChat
 
 const (
 	InfoViewAI InfoView = iota
 	InfoViewGitDiff
+)
+
+const (
+	FullscreenTabEditor FullscreenTab = iota
+	FullscreenTabOutput
+	FullscreenTabDiff
+	fullscreenTabCount
 )
 
 type Message struct {
@@ -69,9 +84,11 @@ type Message struct {
 }
 
 type SessionListItem struct {
-	ID      string
-	Title   string
-	Current bool
+	ID        string
+	Title     string
+	Directory string
+	Updated   int64
+	Current   bool
 }
 
 type ModelListItem struct {
@@ -154,13 +171,15 @@ type State struct {
 	ModelProvider   string
 	ModelID         string
 	InfoView        InfoView
+	FullscreenTab   FullscreenTab
 	GitDiff         string
 	OutputPercent   int
 	submittedInput  string
 	commandConfig   *CommandConfig
 
-	chatLog *components.ChatLog
-	diffLog *components.DiffLog
+	chatLog  *components.ChatLog
+	diffLog  *components.DiffLog
+	sessions *components.Sessions
 
 	outputMouseSelecting bool
 }
@@ -181,7 +200,7 @@ func NewState(width int, height int) *State {
 }
 
 func defaultLayoutCycle() []LayoutType {
-	return []LayoutType{LayoutDefault, LayoutSplit, LayoutFullscreen}
+	return []LayoutType{LayoutChat, LayoutSplit, LayoutFullscreen}
 }
 
 func (s *State) SetAvailableLayouts(layouts []LayoutType) {
@@ -338,8 +357,10 @@ func (s *State) isEditorPoint(x, y int) bool {
 	}
 
 	switch s.EffectiveLayout() {
+	case LayoutChat:
+		return y >= s.height-3
 	case LayoutFullscreen:
-		return true
+		return s.FullscreenShowsEditor()
 	case LayoutSplit:
 		if s.width >= MinSplitLayoutWidth {
 			leftW := s.SplitLeftWidth()
@@ -347,8 +368,6 @@ func (s *State) isEditorPoint(x, y int) bool {
 		}
 		outputH := int(float64(s.height) * 0.5)
 		return y > outputH
-	case LayoutDefault:
-		return y >= s.height-5
 	default:
 		return false
 	}
@@ -405,6 +424,35 @@ func (s *State) CycleInfoView() {
 	}
 }
 
+func (s *State) CycleFullscreenTab(delta int) {
+	before := s.FullscreenTab
+	next := int(s.FullscreenTab) + delta
+	for next < 0 {
+		next += int(fullscreenTabCount)
+	}
+	s.FullscreenTab = FullscreenTab(next % int(fullscreenTabCount))
+	if s.FullscreenTab != before {
+		s.outputScroll = 0
+		s.invalidateOutputMax()
+		s.ChatLog().ClearSelection()
+		s.DiffLog().ClearSelection()
+	}
+	if s.FullscreenTab == FullscreenTabDiff {
+		s.RefreshGitDiff()
+	}
+}
+
+func (s *State) FullscreenShowsEditor() bool {
+	return s.EffectiveLayout() != LayoutFullscreen || s.FullscreenTab == FullscreenTabEditor
+}
+
+func (s *State) FullscreenOutputView() InfoView {
+	if s.FullscreenTab == FullscreenTabDiff {
+		return InfoViewGitDiff
+	}
+	return InfoViewAI
+}
+
 func (s *State) RefreshGitDiff() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -446,9 +494,16 @@ func (s *State) SwitchLayout() {
 		}
 	}
 	s.Layout = s.availableLayouts[next]
+	if s.Layout == LayoutFullscreen {
+		s.FullscreenTab = FullscreenTabEditor
+	}
 	s.invalidateOutputMax()
 	s.ChatLog().ClearSelection()
 	s.DiffLog().ClearSelection()
+}
+
+func (s *State) LayoutLabel() string {
+	return layoutLabel(s.Layout)
 }
 
 func (s *State) TogglePopup() {
@@ -498,6 +553,9 @@ func (s *State) PaletteTitle() string {
 	}
 	if s.PaletteView == PaletteViewBackends {
 		return "Backend Providers"
+	}
+	if s.PaletteView == PaletteViewLayouts {
+		return "Layouts"
 	}
 	return s.commandConfig.Palette.Title
 }
@@ -578,6 +636,21 @@ func (s *State) PaletteItems() []components.PopupItem {
 				detail = "current - " + detail
 			}
 			items[i] = components.PopupItem{Title: backend.Name, Detail: detail}
+		}
+		return items
+	}
+	if s.PaletteView == PaletteViewLayouts {
+		layouts := s.visibleLayoutItems()
+		if len(layouts) == 0 {
+			return []components.PopupItem{{Title: "No layouts", Detail: "No layouts configured", Disabled: true}}
+		}
+		items := make([]components.PopupItem, len(layouts))
+		for i, layoutType := range layouts {
+			detail := layoutLabel(layoutType)
+			if layoutType == s.Layout {
+				detail = "current - " + detail
+			}
+			items[i] = components.PopupItem{Title: layoutTitle(layoutType), Detail: detail}
 		}
 		return items
 	}
@@ -801,6 +874,11 @@ func (s *State) SelectPaletteItem() {
 		s.PopupOpen = false
 		return
 	}
+	if s.PaletteView == PaletteViewLayouts {
+		s.PendingAction = PaletteActionSelectLayout
+		s.PopupOpen = false
+		return
+	}
 	commands := s.visibleCommandItems()
 	if s.PaletteIndex < 0 || s.PaletteIndex >= len(commands) {
 		return
@@ -809,7 +887,7 @@ func (s *State) SelectPaletteItem() {
 	if s.PendingAction == PaletteActionNone {
 		return
 	}
-	if s.PendingAction != PaletteActionSessionsList && s.PendingAction != PaletteActionSkillsList && s.PendingAction != PaletteActionChangeModel && s.PendingAction != PaletteActionOpenPalette && s.PendingAction != PaletteActionBackendList {
+	if s.PendingAction != PaletteActionSessionsList && s.PendingAction != PaletteActionSkillsList && s.PendingAction != PaletteActionChangeModel && s.PendingAction != PaletteActionOpenPalette && s.PendingAction != PaletteActionBackendList && s.PendingAction != PaletteActionLayoutsList {
 		s.PopupOpen = false
 	}
 }
@@ -894,6 +972,22 @@ func (s *State) SetBackendItems(items []BackendListItem) {
 	s.PopupOpen = true
 }
 
+func (s *State) SetLayoutItems() {
+	if len(s.availableLayouts) == 0 {
+		s.availableLayouts = defaultLayoutCycle()
+	}
+	s.PaletteView = PaletteViewLayouts
+	s.PaletteQuery = ""
+	s.PaletteIndex = 0
+	for i, layoutType := range s.availableLayouts {
+		if layoutType == s.Layout {
+			s.PaletteIndex = i
+			break
+		}
+	}
+	s.PopupOpen = true
+}
+
 func (s *State) SetAvailableBackends(items []BackendListItem) {
 	s.BackendItems = items
 }
@@ -945,6 +1039,27 @@ func (s *State) SelectedBackendID() string {
 		return ""
 	}
 	return backends[s.PaletteIndex].ID
+}
+
+func (s *State) SelectedLayout() (LayoutType, bool) {
+	layouts := s.visibleLayoutItems()
+	if s.PaletteView != PaletteViewLayouts || s.PaletteIndex < 0 || s.PaletteIndex >= len(layouts) {
+		return LayoutDefault, false
+	}
+	return layouts[s.PaletteIndex], true
+}
+
+func (s *State) SetLayout(layoutType LayoutType) {
+	if s.Layout == layoutType {
+		return
+	}
+	s.Layout = layoutType
+	if s.Layout == LayoutFullscreen {
+		s.FullscreenTab = FullscreenTabEditor
+	}
+	s.invalidateOutputMax()
+	s.ChatLog().ClearSelection()
+	s.DiffLog().ClearSelection()
 }
 
 func (s *State) InsertSkillMarker(skill SkillListItem) {
@@ -1047,6 +1162,63 @@ func (s *State) visibleBackendItems() []BackendListItem {
 	return items
 }
 
+func (s *State) visibleLayoutItems() []LayoutType {
+	if len(s.availableLayouts) == 0 {
+		s.availableLayouts = defaultLayoutCycle()
+	}
+	query := normalizedQuery(s.PaletteQuery)
+	if query == "" {
+		return s.availableLayouts
+	}
+	items := make([]LayoutType, 0, len(s.availableLayouts))
+	for _, layoutType := range s.availableLayouts {
+		if paletteMatches(query, layoutTitle(layoutType), layoutLabel(layoutType)) {
+			items = append(items, layoutType)
+		}
+	}
+	return items
+}
+
+func layoutLabel(layoutType LayoutType) string {
+	switch layoutType {
+	case LayoutChat:
+		return "chat"
+	case LayoutSplit:
+		return "split"
+	case LayoutFullscreen:
+		return "fullscreen"
+	default:
+		return "unknown"
+	}
+}
+
+// LayoutTypeFromString parses a layout name into a LayoutType.
+func LayoutTypeFromString(name string) LayoutType {
+	switch name {
+	case "chat":
+		return LayoutChat
+	case "split":
+		return LayoutSplit
+	case "fullscreen":
+		return LayoutFullscreen
+	default:
+		return LayoutDefault
+	}
+}
+
+func layoutTitle(layoutType LayoutType) string {
+	switch layoutType {
+	case LayoutChat:
+		return "Chat"
+	case LayoutSplit:
+		return "Split"
+	case LayoutFullscreen:
+		return "Fullscreen"
+	default:
+		return "Unknown"
+	}
+}
+
 func normalizedQuery(query string) string {
 	return strings.ToLower(strings.TrimSpace(query))
 }
@@ -1107,6 +1279,41 @@ func (s *State) DiffLog() *components.DiffLog {
 		s.diffLog.SetMaxScrollObserver(s.SetOutputMaxScroll)
 	}
 	return s.diffLog
+}
+
+func (s *State) Sessions() *components.Sessions {
+	if s.sessions == nil {
+		s.sessions = components.NewSessions(components.SessionsVertical)
+	}
+	return s.sessions
+}
+
+func (s *State) SessionMouseDown(x, y int) bool {
+	action, id, ok := s.Sessions().MouseDown(x, y)
+	if !ok {
+		return false
+	}
+	s.PopupOpen = false
+	s.PaletteQuery = ""
+	s.PaletteView = PaletteViewSessions
+	s.PendingAction = PaletteActionNone
+	s.PaletteIndex = 0
+	switch action {
+	case components.SessionMouseNew:
+		s.PendingAction = PaletteActionNewSession
+	case components.SessionMouseSelect:
+		if id == "" || id == s.SessionID {
+			return true
+		}
+		for i, item := range s.visibleSessionItems() {
+			if item.ID == id {
+				s.PaletteIndex = i
+				s.PendingAction = PaletteActionSelectSession
+				break
+			}
+		}
+	}
+	return true
 }
 
 func (s *State) OutputMouseDown(x, y int) bool {

@@ -93,11 +93,12 @@ func TestReadLoopDispatchesServerRequestWithCollidingID(t *testing.T) {
 	var stdout bytes.Buffer
 
 	s := &AppServer{
-		stdin:     writeCloser{Writer: &stdout},
-		scanner:   bufio.NewScanner(bytes.NewReader([]byte(`{"jsonrpc":"2.0","id":1,"method":"item/tool/requestUserInput","params":{}}` + "\n"))),
-		pending:   map[int64]chan *rpcResponse{id: pending},
-		listeners: make(map[string]chan CodexEvent),
-		done:      make(chan struct{}),
+		stdin:       writeCloser{Writer: &stdout},
+		scanner:     bufio.NewScanner(bytes.NewReader([]byte(`{"jsonrpc":"2.0","id":1,"method":"item/tool/requestUserInput","params":{}}` + "\n"))),
+		pending:     map[int64]chan *rpcResponse{id: pending},
+		listeners:   make(map[string]chan CodexEvent),
+		inputEvents: make(chan UserInputEvent, 1),
+		done:        make(chan struct{}),
 	}
 	s.wg.Add(1)
 
@@ -109,15 +110,27 @@ func TestReadLoopDispatchesServerRequestWithCollidingID(t *testing.T) {
 	default:
 	}
 
-	var reply rpcMessage
-	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &reply); err != nil {
-		t.Fatalf("unmarshal server request reply: %v", err)
+	// Deferred response: nothing should have been written to stdout yet.
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no immediate reply, got: %s", stdout.String())
 	}
-	if reply.ID == nil || *reply.ID != id {
-		t.Fatalf("expected reply id %d, got %#v", id, reply.ID)
+
+	// The request should be stored as pending input.
+	s.inputMu.Lock()
+	_, ok := s.inputPending[id]
+	s.inputMu.Unlock()
+	if !ok {
+		t.Fatalf("expected input request %d to be pending", id)
 	}
-	if reply.Result == nil {
-		t.Fatalf("expected server request response result")
+
+	// An event should have been emitted on the input channel.
+	select {
+	case ev := <-s.inputEvents:
+		if ev.ID != id {
+			t.Fatalf("expected input event id %d, got %d", id, ev.ID)
+		}
+	default:
+		t.Fatalf("expected input event to be emitted")
 	}
 }
 

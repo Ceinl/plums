@@ -9,6 +9,32 @@ import (
 	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
+func listSessionItems(ctx context.Context, state *State, client adapter.Backend, cfg RunConfig) ([]SessionListItem, error) {
+	listCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
+	defer cancel()
+	sessions, err := client.ListSessions(listCtx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]SessionListItem, len(sessions))
+	for i, session := range sessions {
+		items[i] = SessionListItem{
+			ID:        session.ID,
+			Title:     session.Title,
+			Directory: session.Directory,
+			Updated:   session.Time.Updated,
+			Current:   session.ID == state.SessionID,
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Directory != items[j].Directory {
+			return items[i].Directory < items[j].Directory
+		}
+		return items[i].Updated > items[j].Updated
+	})
+	return items, nil
+}
+
 func handlePaletteAction(ctx context.Context, state *State, client adapter.Backend, action PaletteAction, cfg RunConfig) {
 	switch action {
 	case PaletteActionOpenPalette:
@@ -34,12 +60,27 @@ func handlePaletteAction(ctx context.Context, state *State, client adapter.Backe
 		}
 		state.ClearConversation()
 		state.AddMessage("system", "started new session "+sessionDisplayName(session))
+		if items, err := listSessionItems(ctx, state, client, cfg); err == nil {
+			state.SessionItems = items
+		}
 	case PaletteActionSwitchMode:
 		state.ToggleMode()
 		state.AddMessage("system", "switched to "+state.Mode+" mode")
 	case PaletteActionCycleThinkingVisibility:
 		state.CycleThinkingVisibility()
 		state.AddMessage("system", "thinking visibility: "+state.ThinkingVisibilityLabel())
+	case PaletteActionLayoutsList:
+		state.SetLayoutItems()
+	case PaletteActionChatLayout:
+		state.SetLayout(LayoutChat)
+		state.AddMessage("system", "layout: "+state.LayoutLabel())
+	case PaletteActionSelectLayout:
+		layoutType, ok := state.SelectedLayout()
+		if !ok {
+			return
+		}
+		state.SetLayout(layoutType)
+		state.AddMessage("system", "layout: "+state.LayoutLabel())
 	case PaletteActionChangeModel:
 		providersCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
 		providers, connected, err := client.ListProviders(providersCtx)
@@ -57,16 +98,10 @@ func handlePaletteAction(ctx context.Context, state *State, client adapter.Backe
 		state.SetModel(providerID, modelID)
 		state.AddMessage("system", "switched model to "+providerID+"/"+modelID)
 	case PaletteActionSessionsList:
-		listCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
-		sessions, err := client.ListSessions(listCtx)
-		cancel()
+		items, err := listSessionItems(ctx, state, client, cfg)
 		if err != nil {
 			state.AddMessage("system", fmt.Sprintf("failed to list sessions: %v", err))
 			return
-		}
-		items := make([]SessionListItem, len(sessions))
-		for i, session := range sessions {
-			items[i] = SessionListItem{ID: session.ID, Title: session.Title, Current: session.ID == state.SessionID}
 		}
 		state.SetSessionItems(items)
 	case PaletteActionSkillsList:
@@ -113,6 +148,9 @@ func handlePaletteAction(ctx context.Context, state *State, client adapter.Backe
 			}
 		}
 		state.SetConversation(conversation)
+		if items, err := listSessionItems(ctx, state, client, cfg); err == nil {
+			state.SessionItems = items
+		}
 	case PaletteActionSelectSkill:
 		skill, ok := state.SelectedSkill()
 		if !ok {

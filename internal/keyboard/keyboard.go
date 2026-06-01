@@ -316,6 +316,8 @@ func parseCSI(reader *byteReader, params []byte, final byte) Event {
 		return Event{Type: KeyHome, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	case 'F':
 		return Event{Type: KeyEnd, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
+	case 'Z':
+		return Event{Type: KeyTab, Shift: true, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	case 'u':
 		// CSI u keyboard protocol, used by terminals that distinguish
 		// modified keys from plain keys: ESC [ codepoint ; modifier u.
@@ -372,6 +374,8 @@ func modifierFlags(modifier int) (shift, ctrl, alt, cmd bool) {
 
 func modifiedCodepointEvent(codepoint int, shift, ctrl, alt, cmd bool) Event {
 	switch codepoint {
+	case byteTab:
+		return Event{Type: KeyTab, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	case byteEnter:
 		return Event{Type: KeyEnter, Shift: shift, Ctrl: ctrl, Alt: alt, Cmd: cmd}
 	case byteEscape:

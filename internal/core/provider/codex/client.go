@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -263,6 +264,7 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, provide
 		// Subscribe before starting the turn so we do not miss events.
 		events := as.Subscribe(threadID)
 		defer as.Unsubscribe(threadID)
+		inputEvents := as.InputEvents()
 
 		params := map[string]interface{}{
 			"threadId": threadID,
@@ -319,6 +321,19 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, provide
 					c.recordExchange(sessionID, text, assistantText, modelID)
 					return
 				}
+			case inputEvent, ok := <-inputEvents:
+				if !ok {
+					continue
+				}
+				question := parseUserInputQuestion(inputEvent, sessionID)
+				if question != nil {
+					select {
+					case <-ctx.Done():
+						c.recordExchange(sessionID, text, assistantText, modelID)
+						return
+					case out <- adapter.StreamEvent{Question: question}:
+					}
+				}
 			}
 		}
 	}()
@@ -326,7 +341,66 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, provide
 }
 
 func (c *Client) ReplyQuestion(ctx context.Context, requestID string, answers [][]string) error {
-	return ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	id, err := strconv.ParseInt(requestID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid request id: %w", err)
+	}
+	c.mu.Lock()
+	as := c.appServer
+	c.mu.Unlock()
+	if as == nil {
+		return fmt.Errorf("app-server not running")
+	}
+	// Codex expects a simple answer payload.  When there is a single
+	// free-text answer we send it as a plain string; otherwise we forward
+	// the raw [][]string.
+	var reply interface{}
+	if len(answers) == 1 && len(answers[0]) == 1 {
+		reply = answers[0][0]
+	} else {
+		reply = answers
+	}
+	return as.ReplyUserInput(id, reply)
+}
+
+func parseUserInputQuestion(event UserInputEvent, sessionID string) *adapter.QuestionRequest {
+	var params struct {
+		Message  string `json:"message"`
+		Prompt   string `json:"prompt"`
+		Question string `json:"question"`
+		Tool     string `json:"tool"`
+	}
+	_ = json.Unmarshal(event.Params, &params)
+
+	text := params.Message
+	if text == "" {
+		text = params.Prompt
+	}
+	if text == "" {
+		text = params.Question
+	}
+	if text == "" {
+		text = "Codex is requesting input."
+	}
+	if params.Tool != "" {
+		text = fmt.Sprintf("[%s] %s", params.Tool, text)
+	}
+
+	custom := true
+	return &adapter.QuestionRequest{
+		ID:        fmt.Sprintf("%d", event.ID),
+		SessionID: sessionID,
+		Questions: []adapter.QuestionInfo{
+			{
+				Question: text,
+				Header:   "Input required",
+				Custom:   &custom,
+			},
+		},
+	}
 }
 
 func (c *Client) BaseURL() string {

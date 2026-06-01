@@ -2,6 +2,10 @@ Do not edit anything unless you were directly asked to
 
 Produce plans in html websites for user to read is plan is robust and multistep
 
+When changing layout, command, keybinding, or runtime config behavior, edit the
+active project config files in `.agents/plums/config/` first. Update
+`internal/app/defaults/` only when the built-in templates also need to change.
+
 If this is first prompt in session, evaluate complexity of task and offer one off
     1) Stay on current branch
     2) Create new branch

@@ -147,9 +147,9 @@
     <h2>Current Status</h2>
     <ul>
       <li><span class="risk">Not ready for beta deploy yet.</span></li>
-      <li>Close enough for internal alpha usage, but beta should wait until the remaining blocker below is fixed and verified in a clean worktree.</li>
+      <li>Close enough for internal alpha usage, but beta should wait until the core logic blockers below are fixed and verified in a clean worktree.</li>
       <li>The current branch is <code>main</code>.</li>
-      <li><code>go test ./...</code> and <code>go build ./...</code> pass locally.</li>
+      <li><code>go test ./...</code>, <code>go build ./...</code>, and <code>go test -race ./...</code> all pass locally.</li>
       <li><code>internal/harness</code> is experimental and outside beta scope.</li>
     </ul>
 
@@ -170,15 +170,34 @@
       <li>Visible built-in palette commands now map to implemented behavior: model switching, new session, mode switching, output percentage, and session list.</li>
       <li>Slash commands exist for <code>/clear</code>, <code>/command</code>, <code>/new</code>, and <code>/sessions</code>.</li>
       <li>Tests cover non-TTY terminal startup, resize fallback, stdin EOF input handling, model/mode message payloads, startup exit reporting, palette search, and model selection.</li>
+      <li>Backend provider selection via config and <code>-provider</code> flag.</li>
+      <li>Runtime backend switching through the command palette.</li>
+      <li>Codex backend over <code>codex app-server</code> JSON-RPC stdio.</li>
+      <li>Tool call streaming and rendering in the chat log.</li>
+      <li>Structural refactor into <code>cmd/internal/core/ui</code> layout.</li>
+      <li>CI workflow added for tests, vet, and builds.</li>
+      <li><code>--version</code> flag with metadata from build info and ldflags.</li>
+      <li>Mouse selection support for output and editor text.</li>
+      <li>Cmd+C / Cmd+Z / Cmd+V clipboard and undo support.</li>
+      <li>Thinking visibility toggle (full / title / hidden).</li>
+      <li>Git diff tab in the info view.</li>
     </ul>
 
     <h2>Beta Blockers</h2>
     <ul>
+      <li><span class="risk">All agent system prompts are hard-coded to <code>"TODO"</code></span> in <code>internal/core/harness/Agent.go</code>. The LLM receives no actual behavioral instructions for any mode.</li>
+      <li><span class="risk"><code>internal/core/registry.go</code> is explicitly temporary</span> — it contains fake outputs for agent listing, capabilities, and descriptions while the real core package is being built.</li>
+      <li><span class="risk">Codex <code>ReplyQuestion</code> is unimplemented</span> — question/answer flows silently fail on the Codex backend.</li>
       <li>The README is not beta-ready. It only documents a small config section and does not cover install, prerequisites, keybindings, first run, troubleshooting, or known limitations.</li>
+      <li><code>internal/app/keyboard.go</code> has a gofmt indentation issue (under-indented <code>case</code> at Ctrl+C).</li>
     </ul>
 
     <h2>Before Private Beta</h2>
     <ul>
+      <li>Write real system prompts for build, plan, explore, and rogue agents.</li>
+      <li>Replace the stub <code>AgentRegistry</code> with real agent discovery, capabilities, and metadata.</li>
+      <li>Implement Codex <code>ReplyQuestion</code> so question flows work on the Codex backend.</li>
+      <li>Run <code>gofmt</code> across the codebase and add a format check to CI.</li>
       <li>Expand the README with install, run, config, keybindings, opencode dependency, troubleshooting, and known limitations.</li>
       <li>Run <code>go test ./...</code>, <code>go build ./...</code>, and a manual TUI smoke test with <code>opencode serve</code> in a clean worktree.</li>
     </ul>
@@ -194,8 +213,6 @@
 
     <h2>Before Public Launch</h2>
     <ul>
-      <li>Add CI for tests, vet, formatting, and builds.</li>
-      <li>Add version metadata and a <code>--version</code> flag.</li>
       <li>Create a release process for GitHub Releases binaries.</li>
       <li>Choose an install path such as Homebrew or <code>go install</code>.</li>
       <li>If command config is public, load it instead of hardcoding commands.</li>

@@ -62,8 +62,8 @@ func TestLoadRenderConfig(t *testing.T) {
 func TestSwitchLayoutSkipsUnavailableConfiguredLayouts(t *testing.T) {
 	state := NewState(120, 40)
 	cfg := &RenderConfig{Layouts: map[string]LayoutNode{
-		"split":      {},
-		"fullscreen": {},
+		"split": {},
+		"chat":  {},
 	}}
 	state.SetAvailableLayouts(cfg.AvailableLayoutTypes())
 
@@ -71,12 +71,94 @@ func TestSwitchLayoutSkipsUnavailableConfiguredLayouts(t *testing.T) {
 		t.Fatalf("expected initial layout to remain split, got %v", state.Layout)
 	}
 	state.SwitchLayout()
-	if state.Layout != LayoutFullscreen {
-		t.Fatalf("expected tab to switch to fullscreen, got %v", state.Layout)
+	if state.Layout != LayoutChat {
+		t.Fatalf("expected tab to switch to chat, got %v", state.Layout)
 	}
 	state.SwitchLayout()
 	if state.Layout != LayoutSplit {
-		t.Fatalf("expected tab to skip missing default and return to split, got %v", state.Layout)
+		t.Fatalf("expected switch layout to skip missing default and return to split, got %v", state.Layout)
+	}
+}
+
+func TestDefaultCommandConfigIncludesLayoutCommand(t *testing.T) {
+	state := NewState(120, 40)
+	state.OpenPalette()
+	for _, ch := range "layout" {
+		state.InsertPaletteRune(ch)
+	}
+
+	items := state.PaletteItems()
+	if len(items) == 0 || items[0].Title != "Layouts" {
+		t.Fatalf("expected layout command, got %#v", items)
+	}
+	if !strings.Contains(items[0].Detail, "split") {
+		t.Fatalf("expected current layout in detail, got %q", items[0].Detail)
+	}
+
+	state.SelectPaletteItem()
+	if got := state.ConsumePendingAction(); got != PaletteActionLayoutsList {
+		t.Fatalf("expected layouts list action, got %v", got)
+	}
+}
+
+func TestDefaultCommandConfigIncludesChatLayoutCommand(t *testing.T) {
+	state := NewState(120, 40)
+	state.OpenPalette()
+	for _, ch := range "chat" {
+		state.InsertPaletteRune(ch)
+	}
+
+	items := state.PaletteItems()
+	if len(items) != 1 || items[0].Title != "Chat layout" {
+		t.Fatalf("expected chat layout command, got %#v", items)
+	}
+
+	state.SelectPaletteItem()
+	if got := state.ConsumePendingAction(); got != PaletteActionChatLayout {
+		t.Fatalf("expected chat layout action, got %v", got)
+	}
+}
+
+func TestFullscreenCommandPaletteHidesOutputPercentage(t *testing.T) {
+	state := NewState(120, 40)
+	state.Layout = LayoutFullscreen
+	state.OpenPalette()
+
+	for _, item := range state.PaletteItems() {
+		if item.Title == "Output percentage" {
+			t.Fatalf("expected fullscreen palette to hide output percentage")
+		}
+	}
+}
+
+func TestLayoutPaletteSelection(t *testing.T) {
+	state := NewState(120, 40)
+	state.SetAvailableLayouts([]LayoutType{LayoutDefault, LayoutSplit, LayoutFullscreen})
+	state.SetLayoutItems()
+
+	if state.PaletteTitle() != "Layouts" {
+		t.Fatalf("expected layouts title, got %q", state.PaletteTitle())
+	}
+	items := state.PaletteItems()
+	if len(items) != 3 {
+		t.Fatalf("expected 3 layout items, got %#v", items)
+	}
+	if items[1].Title != "Split" || !strings.Contains(items[1].Detail, "current") {
+		t.Fatalf("expected split current item, got %#v", items[1])
+	}
+
+	state.MovePalette(1)
+	state.SelectPaletteItem()
+	if got := state.ConsumePendingAction(); got != PaletteActionSelectLayout {
+		t.Fatalf("expected select layout action, got %v", got)
+	}
+	layoutType, ok := state.SelectedLayout()
+	if !ok || layoutType != LayoutFullscreen {
+		t.Fatalf("expected fullscreen selection, got %v ok=%v", layoutType, ok)
+	}
+	state.SetLayout(layoutType)
+	if state.Layout != LayoutFullscreen {
+		t.Fatalf("expected fullscreen layout, got %v", state.Layout)
 	}
 }
 

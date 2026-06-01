@@ -214,6 +214,9 @@ func (d *Div) Layout(x, y, w, h int) {
 				case layout.UnitGrow:
 					totalGrow++
 				}
+				if ch > innerH {
+					ch = innerH
+				}
 				if ch < 0 {
 					ch = 0
 				}

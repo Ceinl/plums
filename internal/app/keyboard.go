@@ -8,6 +8,7 @@ import (
 // handled=true when the event was consumed, and quit=true when the application
 // should exit.
 func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bool, quit bool) {
+	ev = normalizeKeyEvent(ev)
 	if ev.Type == keyboard.KeyCtrlC {
 		if copyEditorSelection(state, clipboardCmd) {
 			return true, false
@@ -77,7 +78,16 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 
 	switch ev.Type {
 	case keyboard.KeyEnter:
-		if !ev.Shift {
+		if state.EffectiveLayout() == LayoutSplit {
+			if ev.Shift {
+				state.SubmitInput()
+				return true, false
+			}
+			ed.InsertNewline()
+			return true, false
+		}
+		// Chat and fullscreen layouts: Enter sends, Shift+Enter adds newline.
+		if ev.Shift {
 			ed.InsertNewline()
 			return true, false
 		}
@@ -98,7 +108,20 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		}
 		return true, false
 	case keyboard.KeyTab:
-		state.SwitchLayout()
+		if state.EffectiveLayout() == LayoutFullscreen {
+			if ev.Shift {
+				state.CycleFullscreenTab(-1)
+			} else {
+				state.CycleFullscreenTab(1)
+			}
+			return true, false
+		}
+		if state.EffectiveLayout() == LayoutSplit {
+			state.CycleInfoView()
+			return true, false
+		}
+		// Chat layout: insert a tab character in the editor.
+		ed.InsertRune('\t')
 		return true, false
 	case keyboard.KeyPaste:
 		ed.InsertString(ev.Text)
@@ -142,7 +165,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 			case 'a', 'A':
 				ed.MoveCursorHome()
 				return true, false
-		case 'c', 'C':
+			case 'c', 'C':
 				if copyEditorSelection(state, clipboardCmd) {
 					return true, false
 				}
@@ -155,9 +178,6 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 				return true, false
 			case 's', 'S':
 				state.SubmitInput()
-				return true, false
-			case 't', 'T':
-				state.CycleInfoView()
 				return true, false
 			case 'z', 'Z':
 				return ed.Undo(), false
@@ -215,34 +235,49 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		}
 		return true, false
 	case keyboard.KeyPageUp:
-		if state.EffectiveLayout() == LayoutFullscreen {
-			return ed.ScrollPage(1), false
+		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
+			return state.ScrollOutputPage(1), false
 		}
-		return state.ScrollOutputPage(1), false
+		if state.EffectiveLayout() == LayoutChat {
+			return state.ScrollOutputPage(1), false
+		}
+		return ed.ScrollPage(1), false
 	case keyboard.KeyPageDown:
-		if state.EffectiveLayout() == LayoutFullscreen {
-			return ed.ScrollPage(-1), false
+		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
+			return state.ScrollOutputPage(-1), false
 		}
-		return state.ScrollOutputPage(-1), false
+		if state.EffectiveLayout() == LayoutChat {
+			return state.ScrollOutputPage(-1), false
+		}
+		return ed.ScrollPage(-1), false
 	case keyboard.KeyMouseWheelUp:
 		if ev.Mouse {
 			return state.ScrollAt(ev.MouseX, ev.MouseY, 3), false
 		}
-		if state.EffectiveLayout() == LayoutFullscreen {
-			return ed.Scroll(3), false
+		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
+			return state.ScrollOutputVisible(3), false
 		}
-		return state.ScrollOutputVisible(3), false
+		if state.EffectiveLayout() == LayoutChat {
+			return state.ScrollOutputVisible(3), false
+		}
+		return ed.Scroll(3), false
 	case keyboard.KeyMouseWheelDown:
 		if ev.Mouse {
 			return state.ScrollAt(ev.MouseX, ev.MouseY, -3), false
 		}
-		if state.EffectiveLayout() == LayoutFullscreen {
-			return ed.Scroll(-3), false
+		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
+			return state.ScrollOutputVisible(-3), false
 		}
-		return state.ScrollOutputVisible(-3), false
+		if state.EffectiveLayout() == LayoutChat {
+			return state.ScrollOutputVisible(-3), false
+		}
+		return ed.Scroll(-3), false
 	case keyboard.KeyMouseLeftDown:
 		if state.PopupOpen {
 			state.ClosePalette()
+			return true, false
+		}
+		if state.SessionMouseDown(ev.MouseX, ev.MouseY) {
 			return true, false
 		}
 		if state.Editor.MouseDown(ev.MouseX, ev.MouseY) {
@@ -276,7 +311,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		return false, false
 	case keyboard.KeyHome:
 		if ev.Ctrl {
-			if state.EffectiveLayout() == LayoutFullscreen {
+			if state.FullscreenShowsEditor() {
 				return ed.ScrollTop(), false
 			}
 			return state.ScrollOutputPage(1 << 20), false
@@ -289,7 +324,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		return true, false
 	case keyboard.KeyEnd:
 		if ev.Ctrl {
-			if state.EffectiveLayout() == LayoutFullscreen {
+			if state.FullscreenShowsEditor() {
 				return ed.ScrollBottom(), false
 			}
 			return state.ScrollOutputBottom(), false
@@ -302,4 +337,17 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		return true, false
 	}
 	return false, false
+}
+
+func normalizeKeyEvent(ev keyboard.Event) keyboard.Event {
+	if ev.Type == keyboard.KeyRune && ev.Ch == '\t' {
+		ev.Type = keyboard.KeyTab
+		ev.Ch = 0
+	}
+	if ev.Type == keyboard.KeyRune && ev.Ctrl && (ev.Ch == 'I' || ev.Ch == 'i') {
+		ev.Type = keyboard.KeyTab
+		ev.Ch = 0
+		ev.Ctrl = false
+	}
+	return ev
 }

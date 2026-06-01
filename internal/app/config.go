@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/Ceinl/plums/internal/app/defaults"
@@ -213,4 +214,163 @@ func parseTomlString(value string) (string, error) {
 		return "", fmt.Errorf("expected quoted string")
 	}
 	return strings.TrimSpace(value[1:end]), nil
+}
+
+// LoadDefaultLayout reads default_layout from the TOML file at path.
+func LoadDefaultLayout(path, fallback string) (string, error) {
+	if fallback == "" {
+		fallback = "split"
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fallback, nil
+		}
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(key) != "default_layout" {
+			continue
+		}
+		val, err := parseTomlString(value)
+		if err != nil {
+			return fallback, nil
+		}
+		val = strings.ToLower(strings.TrimSpace(val))
+		if val == "" {
+			return fallback, nil
+		}
+		return val, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return fallback, nil
+}
+
+// LoadHideThinking reads hide_thinking from the TOML file at path.
+func LoadHideThinking(path string, fallback bool) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fallback
+		}
+		return fallback
+	}
+	defer func() { _ = file.Close() }()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(key) != "hide_thinking" {
+			continue
+		}
+		v := strings.ToLower(strings.TrimSpace(value))
+		return v == "true"
+	}
+	return fallback
+}
+
+// LoadSplitLeftWidth reads split.left_width from the TOML file at path.
+func LoadSplitLeftWidth(path string, fallback int) int {
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fallback
+		}
+		return fallback
+	}
+	defer func() { _ = file.Close() }()
+	section := ""
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "["), "]"))
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if section != "split" || strings.TrimSpace(key) != "left_width" {
+			continue
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return fallback
+		}
+		return v
+	}
+	return fallback
+}
+
+// SaveConfigValues writes layout, hide_thinking and split.left_width back to
+// the TOML file at path, preserving comments and unknown keys. If the file
+// does not exist a minimal default file is created.
+func SaveConfigValues(path string, layout string, hideThinking bool, leftWidth int) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		// File doesn't exist — create a minimal TOML with the current values.
+		content := fmt.Sprintf(
+			"default_layout = %q\nhide_thinking = %t\n\n[split]\nleft_width = %d\n",
+			layout, hideThinking, leftWidth,
+		)
+		_ = os.MkdirAll(filepath.Dir(path), 0o755)
+		return os.WriteFile(path, []byte(content), 0o644)
+	}
+	lines := strings.Split(string(data), "\n")
+	section := ""
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			section = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "["), "]"))
+			continue
+		}
+		key, _, ok := strings.Cut(trimmed, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		switch {
+		case key == "default_layout" && section == "":
+			lines[i] = fmt.Sprintf(`default_layout = "%s"`, layout)
+		case key == "hide_thinking" && section == "":
+			lines[i] = fmt.Sprintf("hide_thinking = %t", hideThinking)
+		case key == "left_width" && section == "split":
+			lines[i] = fmt.Sprintf("left_width = %d", leftWidth)
+		}
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
 }
