@@ -140,8 +140,14 @@ func Run(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to load backend provider: %w", err)
 	}
+	defaultLayout, _ := app.LoadDefaultLayout(opencodeConfigPath, "split")
+	hideThinking := app.LoadHideThinking(opencodeConfigPath, true)
+	leftWidth := app.LoadSplitLeftWidth(opencodeConfigPath, 50)
 	debuglog.Printf("config: opencode server URL %s", serverURL)
 	debuglog.Printf("config: backend provider %s", backendProvider)
+	debuglog.Printf("config: default_layout %s", defaultLayout)
+	debuglog.Printf("config: hide_thinking %t", hideThinking)
+	debuglog.Printf("config: split.left_width %d", leftWidth)
 	opencodeBackend := opencode.NewBackend(serverURL)
 	codexBackend := codex.NewBackend()
 
@@ -158,6 +164,10 @@ func Run(cfg *Config) error {
 		RecentModelTimeout:   defs.RecentModelTimeout,
 		ListTimeout:          defs.ListTimeout,
 		WorkingDirectory:     wd,
+		ConfigTomlPath:     opencodeConfigPath,
+		DefaultLayout:      defaultLayout,
+		HideThinking:       hideThinking,
+		SplitLeftWidth:     leftWidth,
 	}
 
 	deps := app.Deps{
@@ -203,36 +213,14 @@ func opencodeStartup(wd string, healthTimeout time.Duration) func(context.Contex
 			debuglog.Printf("startup: existing opencode server is healthy")
 		}
 
-		debuglog.Printf("startup: creating opencode session")
-		session, err := b.CreateSession(startCtx, wd)
-		if err != nil {
-			debuglog.Printf("startup: create session failed: %v", err)
-			if serverProc != nil {
-				serverProc.Stop()
-			}
-			out <- app.StartupResult{Err: fmt.Errorf("failed to create session: %w", err)}
-			return
-		}
-		if session.Directory != "" && session.Directory != wd {
-			if serverProc != nil {
-				serverProc.Stop()
-			}
-			out <- app.StartupResult{Err: fmt.Errorf("opencode session directory is %q, expected %q; stop the existing opencode server or configure plums to use a different port", session.Directory, wd)}
-			return
-		}
-		debuglog.Printf("startup: opencode session ready: %s", session.ID)
-		out <- app.StartupResult{Session: session, Server: serverProc}
+		debuglog.Printf("startup: opencode ready (session deferred)")
+		out <- app.StartupResult{Server: serverProc}
 	}
 }
 
 func codexStartup(wd string, backend adapter.Backend) func(context.Context, adapter.Backend, chan<- app.StartupResult) {
 	return func(startCtx context.Context, b adapter.Backend, out chan<- app.StartupResult) {
-		debuglog.Printf("startup: creating codex session")
-		session, err := b.CreateSession(startCtx, wd)
-		if err != nil {
-			out <- app.StartupResult{Err: fmt.Errorf("failed to create codex session: %w", err)}
-			return
-		}
+		debuglog.Printf("startup: codex ready (session deferred)")
 		client, ok := b.(interface {
 			ServerProcess() interface {
 				Stop()
@@ -243,6 +231,6 @@ func codexStartup(wd string, backend adapter.Backend) func(context.Context, adap
 			out <- app.StartupResult{Err: fmt.Errorf("codex backend does not expose ServerProcess")}
 			return
 		}
-		out <- app.StartupResult{Session: session, Server: client.ServerProcess()}
+		out <- app.StartupResult{Server: client.ServerProcess()}
 	}
 }

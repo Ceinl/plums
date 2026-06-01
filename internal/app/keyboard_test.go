@@ -7,8 +7,37 @@ import (
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
 )
 
-func TestShiftEnterSubmitsInput(t *testing.T) {
+func TestPlainEnterSubmitsInputInChat(t *testing.T) {
 	state := NewState(80, 24)
+	state.Layout = LayoutChat
+	state.Editor.SetContent("send me")
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected handled submit without quit, handled=%v quit=%v", handled, quit)
+	}
+	if got := state.ConsumeSubmittedInput(); got != "send me" {
+		t.Fatalf("expected submitted input, got %q", got)
+	}
+}
+
+func TestShiftEnterInsertsNewlineInChat(t *testing.T) {
+	state := NewState(80, 24)
+	state.Layout = LayoutChat
+	state.Editor.SetContent("line")
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter, Shift: true}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected handled newline without quit, handled=%v quit=%v", handled, quit)
+	}
+	if got := state.Editor.GetContent(); got != "line\n" {
+		t.Fatalf("expected newline insertion, got %q", got)
+	}
+}
+
+func TestShiftEnterSubmitsInputInSplit(t *testing.T) {
+	state := NewState(80, 24)
+	state.Layout = LayoutSplit
 	state.Editor.SetContent("send me")
 
 	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter, Shift: true}, DefaultClipboardCommand())
@@ -20,8 +49,9 @@ func TestShiftEnterSubmitsInput(t *testing.T) {
 	}
 }
 
-func TestPlainEnterInsertsNewline(t *testing.T) {
+func TestPlainEnterInsertsNewlineInSplit(t *testing.T) {
 	state := NewState(80, 24)
+	state.Layout = LayoutSplit
 	state.Editor.SetContent("line")
 
 	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter}, DefaultClipboardCommand())
@@ -204,9 +234,9 @@ func TestMouseDragCopiesOutputSelection(t *testing.T) {
 	t.Cleanup(func() { writeClipboard = oldWriteClipboard })
 
 	for _, ev := range []keyboard.Event{
-		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 1},
-		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 1},
-		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 1},
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 4},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 4},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 4},
 	} {
 		handled, quit := HandleKey(state, ev, DefaultClipboardCommand())
 		if !handled || quit {
@@ -236,9 +266,9 @@ func TestOutputMouseSelectionCopiesWhenReleasedOutsideOutput(t *testing.T) {
 	t.Cleanup(func() { writeClipboard = oldWriteClipboard })
 
 	for _, ev := range []keyboard.Event{
-		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 1},
-		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 20},
-		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 4},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 22},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 22},
 	} {
 		handled, quit := HandleKey(state, ev, DefaultClipboardCommand())
 		if !handled || quit {
@@ -260,9 +290,9 @@ func TestMouseDragSelectsEditorTextThroughKeyHandling(t *testing.T) {
 	root.Render(screen.NewScreen(80, 24))
 
 	for _, ev := range []keyboard.Event{
-		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 6, MouseY: 20},
-		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 11, MouseY: 20},
-		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 11, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 12, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 17, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 17, MouseY: 20},
 	} {
 		handled, quit := HandleKey(state, ev, DefaultClipboardCommand())
 		if !handled || quit {

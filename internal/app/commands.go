@@ -73,6 +73,7 @@ const defaultCommandsJSON = `{
         "title_when": { "mode=plan": "Switch to build mode", "mode=build": "Switch to plan mode" }
       },
       { "title": "Layouts", "detail": "Select layout - current: {layout}", "action": "switch_layout" },
+      { "title": "Chat layout", "detail": "Switch to chat layout", "action": "chat_layout" },
       { "title": "Thinking visibility", "detail": "Current: {thinking_visibility} (cycles full/title/hidden)", "action": "cycle_thinking_visibility" },
       { "title": "Output percentage", "detail": "Left/Right adjust - current: {output_percent}%", "action": "adjust_output_percentage" },
       { "title": "Skills list", "detail": "Load an opencode skill for the next prompt", "action": "skills_list" },
@@ -86,6 +87,7 @@ const defaultCommandsJSON = `{
     "open_palette": { "kind": "builtin" },
     "switch_mode": { "kind": "builtin" },
     "switch_layout": { "kind": "builtin" },
+    "chat_layout": { "kind": "builtin" },
     "cycle_thinking_visibility": { "kind": "builtin" },
     "adjust_output_percentage": { "kind": "builtin", "adjustment": { "min": 25, "max": 75, "step": 5 } },
     "skills_list": { "kind": "builtin" },
@@ -180,6 +182,8 @@ func builtinAction(name string) PaletteAction {
 		return PaletteActionSwitchMode
 	case "switch_layout":
 		return PaletteActionLayoutsList
+	case "chat_layout":
+		return PaletteActionChatLayout
 	case "cycle_thinking_visibility":
 		return PaletteActionCycleThinkingVisibility
 	case "sessions_list":
@@ -194,7 +198,7 @@ func builtinAction(name string) PaletteAction {
 func (cfg *CommandConfig) commandItems(state *State) []paletteCommandItem {
 	items := make([]paletteCommandItem, 0, len(cfg.Palette.Items))
 	for _, item := range cfg.Palette.Items {
-		if state.EffectiveLayout() == LayoutFullscreen && item.Action == "adjust_output_percentage" {
+		if state.EffectiveLayout() != LayoutSplit && item.Action == "adjust_output_percentage" {
 			continue
 		}
 		action := cfg.actionFor(item.Action)

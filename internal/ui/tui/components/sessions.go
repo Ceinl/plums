@@ -1,6 +1,8 @@
 package components
 
 import (
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
@@ -24,9 +26,11 @@ const (
 )
 
 type SessionItem struct {
-	ID      string
-	Title   string
-	Current bool
+	ID        string
+	Title     string
+	Directory string
+	Updated   int64
+	Current   bool
 }
 
 type SessionMouseAction int
@@ -120,28 +124,86 @@ func (s *Sessions) Render(scr *screen.Screen) {
 }
 
 func (s *Sessions) renderVertical(scr *screen.Screen, bg string) {
-	button := "+ New session"
-	s.drawText(scr, s.x+1, s.y, s.w-2, button, sessionsAccentFg, bg)
-	s.hits = append(s.hits, sessionHitBox{x: s.x, y: s.y, w: s.w, h: 1, new: true})
+	row := s.y
+	if row+1 > s.y+s.h {
+		return
+	}
 
-	row := s.y + 2
+	button := " + New session "
+	if len([]rune(button)) > s.w-2 {
+		button = truncateWithEllipsis(button, s.w-2)
+	}
+	s.drawBlock(scr, s.x, row, s.w, 1, sessionsAccentFg, sessionsTabBg)
+	s.drawText(scr, s.x+1, row, s.w-2, button, sessionsAccentFg, sessionsTabBg)
+	s.hits = append(s.hits, sessionHitBox{x: s.x, y: row, w: s.w, h: 1, new: true})
+	row += 2 // card row + 1 blank line gap
+
+	if len(s.items) == 0 {
+		return
+	}
+
+	hasDirs := false
 	for _, item := range s.items {
-		if row >= s.y+s.h {
+		if item.Directory != "" {
+			hasDirs = true
+			break
+		}
+	}
+
+	sorted := make([]SessionItem, len(s.items))
+	copy(sorted, s.items)
+	if hasDirs {
+		sort.Slice(sorted, func(i, j int) bool {
+			if sorted[i].Directory != sorted[j].Directory {
+				return sorted[i].Directory < sorted[j].Directory
+			}
+			return sorted[i].Updated > sorted[j].Updated
+		})
+	}
+
+	var lastDir string
+	for _, item := range sorted {
+		if row+1 > s.y+s.h {
 			return
 		}
+
+		if hasDirs {
+			dir := item.Directory
+			if dir == "" {
+				dir = "(unknown)"
+			} else {
+				dir = filepath.Base(dir)
+			}
+			if dir != lastDir {
+				header := "  " + dir
+				if len([]rune(header)) > s.w-2 {
+					header = truncateWithEllipsis(header, s.w-2)
+				}
+				s.drawText(scr, s.x+1, row, s.w-2, header, sessionsFg, bg)
+				row++
+				lastDir = dir
+				if row+1 > s.y+s.h {
+					return
+				}
+			}
+		}
+
 		fg := sessionsFg
+		cardBg := sessionsTabBg
+		marker := "  "
 		if item.Current {
 			fg = sessionsActiveFg
+			cardBg = sessionsActiveBg
+			marker = "▸ "
 		}
-		label := sessionLabel(item)
-		if item.Current {
-			label = "> " + label
-		} else {
-			label = "  " + label
+		label := marker + sessionLabel(item)
+		if len([]rune(label)) > s.w-2 {
+			label = truncateWithEllipsis(label, s.w-2)
 		}
-		s.drawText(scr, s.x+1, row, s.w-2, label, fg, bg)
+		s.drawBlock(scr, s.x, row, s.w, 1, fg, cardBg)
+		s.drawText(scr, s.x+1, row, s.w-2, label, fg, cardBg)
 		s.hits = append(s.hits, sessionHitBox{x: s.x, y: row, w: s.w, h: 1, id: item.ID})
-		row++
+		row += 2 // card row + 1 blank line gap
 	}
 }
 

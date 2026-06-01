@@ -24,13 +24,14 @@ type StatusBar struct {
 	providerID     string
 	modelID        string
 	sessionTitle   string
+	showSession    bool
 	parent         layout.Component
 	x, y, w, h     int
 	style          layout.Style
 }
 
 func NewStatusBar() *StatusBar {
-	return &StatusBar{}
+	return &StatusBar{showSession: true}
 }
 
 func (s *StatusBar) IsDirty() bool                { return s.isDirty }
@@ -60,6 +61,11 @@ func (s *StatusBar) SetMode(mode string) {
 
 func (s *StatusBar) SetSession(title string) {
 	s.sessionTitle = title
+	s.isDirty = true
+}
+
+func (s *StatusBar) SetShowSession(v bool) {
+	s.showSession = v
 	s.isDirty = true
 }
 
@@ -101,15 +107,21 @@ func (s *StatusBar) Render(scr *screen.Screen) {
 		model = s.modelID
 	}
 
-	session := s.sessionTitle
-	if session == "" {
-		session = "untitled session"
+	var parts []string
+	parts = append(parts, string(icon)+" "+label)
+	if s.showSession {
+		session := s.sessionTitle
+		if session == "" {
+			session = "untitled session"
+		}
+		parts = append(parts, session)
 	}
 	mode := s.mode
 	if mode == "" {
 		mode = "build"
 	}
-	content := strings.TrimSpace(string(icon) + " " + label + "  " + session + "  " + mode + "  " + model)
+	parts = append(parts, mode, model)
+	content := strings.TrimSpace(strings.Join(parts, "  "))
 	content = truncateRunes(content, s.w)
 	for i, r := range content {
 		scr.Set(s.x+i, s.y, r, fg, bg, "")

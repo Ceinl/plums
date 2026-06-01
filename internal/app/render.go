@@ -26,6 +26,7 @@ type LayoutNode struct {
 	Component     string            `json:"component"`
 	Size          SizeNode          `json:"size"`
 	Direction     string            `json:"direction"`
+	AlignItems    string            `json:"align_items"`
 	MinWidth      string            `json:"min_width"`
 	Fallback      string            `json:"fallback"`
 	Padding       PaddingNode       `json:"padding"`
@@ -91,7 +92,7 @@ func LoadRenderConfig(path string) (*RenderConfig, error) {
 
 // ── Colour palette ────────────────────────────────────────────────────────────
 //
-// Default / fullscreen layout
+// Chat layout
 //   bgOutput  – the chat / output area
 //   bgEditor  – the editor area
 //
@@ -166,10 +167,20 @@ func newSessions(state *State, orientation components.SessionsOrientation) *comp
 		if current {
 			foundCurrent = true
 		}
-		items = append(items, components.SessionItem{ID: item.ID, Title: item.Title, Current: current})
+		items = append(items, components.SessionItem{
+			ID:        item.ID,
+			Title:     item.Title,
+			Directory: item.Directory,
+			Updated:   item.Updated,
+			Current:   current,
+		})
 	}
 	if !foundCurrent && (state.SessionID != "" || state.SessionTitle != "") {
-		items = append([]components.SessionItem{{ID: state.SessionID, Title: state.SessionTitle, Current: true}}, items...)
+		items = append([]components.SessionItem{{
+			ID:      state.SessionID,
+			Title:   state.SessionTitle,
+			Current: true,
+		}}, items...)
 	}
 	sessions.SetItems(items)
 	return sessions
@@ -285,15 +296,43 @@ func newEditorDiv(ed *components.Editor, w, h layout.Unit) *components.Div {
 	return div
 }
 
-func newInputBoxDiv(ed *components.Editor, w, h layout.Unit) *components.Div {
+func chatStatusText(state *State) string {
+	icon := '•'
+	label := "offline"
+	switch {
+	case state.ServerStarting:
+		icon = '◌'
+		label = "starting"
+	case state.IsStreaming():
+		icon = '◌'
+		label = "thinking"
+	case state.ServerReady:
+		label = "ready"
+	}
+	model := "model pending"
+	if state.ModelProvider != "" && state.ModelID != "" {
+		model = state.ModelProvider + "/" + state.ModelID
+	} else if state.ModelID != "" {
+		model = state.ModelID
+	}
+	mode := state.Mode
+	if mode == "" {
+		mode = "build"
+	}
+	return string(icon) + " " + label + "  " + mode + "  " + model
+}
+
+func newInputBoxDiv(ed *components.Editor, w, h layout.Unit, status string) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(w, h)
 
 	style := layout.Style{}
-	style.SetBackground(15, 18, 16)
+	style.SetBackground(22, 20, 27)
 	style.SetForeground(220, 228, 216)
 	div.SetStyle(style)
-	div.AppendChild(components.NewInputBox(ed))
+	box := components.NewInputBox(ed)
+	box.SetStatus(status)
+	div.AppendChild(box)
 	return div
 }
 
@@ -488,16 +527,14 @@ func truncateRunes(value string, max int) string {
 
 func layoutName(t LayoutType) string {
 	switch t {
-	case LayoutDefault:
-		return "default"
+	case LayoutChat:
+		return "chat"
 	case LayoutSplit:
 		return "split"
-	case LayoutSessions:
-		return "sessions"
 	case LayoutFullscreen:
 		return "fullscreen"
 	default:
-		return "default"
+		return "chat"
 	}
 }
 
@@ -506,14 +543,13 @@ func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {
 		return nil
 	}
 	layouts := make([]LayoutType, 0, 4)
-	if _, ok := cfg.Layouts["default"]; ok {
-		layouts = append(layouts, LayoutDefault)
+	if _, ok := cfg.Layouts["chat"]; ok {
+		layouts = append(layouts, LayoutChat)
+	} else if _, ok := cfg.Layouts["default"]; ok {
+		layouts = append(layouts, LayoutChat)
 	}
 	if _, ok := cfg.Layouts["split"]; ok {
 		layouts = append(layouts, LayoutSplit)
-	}
-	if _, ok := cfg.Layouts["sessions"]; ok {
-		layouts = append(layouts, LayoutSessions)
 	}
 	if _, ok := cfg.Layouts["fullscreen"]; ok {
 		layouts = append(layouts, LayoutFullscreen)
@@ -719,6 +755,12 @@ func ansiBg(r, g, b uint8) string {
 
 func buildLayout(state *State, cfg *RenderConfig, name string) (layout.Component, error) {
 	node, ok := cfg.Layouts[name]
+	if !ok && name == "chat" {
+		node, ok = cfg.Layouts["default"]
+	}
+	if !ok && name == "chat" {
+		node, ok = cfg.Layouts["fullscreen"]
+	}
 	if !ok {
 		return nil, fmt.Errorf("layout %q not found", name)
 	}
@@ -778,7 +820,9 @@ func buildComponent(state *State, node LayoutNode) (layout.Component, error) {
 	case "editor", "editor_or_palette":
 		return state.Editor, nil
 	case "input_box", "text_box":
-		return components.NewInputBox(state.Editor), nil
+		box := components.NewInputBox(state.Editor)
+		box.SetStatus(chatStatusText(state))
+		return box, nil
 	case "command_palette_panel":
 		popup := components.NewPopup()
 		popup.SetPanel(true)
@@ -808,7 +852,16 @@ func buildComponent(state *State, node LayoutNode) (layout.Component, error) {
 		bar := components.NewStatusBar()
 		bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
 		bar.SetSession(state.SessionTitle)
+		bar.SetMode(state.Mode)
 		bar.SetModel(state.ModelProvider, state.ModelID)
+		return bar, nil
+	case "status_bar":
+		bar := components.NewStatusBar()
+		bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
+		bar.SetSession(state.SessionTitle)
+		bar.SetMode(state.Mode)
+		bar.SetModel(state.ModelProvider, state.ModelID)
+		bar.SetShowSession(false)
 		return bar, nil
 	default:
 		return nil, fmt.Errorf("unknown component %q", node.Component)
@@ -821,6 +874,12 @@ func applyNodeProperties(state *State, div *components.Div, node LayoutNode) {
 		div.SetDirection(layout.Row)
 	} else {
 		div.SetDirection(layout.Column)
+	}
+	switch node.AlignItems {
+	case "center":
+		div.AlignItems(layout.ACenter)
+	case "right":
+		div.AlignItems(layout.ARight)
 	}
 	div.SetPadding(resolvePadding(node.Padding))
 	if !isEmptyStyle(node.Style) {
@@ -897,36 +956,11 @@ func isEmptyStyle(node StyleNode) bool {
 // ── Layout builders ───────────────────────────────────────────────────────────
 
 func CreateDefaultLayout(state *State) *components.Div {
-	outputDiv := newOutput()
-	outputDiv.SetSize(
-		layout.Unit{Type: layout.UnitPercent, Value: 100},
-		layout.Unit{Type: layout.UnitGrow, Value: 1},
-	)
-	outputDiv.AppendChild(newChatLog(state))
+	return CreateChatLayout(state)
+}
 
-	sepDiv := newHorizontalRule(state)
-
-	inputDiv := newEditorDiv(
-		state.Editor,
-		layout.Unit{Type: layout.UnitPercent, Value: 100},
-		layout.Unit{Type: layout.UnitPx, Value: 5},
-	)
-	inputDiv.SetPadding(layout.Padding{
-		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
-		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
-		Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
-		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
-	})
-
-	root := components.NewDiv()
-	root.SetSize(
-		layout.Unit{Type: layout.UnitPercent, Value: 100},
-		layout.Unit{Type: layout.UnitPercent, Value: 100},
-	)
-	root.AppendChild(outputDiv)
-	root.AppendChild(sepDiv)
-	root.AppendChild(inputDiv)
-	return root
+func CreateChatLayout(state *State) *components.Div {
+	return CreateSessionsLayout(state)
 }
 
 func CreateSplitLayout(state *State) *components.Div {
@@ -1016,8 +1050,16 @@ func CreateSessionsLayout(state *State) *components.Div {
 	inputDiv := newInputBoxDiv(
 		state.Editor,
 		layout.Unit{Type: layout.UnitPercent, Value: 100},
-		layout.Unit{Type: layout.UnitPercent, Value: 10},
+		layout.Unit{Type: layout.UnitPx, Value: 9},
+		chatStatusText(state),
 	)
+	inputDiv.SetPadding(layout.Padding{
+		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+		Top:    layout.Unit{Type: layout.UnitPx, Value: 0},
+		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
+	})
+	rightDiv.AlignItems(layout.ACenter)
 	rightDiv.AppendChild(chatDiv)
 	rightDiv.AppendChild(inputDiv)
 
@@ -1081,16 +1123,17 @@ func CreateNarrowSessionsLayout(state *State) *components.Div {
 	)
 	outputDiv.AppendChild(newChatLog(state))
 
-	sepDiv := newHorizontalRule(state)
-
 	inputDiv := newInputBoxDiv(
 		state.Editor,
 		layout.Unit{Type: layout.UnitPercent, Value: 100},
-		layout.Unit{Type: layout.UnitPercent, Value: 10},
+		layout.Unit{Type: layout.UnitPx, Value: 9},
+		chatStatusText(state),
 	)
 	inputDiv.SetPadding(layout.Padding{
-		Left:  layout.Unit{Type: layout.UnitPx, Value: 2},
-		Right: layout.Unit{Type: layout.UnitPx, Value: 2},
+		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
+		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
+		Top:    layout.Unit{Type: layout.UnitPx, Value: 0},
+		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
 	})
 
 	root := components.NewDiv()
@@ -1098,9 +1141,9 @@ func CreateNarrowSessionsLayout(state *State) *components.Div {
 		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitPercent, Value: 100},
 	)
+	root.AlignItems(layout.ACenter)
 	root.AppendChild(sessionsDiv)
 	root.AppendChild(outputDiv)
-	root.AppendChild(sepDiv)
 	root.AppendChild(inputDiv)
 	return root
 }
@@ -1115,15 +1158,20 @@ func CreateFullscreenLayout(state *State) *components.Div {
 const defaultLayoutJSON = `{
   "version": 1,
   "layouts": {
-    "default": {
+    "chat": {
       "type": "div",
       "size": { "width": "100%", "height": "100%" },
-      "direction": "column",
+      "direction": "row",
+      "min_width": "MinSplitLayoutWidth",
       "children": [
-        { "component": "chat_output", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27] } },
-        { "component": "status_separator", "size": { "width": "100%", "height": 1 } },
-        { "component": "editor", "size": { "width": "100%", "height": 5 }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [32, 30, 40], "foreground": [220, 218, 230] } }
-      ]
+        { "component": "sessions", "size": { "width": "15%", "height": "100%" } },
+        { "component": "vertical_status_separator", "size": { "width": 1, "height": "100%" } },
+        { "type": "div", "size": { "width": "grow", "height": "100%" }, "direction": "column", "align_items": "center", "padding": { "top": 0, "right": 0, "bottom": 0, "left": 0 }, "style": { "background": [22, 20, 27] }, "children": [
+          { "component": "chat_output", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 0, "right": 2, "bottom": 0, "left": 2 }, "style": { "background": [22, 20, 27] } },
+          { "component": "input_box", "size": { "width": "100%", "height": 9 }, "padding": { "top": 0, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27], "foreground": [220, 228, 216] } }
+        ] }
+      ],
+      "fallback": "narrow_chat"
     },
     "split": {
       "type": "div",
@@ -1141,21 +1189,6 @@ const defaultLayoutJSON = `{
       ],
       "fallback": "narrow_split"
     },
-    "sessions": {
-      "type": "div",
-      "size": { "width": "100%", "height": "100%" },
-      "direction": "row",
-      "min_width": "MinSplitLayoutWidth",
-      "children": [
-        { "component": "sessions", "size": { "width": "15%", "height": "100%" } },
-        { "component": "vertical_status_separator", "size": { "width": 1, "height": "100%" } },
-        { "type": "div", "size": { "width": "grow", "height": "100%" }, "direction": "column", "padding": { "top": 0, "right": 0, "bottom": 0, "left": 0 }, "style": { "background": [22, 20, 27] }, "children": [
-          { "component": "chat_output", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 0, "right": 2, "bottom": 0, "left": 2 }, "style": { "background": [22, 20, 27] } },
-          { "component": "input_box", "size": { "width": "100%", "height": "10%" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [15, 18, 16], "foreground": [220, 228, 216] } }
-        ] }
-      ],
-      "fallback": "narrow_sessions"
-    },
     "narrow_split": {
       "type": "div",
       "size": { "width": "100%", "height": "100%" },
@@ -1166,15 +1199,15 @@ const defaultLayoutJSON = `{
         { "component": "editor", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [32, 30, 40], "foreground": [220, 218, 230] } }
       ]
     },
-    "narrow_sessions": {
+    "narrow_chat": {
       "type": "div",
       "size": { "width": "100%", "height": "100%" },
       "direction": "column",
+      "align_items": "center",
       "children": [
         { "component": "sessions_horizontal", "size": { "width": "100%", "height": 3 } },
         { "component": "chat_output", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 0, "right": 2, "bottom": 0, "left": 2 }, "style": { "background": [22, 20, 27] } },
-        { "component": "status_separator", "size": { "width": "100%", "height": 1 } },
-        { "component": "input_box", "size": { "width": "100%", "height": "10%" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [15, 18, 16], "foreground": [220, 228, 216] } }
+        { "component": "input_box", "size": { "width": "100%", "height": 9 }, "padding": { "top": 0, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27], "foreground": [220, 228, 216] } }
       ]
     },
     "fullscreen": { "component": "fullscreen_view" }

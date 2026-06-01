@@ -25,6 +25,11 @@
       "name": "/sessions",
       "detail": "Open existing opencode sessions",
       "action": "sessions_list"
+    },
+    {
+      "name": "/model",
+      "detail": "Change the active model",
+      "action": "change_model"
     }
   ],
   "palette": {
@@ -60,6 +65,11 @@
         "title": "Layouts",
         "detail": "Select layout - current: {layout}",
         "action": "switch_layout"
+      },
+      {
+        "title": "Chat layout",
+        "detail": "Switch to chat layout",
+        "action": "chat_layout"
       },
       {
         "title": "Thinking visibility",
@@ -100,6 +110,9 @@
       "kind": "builtin"
     },
     "switch_layout": {
+      "kind": "builtin"
+    },
+    "chat_layout": {
       "kind": "builtin"
     },
     "cycle_thinking_visibility": {

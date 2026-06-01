@@ -28,6 +28,7 @@ const (
 	PaletteActionSelectBackend
 	PaletteActionLayoutsList
 	PaletteActionSelectLayout
+	PaletteActionChatLayout
 )
 
 type PaletteView int
@@ -58,11 +59,12 @@ const (
 )
 
 const (
-	LayoutDefault LayoutType = iota
-	LayoutFullscreen
+	LayoutChat LayoutType = iota
 	LayoutSplit
-	LayoutSessions
+	LayoutFullscreen
 )
+
+const LayoutDefault = LayoutChat
 
 const (
 	InfoViewAI InfoView = iota
@@ -82,9 +84,11 @@ type Message struct {
 }
 
 type SessionListItem struct {
-	ID      string
-	Title   string
-	Current bool
+	ID        string
+	Title     string
+	Directory string
+	Updated   int64
+	Current   bool
 }
 
 type ModelListItem struct {
@@ -196,7 +200,7 @@ func NewState(width int, height int) *State {
 }
 
 func defaultLayoutCycle() []LayoutType {
-	return []LayoutType{LayoutDefault, LayoutSplit, LayoutSessions, LayoutFullscreen}
+	return []LayoutType{LayoutChat, LayoutSplit, LayoutFullscreen}
 }
 
 func (s *State) SetAvailableLayouts(layouts []LayoutType) {
@@ -353,6 +357,8 @@ func (s *State) isEditorPoint(x, y int) bool {
 	}
 
 	switch s.EffectiveLayout() {
+	case LayoutChat:
+		return y >= s.height-3
 	case LayoutFullscreen:
 		return s.FullscreenShowsEditor()
 	case LayoutSplit:
@@ -362,10 +368,6 @@ func (s *State) isEditorPoint(x, y int) bool {
 		}
 		outputH := int(float64(s.height) * 0.5)
 		return y > outputH
-	case LayoutSessions:
-		return y >= s.height-int(float64(s.height)*0.1)
-	case LayoutDefault:
-		return y >= s.height-5
 	default:
 		return false
 	}
@@ -1179,12 +1181,10 @@ func (s *State) visibleLayoutItems() []LayoutType {
 
 func layoutLabel(layoutType LayoutType) string {
 	switch layoutType {
-	case LayoutDefault:
-		return "default"
+	case LayoutChat:
+		return "chat"
 	case LayoutSplit:
 		return "split"
-	case LayoutSessions:
-		return "sessions"
 	case LayoutFullscreen:
 		return "fullscreen"
 	default:
@@ -1192,14 +1192,26 @@ func layoutLabel(layoutType LayoutType) string {
 	}
 }
 
+// LayoutTypeFromString parses a layout name into a LayoutType.
+func LayoutTypeFromString(name string) LayoutType {
+	switch name {
+	case "chat":
+		return LayoutChat
+	case "split":
+		return LayoutSplit
+	case "fullscreen":
+		return LayoutFullscreen
+	default:
+		return LayoutDefault
+	}
+}
+
 func layoutTitle(layoutType LayoutType) string {
 	switch layoutType {
-	case LayoutDefault:
-		return "Default"
+	case LayoutChat:
+		return "Chat"
 	case LayoutSplit:
 		return "Split"
-	case LayoutSessions:
-		return "Sessions"
 	case LayoutFullscreen:
 		return "Fullscreen"
 	default:

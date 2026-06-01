@@ -1,4 +1,4 @@
-default_layout = "split"
+default_layout = "chat"
 hide_thinking = true
 
 # Backend provider: "opencode" or "codex".
@@ -11,7 +11,7 @@ provider = "opencode"
 # opencode_server_url = "http://127.0.0.1:4096"
 
 [split]
-left_width = 50
+left_width = 30
 
 [harnesses]
 opencode_server = "*"

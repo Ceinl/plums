@@ -33,7 +33,7 @@ func TestSessionMouseDownQueuesSelectSessionAction(t *testing.T) {
 	sessions.Layout(0, 0, 30, 10)
 	sessions.Render(screen.NewScreen(80, 24))
 
-	if !state.SessionMouseDown(1, 3) {
+	if !state.SessionMouseDown(1, 4) {
 		t.Fatalf("expected session mouse hit")
 	}
 	if got := state.ConsumePendingAction(); got != PaletteActionSelectSession {
