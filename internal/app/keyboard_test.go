@@ -216,6 +216,50 @@ func TestCtrlTDoesNotCycleOutputPanels(t *testing.T) {
 	}
 }
 
+func TestArrowKeysNavigateEditorDropdown(t *testing.T) {
+	state := NewState(80, 24)
+	state.Editor.SetContent("/")
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyArrowDown}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected dropdown arrow down handled, handled=%v quit=%v", handled, quit)
+	}
+	if got := state.DropdownIndex; got != 1 {
+		t.Fatalf("expected dropdown index 1, got %d", got)
+	}
+	if got := state.Editor.GetContent(); got != "/" {
+		t.Fatalf("expected editor content unchanged, got %q", got)
+	}
+	if got := state.Editor.Cursor.Pos.Col; got != 1 {
+		t.Fatalf("expected cursor not to move, got col %d", got)
+	}
+
+	handled, quit = HandleKey(state, keyboard.Event{Type: keyboard.KeyArrowUp}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected dropdown arrow up handled, handled=%v quit=%v", handled, quit)
+	}
+	if got := state.DropdownIndex; got != 0 {
+		t.Fatalf("expected dropdown index 0, got %d", got)
+	}
+}
+
+func TestEnterSelectsEditorDropdownItem(t *testing.T) {
+	state := NewState(80, 24)
+	state.Editor.SetContent("/")
+	state.MoveEditorDropdown(1)
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected dropdown enter handled, handled=%v quit=%v", handled, quit)
+	}
+	if got := state.Editor.GetContent(); got != "/command" {
+		t.Fatalf("expected selected command inserted, got %q", got)
+	}
+	if got := state.DropdownIndex; got != 0 {
+		t.Fatalf("expected dropdown index reset, got %d", got)
+	}
+}
+
 func TestMouseDragCopiesOutputSelection(t *testing.T) {
 	state := NewState(80, 24)
 	state.Layout = LayoutDefault

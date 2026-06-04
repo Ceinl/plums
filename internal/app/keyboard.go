@@ -76,6 +76,23 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		return true, false
 	}
 
+	if state.EditorDropdownOpen() {
+		switch ev.Type {
+		case keyboard.KeyEscape:
+			state.CloseEditorDropdown()
+			return true, false
+		case keyboard.KeyArrowUp, keyboard.KeyArrowLeft:
+			state.MoveEditorDropdown(-1)
+			return true, false
+		case keyboard.KeyArrowDown, keyboard.KeyArrowRight:
+			state.MoveEditorDropdown(1)
+			return true, false
+		case keyboard.KeyEnter:
+			state.SelectEditorDropdownItem()
+			return true, false
+		}
+	}
+
 	switch ev.Type {
 	case keyboard.KeyEnter:
 		if state.EffectiveLayout() == LayoutSplit {
@@ -94,6 +111,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		state.SubmitInput()
 		return true, false
 	case keyboard.KeyBackspace:
+		state.ShowEditorDropdown()
 		if ev.Alt || ev.Ctrl {
 			ed.DeleteWordBackward()
 		} else {
@@ -101,6 +119,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		}
 		return true, false
 	case keyboard.KeyDelete:
+		state.ShowEditorDropdown()
 		if ev.Alt || ev.Ctrl {
 			ed.DeleteWordForward()
 		} else {
@@ -124,6 +143,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		ed.InsertRune('\t')
 		return true, false
 	case keyboard.KeyPaste:
+		state.ShowEditorDropdown()
 		ed.InsertString(ev.Text)
 		return true, false
 	case keyboard.KeyEscape:
@@ -188,6 +208,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 			// Don't insert Alt-modified characters into the editor.
 			return false, false
 		}
+		state.ShowEditorDropdown()
 		ed.InsertRune(ev.Ch)
 		return true, false
 	case keyboard.KeyArrowLeft:
