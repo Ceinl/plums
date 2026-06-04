@@ -159,6 +159,9 @@ func newInfoTabs(state *State) *components.Div {
 
 func newSessions(state *State, orientation components.SessionsOrientation) *components.Sessions {
 	sessions := state.Sessions()
+	if orientation == components.SessionsHorizontal {
+		sessions = state.SessionsHorizontal()
+	}
 	sessions.SetOrientation(orientation)
 	items := make([]components.SessionItem, 0, len(state.SessionItems)+1)
 	foundCurrent := false

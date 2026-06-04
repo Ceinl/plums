@@ -180,6 +180,7 @@ type State struct {
 	chatLog  *components.ChatLog
 	diffLog  *components.DiffLog
 	sessions *components.Sessions
+	sessionsHorizontal *components.Sessions
 
 	outputMouseSelecting bool
 }
@@ -345,6 +346,12 @@ func (s *State) ScrollOutputVisible(delta int) bool {
 }
 
 func (s *State) ScrollAt(x, y, delta int) bool {
+	if s.sessions != nil && s.sessions.Contains(x, y) {
+		return s.sessions.Scroll(delta)
+	}
+	if s.sessionsHorizontal != nil && s.sessionsHorizontal.Contains(x, y) {
+		return s.sessionsHorizontal.Scroll(delta)
+	}
 	if s.isEditorPoint(x, y) {
 		return s.Editor.Scroll(delta)
 	}
@@ -1288,8 +1295,19 @@ func (s *State) Sessions() *components.Sessions {
 	return s.sessions
 }
 
+func (s *State) SessionsHorizontal() *components.Sessions {
+	if s.sessionsHorizontal == nil {
+		s.sessionsHorizontal = components.NewSessions(components.SessionsHorizontal)
+	}
+	return s.sessionsHorizontal
+}
+
 func (s *State) SessionMouseDown(x, y int) bool {
-	action, id, ok := s.Sessions().MouseDown(x, y)
+	sessions := s.Sessions()
+	if s.sessionsHorizontal != nil && s.sessionsHorizontal.Contains(x, y) {
+		sessions = s.sessionsHorizontal
+	}
+	action, id, ok := sessions.MouseDown(x, y)
 	if !ok {
 		return false
 	}
@@ -1299,8 +1317,6 @@ func (s *State) SessionMouseDown(x, y int) bool {
 	s.PendingAction = PaletteActionNone
 	s.PaletteIndex = 0
 	switch action {
-	case components.SessionMouseNew:
-		s.PendingAction = PaletteActionNewSession
 	case components.SessionMouseSelect:
 		if id == "" || id == s.SessionID {
 			return true
