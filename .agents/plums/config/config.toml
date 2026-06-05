@@ -1,5 +1,5 @@
 default_layout = "chat"
-hide_thinking = true
+hide_thinking = false
 
 # Backend provider: "opencode" or "codex".
 [backend]

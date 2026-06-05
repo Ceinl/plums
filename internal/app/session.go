@@ -55,6 +55,20 @@ func applyRecentModel(ctx context.Context, state *State, client adapter.Backend,
 	}
 }
 
+func latestSessionForDirectory(sessions []adapter.Session, directory string) *adapter.Session {
+	var latest *adapter.Session
+	for i := range sessions {
+		session := &sessions[i]
+		if session.Directory != directory {
+			continue
+		}
+		if latest == nil || session.Time.Updated > latest.Time.Updated {
+			latest = session
+		}
+	}
+	return latest
+}
+
 func sessionDisplayName(session *adapter.Session) string {
 	if session == nil || session.Title == "" {
 		if session == nil {
@@ -91,6 +105,21 @@ func ensureSession(ctx context.Context, state *State, client adapter.Backend, cf
 			return fmt.Errorf("failed to get working directory: %w", err)
 		}
 	}
+	listCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
+	sessions, err := client.ListSessions(listCtx)
+	cancel()
+	if err == nil {
+		if session := latestSessionForDirectory(sessions, wd); session != nil {
+			applySession(state, session)
+			if session.Model == nil && state.ModelID == "" {
+				applyRecentModel(ctx, state, client, cfg)
+			}
+			return nil
+		}
+	} else {
+		debuglog.Printf("session: startup session lookup failed: %v", err)
+	}
+
 	sessionCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
 	defer cancel()
 	session, err := client.CreateSession(sessionCtx, wd)

@@ -66,7 +66,12 @@ func TestSessionsVerticalGroupsByDirectory(t *testing.T) {
 	// row 7: 1-line gap
 	// row 8: "Alpha" (s1) card
 
-	action, id, ok := sessions.MouseDown(1, 2)
+	action, id, ok := sessions.MouseDown(1, 0)
+	if !ok || action != SessionMouseNew || id != "" {
+		t.Fatalf("expected new session hit, got ok=%v action=%v id=%q", ok, action, id)
+	}
+
+	action, id, ok = sessions.MouseDown(1, 2)
 	if ok {
 		t.Fatalf("expected no hit on directory header, got ok=%v action=%v id=%q", ok, action, id)
 	}

@@ -159,6 +159,9 @@ func newInfoTabs(state *State) *components.Div {
 
 func newSessions(state *State, orientation components.SessionsOrientation) *components.Sessions {
 	sessions := state.Sessions()
+	if orientation == components.SessionsHorizontal {
+		sessions = state.SessionsHorizontal()
+	}
 	sessions.SetOrientation(orientation)
 	items := make([]components.SessionItem, 0, len(state.SessionItems)+1)
 	foundCurrent := false
@@ -565,7 +568,67 @@ func renderEditorDropdown(state *State, cfg *RenderConfig) {
 		renderSkillDropdown(state, cfg, suggestions)
 		return
 	}
+	if suggestions := state.FileCommandSuggestions(); len(suggestions) > 0 {
+		renderFileCommandDropdown(state, cfg, suggestions)
+		return
+	}
 	renderSlashCommandDropdown(state, cfg)
+}
+
+func renderFileCommandDropdown(state *State, cfg *RenderConfig, suggestions []FileCommandSuggestion) {
+	cx, cy := state.Editor.CursorScreenPos()
+	overlay := cfg.Overlays["slash_command_dropdown"]
+	w := overlay.Width.Preferred
+	if w == 0 {
+		w = 44
+	}
+	maxW := resolveOverlayMax(state, overlay.Width.Max, state.width-2)
+	if w > maxW {
+		w = maxW
+	}
+	minW := overlay.Width.Min
+	if minW == 0 {
+		minW = 20
+	}
+	if w < minW {
+		return
+	}
+	x := cx
+	if x+w > state.width {
+		x = state.width - w
+	}
+	if x < 0 {
+		x = 0
+	}
+	y := cy + 1
+	if y+len(suggestions)+1 > state.height {
+		y = cy - len(suggestions) - 1
+	}
+	if y < 0 {
+		return
+	}
+
+	bg := ansiBgColor(overlay.Style.Background, 30, 27, 38)
+	fg := ansiFgColor(overlay.Style.Foreground, 232, 229, 241)
+	muted := ansiFgColor(overlay.Style.Muted, 159, 153, 176)
+	accent := ansiFgColor(overlay.Style.Accent, 247, 184, 90)
+	activeBg := ansiBg(48, 43, 61)
+	for row := 0; row < len(suggestions)+1 && y+row < state.height; row++ {
+		for col := 0; col < w; col++ {
+			scr.Set(x+col, y+row, ' ', fg, bg, "")
+		}
+	}
+	drawOverlayText(x+1, y, w-2, "file paths", muted, bg)
+	active := state.ActiveEditorDropdownIndex(len(suggestions))
+	for i, suggestion := range suggestions {
+		row := y + i + 1
+		rowBg := bg
+		if i == active {
+			rowBg = activeBg
+			drawOverlayFill(x, row, w, rowBg)
+		}
+		drawOverlayText(x+1, row, w-2, "@"+suggestion.Path, accent, rowBg)
+	}
 }
 
 func renderSlashCommandDropdown(state *State, cfg *RenderConfig) {
@@ -610,18 +673,25 @@ func renderSlashCommandDropdown(state *State, cfg *RenderConfig) {
 	fg := ansiFgColor(overlay.Style.Foreground, 232, 229, 241)
 	muted := ansiFgColor(overlay.Style.Muted, 159, 153, 176)
 	accent := ansiFgColor(overlay.Style.Accent, 247, 184, 90)
+	activeBg := ansiBg(48, 43, 61)
 	for row := 0; row < len(commands)+1 && y+row < state.height; row++ {
 		for col := 0; col < w; col++ {
 			scr.Set(x+col, y+row, ' ', fg, bg, "")
 		}
 	}
 	drawOverlayText(x+1, y, w-2, "slash commands", muted, bg)
+	active := state.ActiveEditorDropdownIndex(len(commands))
 	for i, command := range commands {
 		row := y + i + 1
-		drawOverlayText(x+1, row, w-2, command.Name, accent, bg)
+		rowBg := bg
+		if i == active {
+			rowBg = activeBg
+			drawOverlayFill(x, row, w, rowBg)
+		}
+		drawOverlayText(x+1, row, w-2, command.Name, accent, rowBg)
 		detailX := x + 2 + len(command.Name)
 		if detailX < x+w-1 {
-			drawOverlayText(detailX, row, x+w-detailX-1, command.Detail, muted, bg)
+			drawOverlayText(detailX, row, x+w-detailX-1, command.Detail, muted, rowBg)
 		}
 	}
 }
@@ -667,20 +737,35 @@ func renderSkillDropdown(state *State, cfg *RenderConfig, skills []SkillSuggesti
 	fg := ansiFgColor(overlay.Style.Foreground, 232, 229, 241)
 	muted := ansiFgColor(overlay.Style.Muted, 159, 153, 176)
 	accent := ansiFgColor(overlay.Style.Accent, 247, 184, 90)
+	activeBg := ansiBg(48, 43, 61)
 	for row := 0; row < visible+1 && y+row < state.height; row++ {
 		for col := 0; col < w; col++ {
 			scr.Set(x+col, y+row, ' ', fg, bg, "")
 		}
 	}
 	drawOverlayText(x+1, y, w-2, "skills", muted, bg)
+	active := state.ActiveEditorDropdownIndex(len(skills))
+	start := active - visible/2
+	if start < 0 {
+		start = 0
+	}
+	if start+visible > len(skills) {
+		start = len(skills) - visible
+	}
 	for i := 0; i < visible; i++ {
-		skill := skills[i]
+		idx := start + i
+		skill := skills[idx]
 		row := y + i + 1
 		name := "/skill " + skill.Name
-		drawOverlayText(x+1, row, w-2, name, accent, bg)
+		rowBg := bg
+		if idx == active {
+			rowBg = activeBg
+			drawOverlayFill(x, row, w, rowBg)
+		}
+		drawOverlayText(x+1, row, w-2, name, accent, rowBg)
 		detailX := x + 2 + len(name)
 		if detailX < x+w-1 {
-			drawOverlayText(detailX, row, x+w-detailX-1, skill.Description, muted, bg)
+			drawOverlayText(detailX, row, x+w-detailX-1, skill.Description, muted, rowBg)
 		}
 	}
 }
@@ -695,7 +780,7 @@ func overlayEnabled(state *State, cfg *RenderConfig, name string) bool {
 	}
 	switch name {
 	case "slash_command_dropdown":
-		return !state.PopupOpen && (len(state.SlashCommands()) > 0 || len(state.SkillSuggestions()) > 0)
+		return !state.PopupOpen && state.EditorDropdownOpen()
 	case "command_palette_popup":
 		return state.PopupOpen && (state.EffectiveLayout() != LayoutSplit || state.width < MinSplitLayoutWidth)
 	default:
@@ -724,6 +809,13 @@ func drawOverlayText(x, y, maxW int, text, fg, bg string) {
 			return
 		}
 		scr.Set(x+i, y, r, fg, bg, "")
+	}
+}
+
+func drawOverlayFill(x, y, w int, bg string) {
+	fg := ansiFg(232, 229, 241)
+	for i := 0; i < w; i++ {
+		scr.Set(x+i, y, ' ', fg, bg, "")
 	}
 }
 

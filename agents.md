@@ -1,15 +1,12 @@
-Do not edit anything unless you were directly asked to
+On changing/creating layout, command, kaybinding or runtime edit cofig file in `.agents/plums/config` first, edit defaults only if necesary.
+On creating new backend provider every provider related changes have to be only in privider package inside priveder folder. Do not change logic of provider package unless necesary
 
-Produce plans in html websites for user to read is plan is robust and multistep
+This project is a VERT EARLY WIP. Maintain structure, and propose change that improve long-term maintainability is encouraged
+Prioritates:
+    1. Performance first 
+    2. Configurability first 
+    3. Reliability first
 
-When changing layout, command, keybinding, or runtime config behavior, edit the
-active project config files in `.agents/plums/config/` first. Update
-`internal/app/defaults/` only when the built-in templates also need to change.
-
-If this is first prompt in session, evaluate complexity of task and offer one off
-    1) Stay on current branch
-    2) Create new branch
-    3) Create new worktree
 
 terms:
     *you* - Agent, llm
@@ -27,7 +24,6 @@ internal/
 │   └── api.go                 ← wiring layer: Config, RegisterFlags, Run()
 ├── app/
 │   ├── run.go                 ← main event loop
-│   ├── cli.go                 ← CLI flag structs
 │   ├── config.go              ← config path resolution & TOML parsing
 │   ├── version.go             ← version metadata helpers
 │   ├── keyboard.go            ← HandleKey + copyEditorSelection

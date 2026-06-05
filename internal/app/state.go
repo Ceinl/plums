@@ -122,9 +122,27 @@ type SlashCommand struct {
 	Action PaletteAction
 }
 
+type FileCommandSuggestion struct {
+	Path string
+}
+
 type SkillSuggestion struct {
 	Name        string
 	Description string
+}
+
+type editorDropdownKind int
+
+const (
+	editorDropdownNone editorDropdownKind = iota
+	editorDropdownSlash
+	editorDropdownFile
+	editorDropdownSkill
+)
+
+type editorDropdownItem struct {
+	Value  string
+	Detail string
 }
 
 type QuestionOptionItem struct {
@@ -156,6 +174,8 @@ type State struct {
 	ServerReady     bool
 	PopupOpen       bool
 	PaletteIndex    int
+	DropdownIndex   int
+	DropdownHidden  bool
 	PaletteView     PaletteView
 	PaletteQuery    string
 	PendingAction   PaletteAction
@@ -176,10 +196,12 @@ type State struct {
 	OutputPercent   int
 	submittedInput  string
 	commandConfig   *CommandConfig
+	projectFiles    []string
 
-	chatLog  *components.ChatLog
-	diffLog  *components.DiffLog
-	sessions *components.Sessions
+	chatLog            *components.ChatLog
+	diffLog            *components.DiffLog
+	sessions           *components.Sessions
+	sessionsHorizontal *components.Sessions
 
 	outputMouseSelecting bool
 }
@@ -345,6 +367,12 @@ func (s *State) ScrollOutputVisible(delta int) bool {
 }
 
 func (s *State) ScrollAt(x, y, delta int) bool {
+	if s.sessions != nil && s.sessions.Contains(x, y) {
+		return s.sessions.Scroll(delta)
+	}
+	if s.sessionsHorizontal != nil && s.sessionsHorizontal.Contains(x, y) {
+		return s.sessionsHorizontal.Scroll(delta)
+	}
 	if s.isEditorPoint(x, y) {
 		return s.Editor.Scroll(delta)
 	}
@@ -753,6 +781,64 @@ func (s *State) InsertPaletteRune(ch rune) {
 	s.ensurePaletteSelection()
 }
 
+func (s *State) EditorDropdownOpen() bool {
+	if s.DropdownHidden {
+		return false
+	}
+	_, items := s.editorDropdownItems()
+	return len(items) > 0
+}
+
+func (s *State) MoveEditorDropdown(delta int) bool {
+	_, items := s.editorDropdownItems()
+	if len(items) == 0 {
+		s.DropdownIndex = 0
+		return false
+	}
+	s.DropdownIndex = (s.DropdownIndex + delta + len(items)) % len(items)
+	return true
+}
+
+func (s *State) SelectEditorDropdownItem() bool {
+	kind, items := s.editorDropdownItems()
+	if len(items) == 0 {
+		s.DropdownIndex = 0
+		return false
+	}
+	if s.DropdownIndex < 0 || s.DropdownIndex >= len(items) {
+		s.DropdownIndex = 0
+	}
+	selected := items[s.DropdownIndex]
+	s.DropdownIndex = 0
+	s.DropdownHidden = false
+	s.replaceActiveEditorDropdown(kind, selected.Value)
+	return true
+}
+
+func (s *State) CloseEditorDropdown() bool {
+	if !s.EditorDropdownOpen() {
+		return false
+	}
+	s.DropdownIndex = 0
+	s.DropdownHidden = true
+	return true
+}
+
+func (s *State) ShowEditorDropdown() {
+	s.DropdownHidden = false
+}
+
+func (s *State) ActiveEditorDropdownIndex(total int) int {
+	if total <= 0 {
+		s.DropdownIndex = 0
+		return 0
+	}
+	if s.DropdownIndex < 0 || s.DropdownIndex >= total {
+		s.DropdownIndex = 0
+	}
+	return s.DropdownIndex
+}
+
 func (s *State) DeletePaletteRune() bool {
 	if s.PaletteQuery == "" {
 		return false
@@ -785,15 +871,90 @@ func clampInt(v, min, max int) int {
 }
 
 func (s *State) SlashCommands() []SlashCommand {
-	input := s.Editor.GetContent()
-	if !strings.HasPrefix(input, "/") || strings.Contains(input, "\n") {
+	_, ctx, ok := s.activeCommand("/")
+	if !ok || strings.Contains(ctx.Query, "\n") {
 		return nil
 	}
+	input := "/" + ctx.Query
 
 	items := make([]SlashCommand, 0, len(s.commandConfig.SlashCommands))
 	for _, command := range s.commandConfig.SlashCommands {
 		if strings.HasPrefix(command.Name, input) {
 			items = append(items, SlashCommand{Name: command.Name, Detail: command.Detail, Action: s.commandConfig.actionFor(command.Action)})
+		}
+	}
+	return items
+}
+
+func (s *State) editorDropdownItems() (editorDropdownKind, []editorDropdownItem) {
+	if skills := s.SkillSuggestions(); len(skills) > 0 {
+		items := make([]editorDropdownItem, len(skills))
+		for i, skill := range skills {
+			items[i] = editorDropdownItem{Value: skill.Name, Detail: skill.Description}
+		}
+		return editorDropdownSkill, items
+	}
+	if files := s.FileCommandSuggestions(); len(files) > 0 {
+		items := make([]editorDropdownItem, len(files))
+		for i, file := range files {
+			items[i] = editorDropdownItem{Value: file.Path}
+		}
+		return editorDropdownFile, items
+	}
+	commands := s.SlashCommands()
+	if len(commands) > 0 {
+		items := make([]editorDropdownItem, len(commands))
+		for i, command := range commands {
+			items[i] = editorDropdownItem{Value: command.Name, Detail: command.Detail}
+		}
+		return editorDropdownSlash, items
+	}
+	return editorDropdownNone, nil
+}
+
+func (s *State) replaceActiveEditorDropdown(kind editorDropdownKind, value string) {
+	switch kind {
+	case editorDropdownSkill:
+		s.Editor.SetContent("/skill " + value)
+	case editorDropdownFile:
+		_, ctx, ok := s.activeCommand("@")
+		if !ok {
+			return
+		}
+		s.replaceEditorRange(ctx.TriggerStart, ctx.CursorIndex, "@"+value)
+	case editorDropdownSlash:
+		_, ctx, ok := s.activeCommand("/")
+		if !ok {
+			return
+		}
+		s.replaceEditorRange(ctx.TriggerStart, ctx.CursorIndex, value)
+	}
+}
+
+func (s *State) replaceEditorRange(start, end int, replacement string) {
+	content := s.Editor.GetContent()
+	if start < 0 || end < start || end > len(content) {
+		return
+	}
+	s.Editor.SetContent(content[:start] + replacement + content[end:])
+}
+
+func (s *State) FileCommandSuggestions() []FileCommandSuggestion {
+	_, ctx, ok := s.activeCommand("@")
+	if !ok {
+		return nil
+	}
+	if s.projectFiles == nil {
+		s.projectFiles = projectFilePaths(".", 5000)
+	}
+	query := normalizedQuery(ctx.Query)
+	items := make([]FileCommandSuggestion, 0, 12)
+	for _, path := range s.projectFiles {
+		if query == "" || paletteMatches(query, path) {
+			items = append(items, FileCommandSuggestion{Path: path})
+			if len(items) >= 12 {
+				break
+			}
 		}
 	}
 	return items
@@ -1288,8 +1449,19 @@ func (s *State) Sessions() *components.Sessions {
 	return s.sessions
 }
 
+func (s *State) SessionsHorizontal() *components.Sessions {
+	if s.sessionsHorizontal == nil {
+		s.sessionsHorizontal = components.NewSessions(components.SessionsHorizontal)
+	}
+	return s.sessionsHorizontal
+}
+
 func (s *State) SessionMouseDown(x, y int) bool {
-	action, id, ok := s.Sessions().MouseDown(x, y)
+	sessions := s.Sessions()
+	if s.sessionsHorizontal != nil && s.sessionsHorizontal.Contains(x, y) {
+		sessions = s.sessionsHorizontal
+	}
+	action, id, ok := sessions.MouseDown(x, y)
 	if !ok {
 		return false
 	}
@@ -1383,10 +1555,22 @@ func (s *State) ToggleMode() {
 
 func (s *State) runEditorCommand(input string) bool {
 	line := strings.TrimSpace(input)
-	if !strings.HasPrefix(line, ">") && !strings.HasPrefix(line, "/") {
+	if strings.HasPrefix(line, "/") {
+		command, ctx, ok := s.activeCommand("/")
+		if !ok || command.HandlerFunction == nil {
+			return false
+		}
+		return command.HandlerFunction(s, ctx)
+	}
+	if !strings.HasPrefix(line, ">") {
 		return false
 	}
 	command := strings.ToLower(strings.TrimSpace(line[1:]))
+	return s.runSlashCommand(command)
+}
+
+func (s *State) runSlashCommand(command string) bool {
+	command = strings.ToLower(strings.TrimSpace(command))
 	switch command {
 	case "clear":
 		s.Editor.SetContent("")

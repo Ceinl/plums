@@ -334,6 +334,28 @@ func TestSkillSuggestionsAfterSkillDirective(t *testing.T) {
 	}
 }
 
+func TestFileCommandSuggestionsAtFirstCharOrAfterWhitespace(t *testing.T) {
+	state := NewState(80, 24)
+	state.projectFiles = []string{"README.md", "internal/app/state.go"}
+
+	state.Editor.SetContent("@READ")
+	suggestions := state.FileCommandSuggestions()
+	if len(suggestions) != 1 || suggestions[0].Path != "README.md" {
+		t.Fatalf("expected @ at first char to suggest README.md, got %#v", suggestions)
+	}
+
+	state.Editor.SetContent("open @state")
+	suggestions = state.FileCommandSuggestions()
+	if len(suggestions) != 1 || suggestions[0].Path != "internal/app/state.go" {
+		t.Fatalf("expected @ after whitespace to suggest state.go, got %#v", suggestions)
+	}
+
+	state.Editor.SetContent("email@example")
+	if suggestions := state.FileCommandSuggestions(); len(suggestions) != 0 {
+		t.Fatalf("expected @ without leading whitespace ignored, got %#v", suggestions)
+	}
+}
+
 func TestDiscoverSkillsFindsOpenCodeCompatibleSkill(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", filepath.Join(dir, "home"))
