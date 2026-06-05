@@ -339,12 +339,13 @@ func TestFileCommandSuggestionsAtFirstCharOrAfterWhitespace(t *testing.T) {
 	state.projectFiles = []string{"README.md", "internal/app/state.go"}
 
 	state.Editor.SetContent("@READ")
-	if suggestions := state.FileCommandSuggestions(); len(suggestions) != 0 {
-		t.Fatalf("expected @ at first char ignored, got %#v", suggestions)
+	suggestions := state.FileCommandSuggestions()
+	if len(suggestions) != 1 || suggestions[0].Path != "README.md" {
+		t.Fatalf("expected @ at first char to suggest README.md, got %#v", suggestions)
 	}
 
 	state.Editor.SetContent("open @state")
-	suggestions := state.FileCommandSuggestions()
+	suggestions = state.FileCommandSuggestions()
 	if len(suggestions) != 1 || suggestions[0].Path != "internal/app/state.go" {
 		t.Fatalf("expected @ after whitespace to suggest state.go, got %#v", suggestions)
 	}

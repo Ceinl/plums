@@ -40,7 +40,7 @@ func (s *State) registeredCommands() []Command {
 		{
 			Name:            "FilePathCommand",
 			Trigger:         "@",
-			Conditions:      []CommandCondition{CommandAfterWhitespace},
+			Conditions:      []CommandCondition{CommandAfterWhitespaceOrLineStart},
 			HandlerFunction: nil,
 		},
 	}
@@ -50,8 +50,11 @@ func CommandAtFirstChar(ctx CommandContext) bool {
 	return ctx.TriggerStart == 0
 }
 
-func CommandAfterWhitespace(ctx CommandContext) bool {
-	if ctx.TriggerStart <= 0 {
+func CommandAfterWhitespaceOrLineStart(ctx CommandContext) bool {
+	if ctx.TriggerStart == 0 {
+		return true
+	}
+	if ctx.TriggerStart < 0 {
 		return false
 	}
 	previous := []rune(ctx.Input[:ctx.TriggerStart])
