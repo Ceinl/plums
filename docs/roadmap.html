@@ -1,240 +1,296 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Plums Roadmap</title>
-  <style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plums 1.0 Roadmap</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #faf8f4;
+    --panel: #fffdf9;
+    --ink: #211d26;
+    --muted: #716a7b;
+    --line: #e7ded4;
+    --accent: #7b3ff2;
+    --accent-2: #c17817;
+    --good: #16803c;
+    --warn: #ba5c00;
+    --bad: #b42318;
+    --code-bg: #f0ebe5;
+  }
+
+  @media (prefers-color-scheme: dark) {
     :root {
-      color-scheme: dark;
-      --bg: #0f0e12;
-      --text: #eeeaf3;
-      --muted: #a9a2b7;
-      --faint: #686174;
-      --line: #2a2631;
-      --accent: #e0aa5f;
-      --risk: #ef7d7d;
-      --ok: #8fd7a4;
+      --bg: #16131c;
+      --panel: #201b29;
+      --ink: #ece7f3;
+      --muted: #b2a9bd;
+      --line: #342c40;
+      --accent: #b797ff;
+      --accent-2: #f0b766;
+      --good: #6fdb95;
+      --warn: #ffbd73;
+      --bad: #ff8f86;
+      --code-bg: #2b2534;
     }
+  }
 
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif;
-      font-size: 18px;
-      line-height: 1.58;
-    }
-
-    main {
-      width: min(820px, calc(100% - 40px));
-      margin: 0 auto;
-      padding: 72px 0 96px;
-    }
-
-    header {
-      padding-bottom: 36px;
-      border-bottom: 1px solid var(--line);
-      margin-bottom: 40px;
-    }
-
-    h1 {
-      margin: 0;
-      color: var(--text);
-      font-size: clamp(3rem, 10vw, 7rem);
-      line-height: 0.9;
-      letter-spacing: -0.075em;
-      font-weight: 500;
-    }
-
-    h2 {
-      margin: 56px 0 14px;
-      color: var(--text);
-      font-size: 1.15rem;
-      line-height: 1.2;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-weight: 600;
-    }
-
-    p {
-      max-width: 660px;
-      margin: 18px 0 0;
-      color: var(--muted);
-    }
-
-    ul {
-      margin: 0;
-      padding: 0;
-      list-style: none;
-      border-top: 1px solid var(--line);
-    }
-
-    li {
-      position: relative;
-      padding: 13px 0 13px 34px;
-      border-bottom: 1px solid var(--line);
-      color: var(--muted);
-    }
-
-    li::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 24px;
-      width: 10px;
-      height: 1px;
-      background: var(--accent);
-    }
-
-    code {
-      color: var(--text);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 0.82em;
-      background: #19171f;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      padding: 0.08rem 0.32rem;
-    }
-
-    .meta {
-      margin-top: 28px;
-      color: var(--faint);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 0.82rem;
-      letter-spacing: 0.02em;
-    }
-
-    .risk {
-      color: var(--risk);
-    }
-
-    .ok {
-      color: var(--ok);
-    }
-
-    @media (max-width: 640px) {
-      body {
-        font-size: 16px;
-      }
-
-      main {
-        width: min(100% - 28px, 820px);
-        padding: 44px 0 72px;
-      }
-
-      header {
-        margin-bottom: 28px;
-      }
-
-      h2 {
-        margin-top: 42px;
-      }
-    }
-  </style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(circle at top left, rgba(123, 63, 242, .12), transparent 32rem), var(--bg);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.6;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+  header { margin-bottom: 2rem; }
+  h1 { font-size: clamp(2rem, 5vw, 4rem); line-height: 1; margin: 0 0 1rem; letter-spacing: -.04em; }
+  h2 { margin: 2.5rem 0 1rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--accent); }
+  h3 { margin: 0 0 .35rem; }
+  p { margin: .65rem 0; }
+  ul, ol { padding-left: 1.35rem; }
+  li { margin: .35rem 0; }
+  code { background: var(--code-bg); padding: .12rem .35rem; border-radius: .35rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; overflow: hidden; border-radius: .75rem; }
+  th, td { border: 1px solid var(--line); padding: .75rem; text-align: left; vertical-align: top; }
+  th { background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+  .lead { color: var(--muted); font-size: 1.15rem; max-width: 780px; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+  .card, .phase, .note {
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+    padding: 1rem;
+    box-shadow: 0 16px 40px rgba(20, 14, 30, .06);
+  }
+  .card strong { display: block; font-size: 1.7rem; line-height: 1; margin-bottom: .4rem; color: var(--accent); }
+  .status { display: inline-block; border-radius: 999px; padding: .2rem .6rem; font-size: .78rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .done { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+  .risk { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+  .blocker { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+  .phase { border-left: .35rem solid var(--accent); margin: 1rem 0; }
+  .phase.must { border-left-color: var(--bad); }
+  .phase.should { border-left-color: var(--warn); }
+  .phase.could { border-left-color: var(--good); }
+  .note { border-left: .35rem solid var(--accent-2); }
+  .muted { color: var(--muted); }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } main { padding-top: 2rem; } }
+</style>
 </head>
 <body>
-  <main>
-    <header>
-      <h1>Plums</h1>
-    </header>
+<main>
+  <header>
+    <p class="status risk">Current target: beta to 1.0</p>
+    <h1>Plums 1.0 Roadmap</h1>
+    <p class="lead">Plums already has a usable core: terminal UI, streaming chat, configurable layouts and commands, sessions, models, skills, tool rendering, questions, and multiple backend providers. The path to 1.0 is mostly about reliability, documentation, configuration safety, and clear provider contracts rather than adding many new widgets.</p>
+  </header>
 
-    <h2>Current Status</h2>
-    <ul>
-      <li><span class="risk">Not ready for beta deploy yet.</span></li>
-      <li>Close enough for internal alpha usage, but beta should wait until the core logic blockers below are fixed and verified in a clean worktree.</li>
-      <li>The current branch is <code>main</code>.</li>
-      <li><code>go test ./...</code>, <code>go build ./...</code>, and <code>go test -race ./...</code> all pass locally.</li>
-      <li><code>internal/harness</code> is experimental and outside beta scope.</li>
-    </ul>
+  <section class="grid" aria-label="release summary">
+    <div class="card">
+      <strong>Usable</strong>
+      <p>Core prompt, stream, session, layout, model, skill, and backend flows exist and are covered by tests.</p>
+    </div>
+    <div class="card">
+      <strong>Not 1.0</strong>
+      <p>Some internals are still prototype-grade: fake agent registry, partial TOML parsing, sparse docs, and mixed provider maturity.</p>
+    </div>
+    <div class="card">
+      <strong>Focus</strong>
+      <p>Stabilize current behavior first. Keep scope small, explicit, configurable, and provider-safe.</p>
+    </div>
+  </section>
 
-    <h2>Completed Since Last Roadmap</h2>
-    <ul>
-      <li>Closed keyboard input channels are handled in <code>main.go</code>; the main loop cancels active streams and exits instead of spinning.</li>
-      <li>Terminal startup now returns clean errors, including <code>ErrNotTerminal</code>, instead of panicking.</li>
-      <li>Resize events refresh terminal size and re-render the UI.</li>
-      <li>Quit paths cancel active streams and exit cleanly.</li>
-      <li>Opencode startup failure is surfaced as a system message, and early <code>opencode serve</code> exits include stderr.</li>
-      <li>Model switching is implemented through the command palette using the opencode provider API.</li>
-      <li>Plan/build mode is sent to opencode as the message <code>agent</code>.</li>
-      <li>The opencode server URL can be configured with <code>[opencode].opencode_server_url</code> in <code>.agents/plums/config/config.toml</code>.</li>
-      <li>Local custom opencode URLs now auto-start <code>opencode serve</code> on the configured hostname and port; non-local URLs are treated as attach-only.</li>
-      <li>Tests no longer depend on ignored <code>docs/config</code> fixtures.</li>
-      <li><code>internal/components/chatlog_test.go</code> is tracked.</li>
-      <li>Generated binaries are ignored with <code>/bin/</code> and <code>/plums</code>, and no generated binary paths are tracked.</li>
-      <li>Visible built-in palette commands now map to implemented behavior: model switching, new session, mode switching, output percentage, and session list.</li>
-      <li>Slash commands exist for <code>/clear</code>, <code>/command</code>, <code>/new</code>, and <code>/sessions</code>.</li>
-      <li>Tests cover non-TTY terminal startup, resize fallback, stdin EOF input handling, model/mode message payloads, startup exit reporting, palette search, and model selection.</li>
-      <li>Backend provider selection via config and <code>-provider</code> flag.</li>
-      <li>Runtime backend switching through the command palette.</li>
-      <li>Codex backend over <code>codex app-server</code> JSON-RPC stdio.</li>
-      <li>Tool call streaming and rendering in the chat log.</li>
-      <li>Structural refactor into <code>cmd/internal/core/ui</code> layout.</li>
-      <li>CI workflow added for tests, vet, and builds.</li>
-      <li><code>--version</code> flag with metadata from build info and ldflags.</li>
-      <li>Mouse selection support for output and editor text.</li>
-      <li>Cmd+C / Cmd+Z / Cmd+V clipboard and undo support.</li>
-      <li>Thinking visibility toggle (full / title / hidden).</li>
-      <li>Git diff tab in the info view.</li>
-    </ul>
+  <h2>Current Product Surface</h2>
+  <table>
+    <tr><th>Area</th><th>Status</th><th>Notes</th></tr>
+    <tr><td>TUI runtime</td><td><span class="status done">Exists</span></td><td>Raw terminal mode, mouse, resize, keyboard parsing, alternate screen, paste support.</td></tr>
+    <tr><td>Conversation</td><td><span class="status done">Exists</span></td><td>Streaming output, thinking visibility, tool call rendering, question/reply handling.</td></tr>
+    <tr><td>Editor</td><td><span class="status done">Exists</span></td><td>Selection, copy, undo, movement, word operations, dropdown suggestions.</td></tr>
+    <tr><td>Layouts</td><td><span class="status done">Exists</span></td><td>JSON-configurable chat, split, narrow, and fullscreen layouts.</td></tr>
+    <tr><td>Commands</td><td><span class="status risk">Partial</span></td><td>Configurable command definitions exist, but actions are builtin-only and need documentation.</td></tr>
+    <tr><td>Sessions</td><td><span class="status done">Exists</span></td><td>Session list, reuse latest session for current directory, switch sessions, create new session.</td></tr>
+    <tr><td>Providers</td><td><span class="status risk">Mixed</span></td><td><code>opencode</code> is the primary provider. <code>codex</code> works but has in-memory session state and hardcoded policy defaults.</td></tr>
+    <tr><td>Skills</td><td><span class="status done">Exists</span></td><td>Discovers skill directories and expands <code>/skill name</code> markers into prompt content.</td></tr>
+    <tr><td>Docs</td><td><span class="status blocker">Sparse</span></td><td><code>README.md</code> currently only covers install and prerequisites.</td></tr>
+  </table>
 
-    <h2>Beta Blockers</h2>
-    <ul>
-      <li><span class="risk">All agent system prompts are hard-coded to <code>"TODO"</code></span> in <code>internal/core/harness/Agent.go</code>. The LLM receives no actual behavioral instructions for any mode.</li>
-      <li><span class="risk"><code>internal/core/registry.go</code> is explicitly temporary</span> — it contains fake outputs for agent listing, capabilities, and descriptions while the real core package is being built.</li>
-      <li><span class="risk">Codex <code>ReplyQuestion</code> is unimplemented</span> — question/answer flows silently fail on the Codex backend.</li>
-      <li>The README is not beta-ready. It only documents a small config section and does not cover install, prerequisites, keybindings, first run, troubleshooting, or known limitations.</li>
-      <li><code>internal/app/keyboard.go</code> has a gofmt indentation issue (under-indented <code>case</code> at Ctrl+C).</li>
-    </ul>
+  <h2>1.0 Definition</h2>
+  <div class="note">
+    <p><strong>Recommended 1.0 promise:</strong> Plums is a reliable terminal UI for running agent sessions in a project directory, with stable <code>opencode</code> support, documented configuration, predictable sessions, safe terminal behavior, and clear diagnostics when something goes wrong.</p>
+    <p class="muted">Codex can either be promoted to stable after the provider contract is finished, or explicitly marked experimental for 1.0.</p>
+  </div>
 
-    <h2>Before Private Beta</h2>
-    <ul>
-      <li>Write real system prompts for build, plan, explore, and rogue agents.</li>
-      <li>Replace the stub <code>AgentRegistry</code> with real agent discovery, capabilities, and metadata.</li>
-      <li>Implement Codex <code>ReplyQuestion</code> so question flows work on the Codex backend.</li>
-      <li>Run <code>gofmt</code> across the codebase and add a format check to CI.</li>
-      <li>Expand the README with install, run, config, keybindings, opencode dependency, troubleshooting, and known limitations.</li>
-      <li>Run <code>go test ./...</code>, <code>go build ./...</code>, and a manual TUI smoke test with <code>opencode serve</code> in a clean worktree.</li>
-    </ul>
+  <h2>Must Finish Before 1.0</h2>
 
-    <h2>Beta Hardening</h2>
+  <article class="phase must">
+    <h3>1. Replace the fake agent registry</h3>
+    <p><code>internal/core/registry.go</code> still says it contains temporary fake outputs. For 1.0, agents/modes should be real data, not hardcoded <code>build</code> and <code>plan</code>.</p>
     <ul>
-      <li>Add tests for opencode health, session creation, session list, message list, and sync message paths.</li>
-      <li>Add tests for SSE streaming, idle completion, malformed events, and fallback behavior.</li>
-      <li>Add tests for slash commands, more command palette actions, session switching, output percentage adjustment, and git diff tab behavior.</li>
-      <li>Improve user-facing handling for opencode port conflicts, auth failures, and slow startup.</li>
-      <li>Test keybindings and rendering in Terminal.app, iTerm2, Ghostty, WezTerm, Kitty, and Alacritty.</li>
+      <li>Define where agents are configured or discovered.</li>
+      <li>Validate selected mode/agent before sending prompts.</li>
+      <li>Expose descriptions and capabilities in the palette/help UI.</li>
+      <li>Keep provider-specific agent behavior inside provider boundaries where needed.</li>
     </ul>
+  </article>
 
-    <h2>Before Public Launch</h2>
+  <article class="phase must">
+    <h3>2. Make provider maturity explicit</h3>
+    <p>The provider abstraction is useful, but provider semantics need to be documented and tested.</p>
     <ul>
-      <li>Create a release process for GitHub Releases binaries.</li>
-      <li>Choose an install path such as Homebrew or <code>go install</code>.</li>
-      <li>If command config is public, load it instead of hardcoding commands.</li>
-      <li>Define compatibility expectations for layout config versioning.</li>
-      <li>Add first-run help for missing opencode, auth failure, server startup failure, and unsupported terminals.</li>
-      <li>Review all README claims against implemented behavior.</li>
-      <li>Write release notes with known limitations.</li>
+      <li>Document persistence expectations for sessions and messages.</li>
+      <li>Normalize tool, question, model, and session behavior across providers.</li>
+      <li>Move Codex approval policy, sandbox, and model fallback behavior into provider config.</li>
+      <li>Either finish Codex persistence/session behavior or label Codex experimental.</li>
     </ul>
+  </article>
 
-    <h2>Public Launch Gate</h2>
+  <article class="phase must">
+    <h3>3. Harden config parsing and validation</h3>
+    <p><code>internal/app/config.go</code> currently parses and rewrites TOML manually. This is acceptable for WIP, but too fragile for a public 1.0 config surface.</p>
     <ul>
-      <li>Fresh install works from documented instructions.</li>
-      <li>CI is green for the release candidate.</li>
-      <li>Supported terminal matrix has been manually verified.</li>
-      <li>All public commands, config files, and README claims match the implementation.</li>
-      <li>Release notes include known limitations and upgrade expectations.</li>
+      <li>Use a real TOML parser or formally document the limited supported syntax.</li>
+      <li>Validate <code>config.toml</code>, <code>layout.json</code>, and <code>commands.json</code> before entering the TUI.</li>
+      <li>Append missing persisted keys instead of only updating keys that already exist.</li>
+      <li>Report invalid values clearly instead of silently falling back where correctness matters.</li>
     </ul>
+  </article>
 
-    <h2>Beta Gate</h2>
+  <article class="phase must">
+    <h3>4. Write real user documentation</h3>
+    <p>The README needs to become complete enough for a new user to install, run, configure, and troubleshoot Plums without reading source code.</p>
     <ul>
-      <li><span class="ok">Ready for beta only after:</span> clean tests, clean build, clean worktree, documented install path, no tracked generated binaries, and a successful manual opencode session.</li>
+      <li>Install and prerequisites with supported versions.</li>
+      <li>Quick start for <code>opencode</code>.</li>
+      <li>Keybindings and submit behavior per layout.</li>
+      <li>Slash commands and command palette actions.</li>
+      <li>Config file locations and precedence.</li>
+      <li>Layout and command config schema examples.</li>
+      <li>Backend selection and provider limitations.</li>
+      <li>Skills discovery and <code>/skill</code> usage.</li>
+      <li>Troubleshooting for missing executables, terminal issues, port conflicts, and invalid config.</li>
     </ul>
-  </main>
+  </article>
+
+  <article class="phase must">
+    <h3>5. Add diagnostics</h3>
+    <p>Add a non-interactive health check before 1.0. Users need a way to debug setup problems without entering the full TUI.</p>
+    <ul>
+      <li><code>plums doctor</code> or <code>plums --doctor</code>.</li>
+      <li>Check terminal availability and dimensions.</li>
+      <li>Check <code>opencode</code> and <code>codex</code> executables.</li>
+      <li>Check selected config paths and validate files.</li>
+      <li>Check backend health and derived opencode server URL.</li>
+      <li>Print active backend, model availability, and useful next actions.</li>
+    </ul>
+  </article>
+
+  <h2>Should Finish Before 1.0</h2>
+
+  <article class="phase should">
+    <h3>6. Add in-app help</h3>
+    <p>Add <code>/help</code> and a palette item that show keybindings, slash commands, current backend, current model, current session, and config paths.</p>
+  </article>
+
+  <article class="phase should">
+    <h3>7. Improve user-facing errors</h3>
+    <p>Provider and startup errors should be short, specific, and actionable. Raw internal errors can still go to <code>PLUMS_LOG</code>.</p>
+    <ul>
+      <li>Missing executable.</li>
+      <li>Server startup failure.</li>
+      <li>Port conflict.</li>
+      <li>Unsupported terminal.</li>
+      <li>No connected models.</li>
+      <li>Invalid config.</li>
+      <li>Stream interrupted.</li>
+      <li>Question reply failed.</li>
+    </ul>
+  </article>
+
+  <article class="phase should">
+    <h3>8. Make cancellation explicit</h3>
+    <p>Stream cancellation exists internally during quit, backend switch, and resubmit. Users need a visible cancel behavior.</p>
+    <ul>
+      <li>Define <code>Ctrl+C</code> while streaming as cancel generation.</li>
+      <li>Define <code>Ctrl+C</code> while idle as quit.</li>
+      <li>Show this in the status bar/help screen.</li>
+    </ul>
+  </article>
+
+  <article class="phase should">
+    <h3>9. Terminal compatibility pass</h3>
+    <p>Verify keyboard, mouse, paste, resize, and modified Enter behavior in common terminals and under tmux.</p>
+    <ul>
+      <li>Apple Terminal</li>
+      <li>iTerm2</li>
+      <li>Ghostty</li>
+      <li>WezTerm</li>
+      <li>Alacritty</li>
+      <li>Kitty</li>
+      <li>tmux</li>
+    </ul>
+  </article>
+
+  <article class="phase should">
+    <h3>10. Release process</h3>
+    <p>Make releases boring and repeatable.</p>
+    <ul>
+      <li>Document ldflags for version, commit, and build date.</li>
+      <li>Add changelog or release notes policy.</li>
+      <li>Publish binaries or document package manager path.</li>
+      <li>Define semver expectations for config schema version <code>1</code>.</li>
+    </ul>
+  </article>
+
+  <h2>Could Ship After 1.0</h2>
+  <article class="phase could">
+    <h3>Post-1.0 improvements</h3>
+    <ul>
+      <li>Themes and more layout presets.</li>
+      <li>Search chat history.</li>
+      <li>Export transcript.</li>
+      <li>Rename/delete sessions if providers support it.</li>
+      <li>Copy last assistant message or code block.</li>
+      <li>Shell completions.</li>
+      <li>Homebrew or Nix packaging.</li>
+      <li>Provider plugin loading.</li>
+      <li>Token/cost display when providers expose it.</li>
+      <li>File/image attachments.</li>
+    </ul>
+  </article>
+
+  <h2>Suggested Milestones</h2>
+  <table>
+    <tr><th>Milestone</th><th>Exit Criteria</th></tr>
+    <tr>
+      <td>0.2 Stabilization</td>
+      <td>Fake registry removed, config validation added, README expanded, opencode flow stable.</td>
+    </tr>
+    <tr>
+      <td>0.3 Diagnostics</td>
+      <td><code>doctor</code>, <code>check-config</code>, better startup errors, in-app <code>/help</code>.</td>
+    </tr>
+    <tr>
+      <td>0.4 Provider Contract</td>
+      <td>Provider behavior documented, Codex either stable or experimental, provider harness expanded.</td>
+    </tr>
+    <tr>
+      <td>1.0 Release Candidate</td>
+      <td>Terminal compatibility pass, release workflow, no known stuck-terminal/data-loss bugs, docs complete.</td>
+    </tr>
+  </table>
+
+  <h2>Non-Goals For 1.0</h2>
+  <ul>
+    <li>Do not add a large plugin system before the core provider contract is stable.</li>
+    <li>Do not add many UI features before docs, config validation, and diagnostics are finished.</li>
+    <li>Do not promise stable Codex behavior unless persistence, policy config, and model/session semantics are settled.</li>
+    <li>Do not support arbitrary custom commands unless command execution semantics and permissions are designed.</li>
+  </ul>
+
+  <h2>Current Verification</h2>
+  <p>As of this roadmap update, the full Go test suite passes with <code>go test ./...</code>. That means the app is not blocked by obvious test failures; the remaining 1.0 work is about product reliability, clarity, and release readiness.</p>
+</main>
 </body>
 </html>
