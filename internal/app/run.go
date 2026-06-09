@@ -135,6 +135,35 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 	var serverProc ServerProcess
 	emittedTools := make(map[string]bool)
 
+	type savedConfigValues struct {
+		layout       string
+		hideThinking bool
+		leftWidth    int
+	}
+	lastSaved := savedConfigValues{
+		layout:       layoutLabel(state.Layout),
+		hideThinking: state.ThinkingMode == components.ThinkingVisibilityHidden,
+		leftWidth:    state.SplitLeftPercent(),
+	}
+	saveConfigIfChanged := func() {
+		if cfg.ConfigTomlPath == "" {
+			return
+		}
+		current := savedConfigValues{
+			layout:       layoutLabel(state.Layout),
+			hideThinking: state.ThinkingMode == components.ThinkingVisibilityHidden,
+			leftWidth:    state.SplitLeftPercent(),
+		}
+		if current == lastSaved {
+			return
+		}
+		if err := SaveConfigValues(cfg.ConfigTomlPath, current.layout, current.hideThinking, current.leftWidth); err != nil {
+			debuglog.Printf("config: save failed: %v", err)
+			return
+		}
+		lastSaved = current
+	}
+
 	resolveServerProc := func() ServerProcess {
 		if serverProc != nil {
 			return serverProc
@@ -191,10 +220,10 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 						}
 						runtime = selected
 						backend = selected.Backend
-			state.ResetBackendSession()
-			state.SessionItems = nil
-			state.AddMessage("system", "switching backend provider to "+selected.ID)
-			startBackend(selected)
+						state.ResetBackendSession()
+						state.SessionItems = nil
+						state.AddMessage("system", "switching backend provider to "+selected.ID)
+						startBackend(selected)
 					}
 				} else {
 					handlePaletteAction(ctx, state, backend, action, cfg)
@@ -240,9 +269,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 					}
 				}
 				Render(state, deps.RenderConfig)
-				if cfg.ConfigTomlPath != "" {
-					_ = SaveConfigValues(cfg.ConfigTomlPath, layoutLabel(state.Layout), state.ThinkingMode == components.ThinkingVisibilityHidden, state.SplitLeftPercent())
-				}
+				saveConfigIfChanged()
 			}
 		case event, ok := <-aiStream:
 			if ok {
@@ -270,18 +297,18 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 				break
 			}
 			state.SetServerStarting(false)
-		if result.Err != nil {
-			state.AddMessage("system", result.Err.Error())
-		} else {
-			serverProc = result.Server
-			state.SetServerReady(true)
-			applySession(state, result.Session)
-			applyRecentModel(ctx, state, backend, cfg)
-			if items, err := listSessionItems(ctx, state, backend, cfg); err == nil {
-				state.SessionItems = items
+			if result.Err != nil {
+				state.AddMessage("system", result.Err.Error())
+			} else {
+				serverProc = result.Server
+				state.SetServerReady(true)
+				applySession(state, result.Session)
+				applyRecentModel(ctx, state, backend, cfg)
+				if items, err := listSessionItems(ctx, state, backend, cfg); err == nil {
+					state.SessionItems = items
+				}
 			}
-		}
-		Render(state, deps.RenderConfig)
+			Render(state, deps.RenderConfig)
 		case <-sigCh:
 			if err := deps.Terminal.RefreshSize(); err == nil {
 				state.Resize(deps.Terminal.W, deps.Terminal.H)
