@@ -112,13 +112,13 @@ func NewAppServer(ctx context.Context, directory string) (*AppServer, error) {
 	debuglog.Printf("codex: app-server started pid=%d", cmd.Process.Pid)
 
 	s := &AppServer{
-		cmd:       cmd,
-		stdin:     stdin,
-		scanner:   bufio.NewScanner(stdout),
-		pending:   make(map[int64]chan *rpcResponse),
-		listeners: make(map[string]chan CodexEvent),
+		cmd:         cmd,
+		stdin:       stdin,
+		scanner:     bufio.NewScanner(stdout),
+		pending:     make(map[int64]chan *rpcResponse),
+		listeners:   make(map[string]chan CodexEvent),
 		inputEvents: make(chan UserInputEvent, 8),
-		done:      make(chan struct{}),
+		done:        make(chan struct{}),
 	}
 	s.scanner.Buffer(make([]byte, 0, bufferSize), maxLineSize)
 

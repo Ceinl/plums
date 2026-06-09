@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := run
 
-.PHONY: build clean dev install prod run test
+.PHONY: build clean dev fmt fmt-check install prod run test vet
 
 APP := plums
 BIN_DIR := bin
@@ -27,7 +27,19 @@ prod:
 	$(GO) run $(ENTRY) --config-global
 
 test:
-	$(GO) test ./...
+	$(GO) test -race ./...
+
+fmt:
+	gofmt -w .
+
+fmt-check:
+	@unformatted=$$(gofmt -l .); \
+	if [ -n "$$unformatted" ]; then \
+		echo "gofmt needed on:"; echo "$$unformatted"; exit 1; \
+	fi
+
+vet:
+	$(GO) vet ./...
 
 build:
 	@mkdir -p $(BIN_DIR)

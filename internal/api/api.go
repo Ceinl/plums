@@ -164,10 +164,10 @@ func Run(cfg *Config) error {
 		RecentModelTimeout:   defs.RecentModelTimeout,
 		ListTimeout:          defs.ListTimeout,
 		WorkingDirectory:     wd,
-		ConfigTomlPath:     opencodeConfigPath,
-		DefaultLayout:      defaultLayout,
-		HideThinking:       hideThinking,
-		SplitLeftWidth:     leftWidth,
+		ConfigTomlPath:       opencodeConfigPath,
+		DefaultLayout:        defaultLayout,
+		HideThinking:         hideThinking,
+		SplitLeftWidth:       leftWidth,
 	}
 
 	deps := app.Deps{

@@ -11,8 +11,8 @@ import (
 var files embed.FS
 
 const (
-	configToml  = "config.toml"
-	layoutJSON  = "layout.json"
+	configToml   = "config.toml"
+	layoutJSON   = "layout.json"
 	commandsJSON = "commands.json"
 )
 
