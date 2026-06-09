@@ -10,6 +10,7 @@ import (
 	"github.com/Ceinl/plums/internal/app"
 	"github.com/Ceinl/plums/internal/core"
 	"github.com/Ceinl/plums/internal/core/adapter"
+	"github.com/Ceinl/plums/internal/core/provider/claudecode"
 	"github.com/Ceinl/plums/internal/core/provider/codex"
 	"github.com/Ceinl/plums/internal/core/provider/opencode"
 	"github.com/Ceinl/plums/internal/debuglog"
@@ -50,7 +51,7 @@ func DefaultConfig() *Config {
 // RegisterFlags binds CLI flags to the supplied Config.
 func RegisterFlags(cfg *Config) {
 	flag.StringVar(&cfg.OpencodeServerURL, "server-url", cfg.OpencodeServerURL, "opencode server URL")
-	flag.StringVar(&cfg.BackendProvider, "provider", cfg.BackendProvider, "backend provider: opencode or codex")
+	flag.StringVar(&cfg.BackendProvider, "provider", cfg.BackendProvider, "backend provider: opencode, codex, or claude")
 	flag.BoolVar(&cfg.UseGlobalConfig, "config-global", false, "use global plums layout config")
 	flag.BoolVar(&cfg.UseGlobalConfig, "cg", false, "use global plums layout config")
 	flag.BoolVar(&cfg.UseLocalConfig, "config-local", false, "use local plums layout config")
@@ -150,6 +151,7 @@ func Run(cfg *Config) error {
 	debuglog.Printf("config: split.left_width %d", leftWidth)
 	opencodeBackend := opencode.NewBackend(serverURL)
 	codexBackend := codex.NewBackend()
+	claudeBackend := claudecode.NewBackend()
 
 	registry := core.NewAgentRegistry()
 	defs := adapter.NewDefaultConfig()
@@ -179,6 +181,7 @@ func Run(cfg *Config) error {
 		Backends: []app.BackendRuntime{
 			{ID: "opencode", Name: "Opencode", Backend: opencodeBackend, Startup: opencodeStartup(wd, runCfg.HealthTimeout)},
 			{ID: "codex", Name: "Codex", Backend: codexBackend, Startup: codexStartup(wd, codexBackend)},
+			{ID: "claude", Name: "Claude Code", Backend: claudeBackend, Startup: claudeStartup()},
 		},
 	}
 
@@ -215,6 +218,18 @@ func opencodeStartup(wd string, healthTimeout time.Duration) func(context.Contex
 
 		debuglog.Printf("startup: opencode ready (session deferred)")
 		out <- app.StartupResult{Server: serverProc}
+	}
+}
+
+func claudeStartup() func(context.Context, adapter.Backend, chan<- app.StartupResult) {
+	return func(startCtx context.Context, b adapter.Backend, out chan<- app.StartupResult) {
+		if err := b.Health(startCtx); err != nil {
+			debuglog.Printf("startup: claude health check failed: %v", err)
+			out <- app.StartupResult{Err: err}
+			return
+		}
+		debuglog.Printf("startup: claude ready (session deferred)")
+		out <- app.StartupResult{}
 	}
 }
 

@@ -190,7 +190,7 @@ func LoadBackendProvider(path, fallback string) (string, error) {
 
 func validBackendProvider(provider string) bool {
 	switch provider {
-	case "opencode", "codex":
+	case "opencode", "codex", "claude":
 		return true
 	default:
 		return false
