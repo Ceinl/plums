@@ -175,7 +175,7 @@ func (c *Client) recordExchange(sessionID, userText, assistantText, modelID stri
 		if c.sessions[i].ID == sessionID {
 			c.sessions[i].Time.Updated = now
 			if c.sessions[i].Title == "Claude session" {
-				c.sessions[i].Title = sessionTitle(userText)
+				c.sessions[i].Title = adapter.TitleFromMessage(userText, "Claude session")
 			}
 			if modelID != "" {
 				c.sessions[i].Model = &adapter.ModelRef{ID: modelID, ProviderID: providerID}
@@ -183,21 +183,6 @@ func (c *Client) recordExchange(sessionID, userText, assistantText, modelID stri
 			return
 		}
 	}
-}
-
-func sessionTitle(text string) string {
-	title := strings.TrimSpace(text)
-	if i := strings.IndexByte(title, '\n'); i >= 0 {
-		title = title[:i]
-	}
-	runes := []rune(title)
-	if len(runes) > 60 {
-		title = string(runes[:60]) + "…"
-	}
-	if title == "" {
-		return "Claude session"
-	}
-	return title
 }
 
 func newUUID() (string, error) {

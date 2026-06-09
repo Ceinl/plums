@@ -465,6 +465,9 @@ func (c *Client) recordExchange(sessionID, userText, assistantText, modelID stri
 	for i := range c.sessions {
 		if c.sessions[i].ID == sessionID {
 			c.sessions[i].Time.Updated = now
+			if c.sessions[i].Title == "Codex session" {
+				c.sessions[i].Title = adapter.TitleFromMessage(userText, "Codex session")
+			}
 			if modelID != "" {
 				c.sessions[i].Model = &adapter.ModelRef{ID: modelID, ProviderID: providerID}
 			}

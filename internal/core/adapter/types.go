@@ -3,6 +3,7 @@ package adapter
 import (
 	"fmt"
 	"hash/fnv"
+	"strings"
 	"time"
 )
 
@@ -132,6 +133,23 @@ func streamTextForKind(kind partKind, text string) string {
 	default:
 		return ""
 	}
+}
+
+// TitleFromMessage derives a session title from the first user message:
+// its first line, truncated to 60 runes.
+func TitleFromMessage(text, fallback string) string {
+	title := strings.TrimSpace(text)
+	if i := strings.IndexByte(title, '\n'); i >= 0 {
+		title = strings.TrimSpace(title[:i])
+	}
+	runes := []rune(title)
+	if len(runes) > 60 {
+		title = string(runes[:60]) + "…"
+	}
+	if title == "" {
+		return fallback
+	}
+	return title
 }
 
 // DefaultBaseURL is the default opencode server URL.
