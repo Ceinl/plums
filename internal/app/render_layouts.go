@@ -3,18 +3,26 @@ package app
 import (
 	"github.com/Ceinl/plums/internal/ui/tui/components"
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
-// ── Colour palette ────────────────────────────────────────────────────────────
+// ── Style helpers ─────────────────────────────────────────────────────────────
 //
-// Chat layout
-//   bgOutput  – the chat / output area
-//   bgEditor  – the editor area
-//
-// Split layout
-//   bgSplitEditor – left pane (slightly lighter, warm)
-//   bgSplitOutput – right pane (darker, more contrast)
-//   bgSeparator   – 1-column vertical divider
+// All colours come from the theme package so every layout shares one palette:
+//   theme.BgBase  – chat / output areas
+//   theme.BgPanel – editor and palette panes
+
+func themedBg(bg theme.Color) layout.Style {
+	style := layout.Style{}
+	style.SetBackground(bg.R, bg.G, bg.B)
+	return style
+}
+
+func themedStyle(bg, fg theme.Color) layout.Style {
+	style := themedBg(bg)
+	style.SetForeground(fg.R, fg.G, fg.B)
+	return style
+}
 
 // ── Factory helpers ───────────────────────────────────────────────────────────
 
@@ -26,9 +34,7 @@ func newOutput() *components.Div {
 		Top:    layout.Unit{Type: layout.UnitPx, Value: 1},
 		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
 	})
-	style := layout.Style{}
-	style.SetBackground(22, 20, 27)
-	outputDiv.SetStyle(style)
+	outputDiv.SetStyle(themedBg(theme.BgBase))
 	return outputDiv
 }
 
@@ -59,9 +65,7 @@ func newInfoTabs(state *State) *components.Div {
 		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 1},
 	)
-	style := layout.Style{}
-	style.SetBackground(22, 20, 27)
-	div.SetStyle(style)
+	div.SetStyle(themedBg(theme.BgBase))
 
 	tabs := components.NewInfoTabs()
 	tabs.SetTabs([]components.InfoTab{
@@ -173,10 +177,7 @@ func newSplitStatusBar(state *State) *components.Div {
 		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 1},
 	)
-	style := layout.Style{}
-	style.SetBackground(22, 20, 27)
-	style.SetForeground(100, 98, 112)
-	div.SetStyle(style)
+	div.SetStyle(themedStyle(theme.BgBase, theme.TextFaint))
 
 	bar := components.NewStatusBar()
 	bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
@@ -187,45 +188,25 @@ func newSplitStatusBar(state *State) *components.Div {
 	return div
 }
 
-func newTextDiv(content string, w, h layout.Unit, bgR, bgG, bgB uint8) *components.Div {
-	div := components.NewDiv()
-	div.SetSize(w, h)
-
-	style := layout.Style{}
-	style.SetBackground(bgR, bgG, bgB)
-	style.SetForeground(100, 98, 112)
-	div.SetStyle(style)
-
-	text := components.NewText()
-	text.SetContent(content)
-	div.AppendChild(text)
-	return div
-}
-
 func newEditorDiv(ed *components.Editor, w, h layout.Unit) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(w, h)
-
-	style := layout.Style{}
-	style.SetBackground(32, 30, 40)
-	style.SetForeground(220, 218, 230)
-	div.SetStyle(style)
+	div.SetStyle(themedStyle(theme.BgPanel, theme.Text))
 	div.AppendChild(ed)
 	return div
 }
 
-func chatStatusText(state *State) string {
-	icon := '•'
-	label := "offline"
+// chatStatusSegments builds the coloured status line above the input box: the
+// state indicator in its status colour, the mode in accent, the model muted.
+func chatStatusSegments(state *State) []components.StatusSegment {
+	icon, label, fg := "•", "offline", theme.TextFaint
 	switch {
 	case state.ServerStarting:
-		icon = '◌'
-		label = "starting"
+		icon, label, fg = "◌", "starting", theme.StatusStarting
 	case state.IsStreaming():
-		icon = '◌'
-		label = "thinking"
+		icon, label, fg = "◌", "thinking", theme.StatusThinking
 	case state.ServerReady:
-		label = "ready"
+		label, fg = "ready", theme.StatusReady
 	}
 	model := "model pending"
 	if state.ModelProvider != "" && state.ModelID != "" {
@@ -237,19 +218,20 @@ func chatStatusText(state *State) string {
 	if mode == "" {
 		mode = "build"
 	}
-	return string(icon) + " " + label + "  " + mode + "  " + model
+	return []components.StatusSegment{
+		{Text: icon + " " + label, Fg: fg.Fg()},
+		{Text: "  " + mode, Fg: theme.Accent.Fg()},
+		{Text: "  " + model, Fg: theme.TextFaint.Fg()},
+	}
 }
 
-func newInputBoxDiv(ed *components.Editor, w, h layout.Unit, status string) *components.Div {
+func newInputBoxDiv(ed *components.Editor, w, h layout.Unit, status []components.StatusSegment) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(w, h)
 
-	style := layout.Style{}
-	style.SetBackground(22, 20, 27)
-	style.SetForeground(220, 228, 216)
-	div.SetStyle(style)
+	div.SetStyle(themedStyle(theme.BgBase, theme.Text))
 	box := components.NewInputBox(ed)
-	box.SetStatus(status)
+	box.SetStatusSegments(status)
 	div.AppendChild(box)
 	return div
 }
@@ -264,10 +246,7 @@ func newPalettePanel(state *State, w, h layout.Unit) *components.Div {
 		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
 	})
 
-	style := layout.Style{}
-	style.SetBackground(32, 30, 40)
-	style.SetForeground(220, 218, 230)
-	div.SetStyle(style)
+	div.SetStyle(themedStyle(theme.BgPanel, theme.Text))
 
 	popup := components.NewPopup()
 	popup.SetPanel(true)
@@ -376,7 +355,7 @@ func CreateSessionsLayout(state *State) *components.Div {
 		state.Editor,
 		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 9},
-		chatStatusText(state),
+		chatStatusSegments(state),
 	)
 	inputDiv.SetPadding(layout.Padding{
 		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
@@ -452,7 +431,7 @@ func CreateNarrowSessionsLayout(state *State) *components.Div {
 		state.Editor,
 		layout.Unit{Type: layout.UnitPercent, Value: 100},
 		layout.Unit{Type: layout.UnitPx, Value: 9},
-		chatStatusText(state),
+		chatStatusSegments(state),
 	)
 	inputDiv.SetPadding(layout.Padding{
 		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},

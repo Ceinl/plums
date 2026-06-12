@@ -5,20 +5,22 @@ import (
 
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
-const (
-	diffFgDefault = "\x1b[38;2;198;195;210m"
-	diffFgFile    = "\x1b[1m\x1b[38;2;165;205;255m"
-	diffFgHunk    = "\x1b[38;2;180;145;245m"
-	diffFgAdd     = "\x1b[38;2;125;210;150m"
-	diffFgRemove  = "\x1b[38;2;240;130;130m"
-	diffFgMeta    = "\x1b[38;2;92;88;108m"
-	diffBgAdd     = "\x1b[48;2;20;36;28m"
-	diffBgRemove  = "\x1b[48;2;42;24;30m"
+var (
+	diffFgFile   = decorBold + theme.DiffFile.Fg()
+	diffFgHunk   = theme.DiffHunk.Fg()
+	diffFgAdd    = theme.DiffAddFg.Fg()
+	diffFgRemove = theme.DiffRemoveFg.Fg()
+	diffBgAdd    = theme.DiffAddBg.Bg()
+	diffBgRemove = theme.DiffRemoveBg.Bg()
 
-	diffSelFg = "\x1b[38;2;22;20;27m"
-	diffSelBg = "\x1b[48;2;200;198;212m"
+	diffFgDefault = theme.TextSoft.Fg()
+	diffFgMeta    = theme.TextFaint.Fg()
+
+	diffSelFg = theme.SelectionFg.Fg()
+	diffSelBg = theme.SelectionBg.Bg()
 )
 
 type DiffLog struct {

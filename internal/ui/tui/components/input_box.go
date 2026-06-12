@@ -3,15 +3,24 @@ package components
 import (
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
+// StatusSegment is one coloured fragment of the status line shown above the
+// input panel. An empty Fg falls back to the default faint status colour.
+type StatusSegment struct {
+	Text string
+	Fg   string
+}
+
 type InputBox struct {
-	ed     *Editor
-	style  layout.Style
-	parent layout.Component
-	x, y   int
-	w, h   int
-	status string
+	ed         *Editor
+	style      layout.Style
+	parent     layout.Component
+	x, y       int
+	w, h       int
+	status     []StatusSegment
+	statusText string // cached plain text, for width handling
 
 	// floating panel geometry (computed in Layout)
 	px, py int // panel top-left
@@ -36,7 +45,18 @@ func (b *InputBox) ClearDirty() {
 func (b *InputBox) GetStyle() layout.Style       { return b.style }
 func (b *InputBox) SetParent(p layout.Component) { b.parent = p }
 func (b *InputBox) SetStyle(s layout.Style)      { b.style = s }
-func (b *InputBox) SetStatus(s string)           { b.status = s }
+
+func (b *InputBox) SetStatus(s string) {
+	b.SetStatusSegments([]StatusSegment{{Text: s}})
+}
+
+func (b *InputBox) SetStatusSegments(segs []StatusSegment) {
+	b.status = segs
+	b.statusText = ""
+	for _, seg := range segs {
+		b.statusText += seg.Text
+	}
+}
 
 func (b *InputBox) Layout(x, y, w, h int) {
 	b.x, b.y, b.w, b.h = x, y, w, h
@@ -98,7 +118,7 @@ func (b *InputBox) Render(s *screen.Screen) {
 	ed := b.ed
 	fg := b.style.GetForeground()
 	decor := b.style.GetDecor()
-	parentBg := "\x1b[48;2;0;0;0m"
+	parentBg := theme.Unset.Bg()
 	if b.parent != nil {
 		ps := b.parent.GetStyle()
 		fg = ps.GetForeground()
@@ -106,12 +126,12 @@ func (b *InputBox) Render(s *screen.Screen) {
 		decor = ps.GetDecor()
 	}
 
-	selFg := "\x1b[38;2;22;20;27m"
-	selBg := "\x1b[48;2;200;198;212m"
-	cursorFg := "\x1b[38;2;14;14;20m"
-	cursorBg := "\x1b[48;2;183;255;90m"
+	selFg := theme.SelectionFg.Fg()
+	selBg := theme.SelectionBg.Bg()
+	cursorFg := theme.CursorFg.Fg()
+	cursorBg := theme.CursorBg.Bg()
 	lineBg := parentBg
-	borderFg := "\x1b[38;2;80;82;96m"
+	borderFg := theme.BorderAccent.Fg()
 
 	// Fill entire allocated area with parent background (transparent edges)
 	for row := 0; row < b.h; row++ {
@@ -122,18 +142,26 @@ func (b *InputBox) Render(s *screen.Screen) {
 	}
 
 	// Draw status text just above the panel, moving with it
-	if b.status != "" && b.py > b.y {
-		statusFg := "\x1b[38;2;100;98;112m"
+	if b.statusText != "" && b.py > b.y {
+		statusFg := theme.TextFaint.Fg()
 		statusY := b.py - 1
 		// clear the row inside the 80% width area
 		for col := 0; col < b.pw; col++ {
 			s.Set(b.px+col, statusY, ' ', statusFg, parentBg, decor)
 		}
-		for i, r := range b.status {
-			if i >= b.pw {
-				break
+		col := 0
+		for _, seg := range b.status {
+			segFg := seg.Fg
+			if segFg == "" {
+				segFg = statusFg
 			}
-			s.Set(b.px+i, statusY, r, statusFg, parentBg, decor)
+			for _, r := range seg.Text {
+				if col >= b.pw {
+					break
+				}
+				s.Set(b.px+col, statusY, r, segFg, parentBg, decor)
+				col++
+			}
 		}
 	}
 

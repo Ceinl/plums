@@ -3,6 +3,7 @@ package components
 import (
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
 type Popup struct {
@@ -25,8 +26,8 @@ type PopupItem struct {
 
 func NewPopup() *Popup {
 	style := layout.Style{}
-	style.SetBackground(30, 27, 38)
-	style.SetForeground(232, 229, 241)
+	style.SetBackground(theme.BgSurface.R, theme.BgSurface.G, theme.BgSurface.B)
+	style.SetForeground(theme.Text.R, theme.Text.G, theme.Text.B)
 	return &Popup{style: style, title: "Command Palette"}
 }
 
@@ -64,8 +65,8 @@ func (p *Popup) Render(s *screen.Screen) {
 		return
 	}
 
-	overlayBg := ansiBg(8, 7, 10)
-	overlayFg := ansiFg(98, 95, 108)
+	overlayBg := theme.BgBackdrop.Bg()
+	overlayFg := theme.TextFaint.Fg()
 	for y := p.y; y < p.y+p.h; y++ {
 		for x := p.x; x < p.x+p.w; x++ {
 			s.Set(x, y, ' ', overlayFg, overlayBg, "")
@@ -78,8 +79,8 @@ func (p *Popup) Render(s *screen.Screen) {
 	my := p.y + (p.h-modalH)/2
 	bg := p.style.GetBackground()
 	fg := p.style.GetForeground()
-	muted := ansiFg(159, 153, 176)
-	accent := ansiFg(247, 184, 90)
+	muted := theme.TextMuted.Fg()
+	accent := theme.Accent.Fg()
 
 	for y := my; y < my+modalH; y++ {
 		for x := mx; x < mx+modalW; x++ {
@@ -99,7 +100,7 @@ func (p *Popup) Render(s *screen.Screen) {
 	s.Set(mx+modalW-1, my+modalH-1, '╯', muted, bg, "")
 
 	drawCenteredText(s, mx+3, my+1, modalW-6, p.title, accent, bg)
-	drawSearch(s, mx+3, my+2, modalW-6, p.query, fg, muted, ansiBg(20, 18, 26))
+	drawSearch(s, mx+3, my+2, modalW-6, p.query, fg, muted, theme.BgInput.Bg())
 	visibleItems := (modalH - 6) / 2
 	start, end := visibleWindow(p.active, len(p.items), visibleItems)
 	if len(p.items) > visibleItems && visibleItems > 0 {
@@ -108,7 +109,7 @@ func (p *Popup) Render(s *screen.Screen) {
 	}
 
 	row := my + 5
-	activeBg := ansiBg(48, 43, 61)
+	activeBg := theme.BgSelected.Bg()
 	for i := start; i < end; i++ {
 		item := p.items[i]
 		itemFg := fg
@@ -133,9 +134,9 @@ func (p *Popup) Render(s *screen.Screen) {
 func (p *Popup) renderPanel(s *screen.Screen) {
 	bg := p.style.GetBackground()
 	fg := p.style.GetForeground()
-	muted := ansiFg(159, 153, 176)
-	accent := ansiFg(247, 184, 90)
-	activeBg := ansiBg(48, 43, 61)
+	muted := theme.TextMuted.Fg()
+	accent := theme.Accent.Fg()
+	activeBg := theme.BgSelected.Bg()
 
 	for y := p.y; y < p.y+p.h; y++ {
 		for x := p.x; x < p.x+p.w; x++ {
@@ -144,7 +145,7 @@ func (p *Popup) renderPanel(s *screen.Screen) {
 	}
 
 	drawCenteredText(s, p.x, p.y, p.w, p.title, accent, bg)
-	drawSearch(s, p.x, p.y+1, p.w, p.query, fg, muted, ansiBg(20, 18, 26))
+	drawSearch(s, p.x, p.y+1, p.w, p.query, fg, muted, theme.BgInput.Bg())
 	visibleItems := (p.h - 2) / 3
 	start, end := visibleWindow(p.active, len(p.items), visibleItems)
 	if len(p.items) > visibleItems && visibleItems > 0 {
@@ -255,7 +256,7 @@ func drawText(s *screen.Screen, x, y, maxW int, text, fg, bg string) {
 
 func drawFill(s *screen.Screen, x, y, w int, bg string) {
 	for i := 0; i < w; i++ {
-		s.Set(x+i, y, ' ', ansiFg(232, 229, 241), bg, "")
+		s.Set(x+i, y, ' ', theme.Text.Fg(), bg, "")
 	}
 }
 
@@ -283,16 +284,4 @@ func drawSearch(s *screen.Screen, x, y, w int, query, fg, muted, bg string) {
 		fg = muted
 	}
 	drawCenteredText(s, x, y, w, text, fg, bg)
-}
-
-func ansiFg(r, g, b uint8) string {
-	style := layout.Style{}
-	style.SetForeground(r, g, b)
-	return style.GetForeground()
-}
-
-func ansiBg(r, g, b uint8) string {
-	style := layout.Style{}
-	style.SetBackground(r, g, b)
-	return style.GetBackground()
 }

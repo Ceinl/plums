@@ -4,33 +4,38 @@ import (
 	"strings"
 
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 
 const (
-	listIndent    = 2
-	fgContent     = "\x1b[38;2;200;198;212m" // near-white for message body
-	fgDimRule     = "\x1b[38;2;72;70;84m"    // very dim, for the system rule
-	fgCursor      = "\x1b[38;2;160;220;255m" // streaming cursor colour
-	fgHeading     = "\x1b[38;2;238;234;248m" // brighter section headings
-	fgThinking    = "\x1b[38;2;132;130;145m" // muted thinking / reasoning trace
-	fgInlineCode  = "\x1b[38;2;245;190;120m"
-	fgUserAccent  = "\x1b[38;2;247;184;90m"
-	fgSystemRole  = "\x1b[1m\x1b[38;2;220;160;50m" // bold amber – system / error
-	fgSystemBody  = "\x1b[38;2;200;145;60m"        // dim amber for system body
-	fgCodeFence   = "\x1b[38;2;120;118;140m"       // dim purple for code fences
-	fgListMarker  = "\x1b[38;2;155;188;255m"       // cool accent for bullets / numbers
-	bgUserMessage = "\x1b[48;2;34;32;42m"          // lighter panel for user prompts
-	decorBold     = "\x1b[1m"
+	listIndent = 2
+	decorBold  = "\x1b[1m"
+)
 
-	// selection highlight colours
-	selFg = "\x1b[38;2;22;20;27m"
-	selBg = "\x1b[48;2;200;198;212m"
+var (
+	fgCursor     = theme.ChatCursor.Fg() // streaming cursor colour
+	fgInlineCode = theme.ChatInlineCode.Fg()
+	fgCodeFence  = theme.ChatCodeFence.Fg()  // dim purple for code fences
+	fgListMarker = theme.ChatListMarker.Fg() // cool accent for bullets / numbers
 
-	fgToolCall      = "\x1b[38;2;160;230;180m" // soft green for tool calls
-	fgToolOutput    = "\x1b[38;2;160;180;220m" // soft blue-gray for tool output
-	fgToolIndicator = "\x1b[38;2;245;190;120m" // soft yellow-orange for the diamond indicator
+	fgToolCall      = theme.ToolCall.Fg()      // soft green for tool calls
+	fgToolOutput    = theme.ToolOutput.Fg()    // soft blue-gray for tool output
+	fgToolIndicator = theme.ToolIndicator.Fg() // soft yellow-orange for the diamond indicator
+
+	fgContent     = theme.TextSoft.Fg()               // near-white for message body
+	fgDimRule     = theme.TextDim.Fg()                // very dim, for the system rule
+	fgHeading     = theme.TextBright.Fg()             // brighter section headings
+	fgThinking    = theme.TextMuted.Fg()              // muted thinking / reasoning trace
+	fgUserAccent  = theme.Accent.Fg()                 // user message accent
+	fgSystemRole  = decorBold + theme.AccentBold.Fg() // bold amber – system / error
+	fgSystemBody  = theme.AccentSoft.Fg()             // dim amber for system body
+	bgUserMessage = theme.BgRaised.Bg()               // lighter panel for user prompts
+
+	// selection highlight colours, shared with the editor and input box
+	selFg = theme.SelectionFg.Fg()
+	selBg = theme.SelectionBg.Bg()
 )
 
 // ── Types ─────────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 Open source AI agent TUI.
 
-Very early WIP. 
+Very early WIP.
 
 ## Install
 

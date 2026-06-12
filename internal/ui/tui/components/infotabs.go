@@ -3,12 +3,13 @@ package components
 import (
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
-const (
-	infoTabsBg       = "\x1b[48;2;22;20;27m"
-	infoTabsInactive = "\x1b[38;2;92;88;108m"
-	infoTabsActive   = "\x1b[38;2;238;234;248m"
+var (
+	infoTabsBg       = theme.BgBase.Bg()
+	infoTabsInactive = theme.TextFaint.Fg()
+	infoTabsActive   = theme.TextBright.Fg()
 )
 
 type InfoTab struct {
@@ -52,7 +53,7 @@ func (t *InfoTabs) Render(scr *screen.Screen) {
 	if t.parent != nil {
 		bg = t.parent.GetStyle().GetBackground()
 	}
-	if bg == "\x1b[48;2;0;0;0m" {
+	if bg == theme.Unset.Bg() {
 		bg = infoTabsBg
 	}
 

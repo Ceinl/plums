@@ -6,13 +6,14 @@ import (
 
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
-const (
-	statusFgDefault  = "\x1b[38;2;100;98;112m"
-	statusFgReady    = "\x1b[38;2;120;130;145m"
-	statusFgStarting = "\x1b[38;2;245;190;70m"
-	statusFgThinking = "\x1b[38;2;100;190;255m"
+var (
+	statusFgDefault  = theme.TextFaint.Fg()
+	statusFgReady    = theme.StatusReady.Fg()
+	statusFgStarting = theme.StatusStarting.Fg()
+	statusFgThinking = theme.StatusThinking.Fg()
 )
 
 type StatusBar struct {

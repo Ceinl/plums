@@ -4,22 +4,34 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
 const (
 	sessionsMaxHorizontalItems = 8
-
-	sessionsBg        = "\x1b[48;2;25;23;32m"
-	sessionsCardBg    = "\x1b[48;2;34;31;43m"
-	sessionsActiveBg  = "\x1b[48;2;62;52;78m"
-	sessionsFg        = "\x1b[38;2;226;222;235m"
-	sessionsMutedFg   = "\x1b[38;2;132;126;149m"
-	sessionsAccentFg  = "\x1b[38;2;247;184;90m"
-	sessionsCurrentFg = "\x1b[38;2;167;226;185m"
+	sessionsHorizontalTitleMax = 14
+	// minimum row width before the right-aligned timestamp is shown
+	sessionsTimeMinWidth = 18
 )
+
+var (
+	sessionsBg        = theme.BgBase.Bg()
+	sessionsCardBg    = theme.BgRaised.Bg()
+	sessionsActiveBg  = theme.BgSelected.Bg()
+	sessionsFg        = theme.Text.Fg()
+	sessionsItemFg    = theme.TextSoft.Fg()
+	sessionsMutedFg   = theme.TextMuted.Fg()
+	sessionsTimeFg    = theme.TextFaint.Fg()
+	sessionsAccentFg  = theme.Accent.Fg()
+	sessionsCurrentFg = theme.Success.Fg()
+)
+
+// sessionsNow is a test hook for relative timestamps.
+var sessionsNow = time.Now
 
 type SessionsOrientation int
 
@@ -184,11 +196,11 @@ func (s *Sessions) renderVertical(scr *screen.Screen) {
 			if s.collapsed[row.project] {
 				prefix = "▸ "
 			}
-			drawText(scr, s.x, absY, s.w, prefix+label, sessionsMutedFg, bg)
+			drawText(scr, s.x, absY, s.w, prefix, sessionsAccentFg, bg)
+			drawText(scr, s.x+len([]rune(prefix)), absY, maxInt(s.w-len([]rune(prefix)), 0), label, sessionsMutedFg, bg)
 			s.hits = append(s.hits, sessionHit{x: s.x, y: absY, w: s.w, h: 1, project: row.project})
 		case sessionRowItem:
-			title := sessionTitle(row.item)
-			s.drawCard(scr, s.x, absY, s.w, title, row.item.Current, false)
+			s.drawItemRow(scr, s.x, absY, s.w, row.item)
 			s.hits = append(s.hits, sessionHit{x: s.x, y: absY, w: s.w, h: 1, action: SessionMouseSelect, id: row.item.ID})
 		}
 	}
@@ -211,10 +223,7 @@ func (s *Sessions) renderHorizontal(scr *screen.Screen) {
 	items := s.horizontalItems()
 	cx := s.x - s.scroll
 	for _, item := range items {
-		label := " " + sessionTitle(item) + " "
-		if item.Current {
-			label = " " + sessionTitle(item) + "* "
-		}
+		label := horizontalLabel(item)
 		tabW := clampInt(len([]rune(label)), 6, 18)
 		if cx+tabW > s.x && cx < s.x+contentW {
 			s.drawTab(scr, cx, y, tabW, label, item.Current)
@@ -246,10 +255,7 @@ func (s *Sessions) verticalRows() []sessionRow {
 	}
 	if !hasProjects {
 		for _, item := range items {
-			rows = append(rows, sessionRow{kind: sessionRowItem, item: item}, sessionRow{kind: sessionRowGap})
-		}
-		if len(rows) > 0 && rows[len(rows)-1].kind == sessionRowGap {
-			rows = rows[:len(rows)-1]
+			rows = append(rows, sessionRow{kind: sessionRowItem, item: item})
 		}
 		return rows
 	}
@@ -275,13 +281,18 @@ func (s *Sessions) verticalRows() []sessionRow {
 			lastProject = project
 		}
 		if !s.collapsed[project] {
-			rows = append(rows, sessionRow{kind: sessionRowItem, item: item, project: project}, sessionRow{kind: sessionRowGap})
+			rows = append(rows, sessionRow{kind: sessionRowItem, item: item, project: project})
 		}
 	}
-	if len(rows) > 0 && rows[len(rows)-1].kind == sessionRowGap {
-		rows = rows[:len(rows)-1]
-	}
 	return rows
+}
+
+func horizontalLabel(item SessionItem) string {
+	title := truncateWithEllipsis(sessionTitle(item), sessionsHorizontalTitleMax)
+	if item.Current {
+		return " " + title + "* "
+	}
+	return " " + title + " "
 }
 
 func (s *Sessions) horizontalItems() []SessionItem {
@@ -305,7 +316,7 @@ func (s *Sessions) clampScroll() {
 	} else {
 		width := 0
 		for _, item := range s.horizontalItems() {
-			labelW := clampInt(len([]rune(" "+sessionTitle(item)+" ")), 6, 18)
+			labelW := clampInt(len([]rune(horizontalLabel(item))), 6, 18)
 			width += labelW + 1
 		}
 		contentW := s.w - minInt(3, s.w)
@@ -338,6 +349,39 @@ func (s *Sessions) drawCard(scr *screen.Screen, x, y, w int, text string, curren
 	drawText(scr, x+1, y, maxInt(w-2, 0), text, fg, bg)
 }
 
+// drawItemRow renders one session as a flat list row: a 2-column lead-in
+// (accent bar when current), the ellipsis-truncated title, and a right-aligned
+// relative timestamp when the row is wide enough.
+func (s *Sessions) drawItemRow(scr *screen.Screen, x, y, w int, item SessionItem) {
+	if w <= 0 {
+		return
+	}
+	bg := s.background()
+	fg := sessionsItemFg
+	if item.Current {
+		bg = sessionsActiveBg
+		fg = sessionsFg
+		drawFill(scr, x, y, w, bg)
+		scr.Set(x, y, '▌', sessionsAccentFg, bg, "")
+	}
+
+	timeLabel := relativeTime(item.Updated)
+	if w < sessionsTimeMinWidth {
+		timeLabel = ""
+	}
+	titleW := w - 3 // 2-column lead-in + 1-column right margin
+	if timeLabel != "" {
+		titleW -= len(timeLabel) + 1
+	}
+	if titleW < 1 {
+		return
+	}
+	drawText(scr, x+2, y, titleW, truncateWithEllipsis(sessionTitle(item), titleW), fg, bg)
+	if timeLabel != "" {
+		drawText(scr, x+w-1-len(timeLabel), y, len(timeLabel), timeLabel, sessionsTimeFg, bg)
+	}
+}
+
 func (s *Sessions) drawTab(scr *screen.Screen, x, y, w int, text string, current bool) {
 	if w <= 0 {
 		return
@@ -357,10 +401,45 @@ func (s *Sessions) background() string {
 	if s.parent != nil {
 		bg = s.parent.GetStyle().GetBackground()
 	}
-	if bg == "\x1b[48;2;0;0;0m" {
+	if bg == theme.Unset.Bg() {
 		bg = sessionsBg
 	}
 	return bg
+}
+
+func truncateWithEllipsis(value string, max int) string {
+	runes := []rune(value)
+	if max <= 0 {
+		return ""
+	}
+	if len(runes) <= max {
+		return value
+	}
+	if max == 1 {
+		return "…"
+	}
+	return string(runes[:max-1]) + "…"
+}
+
+// relativeTime renders a compact age ("now", "5m", "3h", "2d", "4w") from a
+// unix-millisecond timestamp, or "" when the timestamp is missing.
+func relativeTime(updatedMillis int64) string {
+	if updatedMillis <= 0 {
+		return ""
+	}
+	d := sessionsNow().Sub(time.UnixMilli(updatedMillis))
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return itoa(int(d/time.Minute)) + "m"
+	case d < 24*time.Hour:
+		return itoa(int(d/time.Hour)) + "h"
+	case d < 7*24*time.Hour:
+		return itoa(int(d/(24*time.Hour))) + "d"
+	default:
+		return itoa(int(d/(7*24*time.Hour))) + "w"
+	}
 }
 
 func sessionTitle(item SessionItem) string {

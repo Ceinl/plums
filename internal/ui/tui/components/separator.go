@@ -5,14 +5,15 @@ import (
 
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
-const (
-	sepFgDefault  = "\x1b[38;2;100;98;112m"
-	sepFgReady    = "\x1b[38;2;120;130;145m"
-	sepFgStarting = "\x1b[38;2;245;190;70m"
-	sepFgThinking = "\x1b[38;2;100;190;255m"
-	sepBgDefault  = "\x1b[48;2;40;38;48m"
+var (
+	sepFgDefault  = theme.TextFaint.Fg()
+	sepFgReady    = theme.StatusReady.Fg()
+	sepFgStarting = theme.StatusStarting.Fg()
+	sepFgThinking = theme.StatusThinking.Fg()
+	sepBgDefault  = theme.BgHighlight.Bg()
 )
 
 var separatorSpinnerFrames = []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}

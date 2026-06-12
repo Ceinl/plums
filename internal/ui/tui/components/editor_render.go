@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
 func (e *Editor) Scroll(delta int) bool {
@@ -140,17 +141,17 @@ func (e *Editor) Render(s *screen.Screen) {
 
 	// ── Colour palette ──────────────────────────────────────────────────
 	// Selection
-	selFg := "\x1b[38;2;215;225;255m"
-	selBg := "\x1b[48;2;45;80;158m"
+	selFg := theme.SelectionFg.Fg()
+	selBg := theme.SelectionBg.Bg()
 	// Block cursor
-	cursorFg := "\x1b[38;2;14;14;20m"
-	cursorBg := "\x1b[48;2;165;188;255m"
+	cursorFg := theme.CursorFg.Fg()
+	cursorBg := theme.CursorBg.Bg()
 	// Current-line highlight
-	lineBg := "\x1b[48;2;40;38;50m"
+	lineBg := theme.BgHighlight.Bg()
 	// Gutter
-	gutterFg := "\x1b[38;2;72;70;84m"
-	numFg := "\x1b[38;2;95;93;108m"
-	activeNumFg := "\x1b[38;2;200;198;212m"
+	gutterFg := theme.TextDim.Fg()
+	numFg := theme.TextFaint.Fg()
+	activeNumFg := theme.TextSoft.Fg()
 
 	prevRow := -1
 	for i := 0; i < e.h; i++ {

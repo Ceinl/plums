@@ -2,8 +2,8 @@ package app
 
 import (
 	"github.com/Ceinl/plums/internal/ui/tui/components"
-	"github.com/Ceinl/plums/internal/ui/tui/layout"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
 var scr *screen.Screen
@@ -59,11 +59,11 @@ func renderFullscreenTabs(state *State) {
 		y = 1
 	}
 
-	bg := ansiBg(24, 22, 31)
-	fg := ansiFg(145, 140, 160)
-	activeBg := ansiBg(150, 58, 80)
-	activeFg := ansiFg(255, 245, 248)
-	sideFg := ansiFg(185, 180, 200)
+	bg := theme.BgBase.Bg()
+	fg := theme.TextMuted.Fg()
+	activeBg := theme.Accent.Bg()
+	activeFg := theme.BgBase.Fg()
+	sideFg := theme.TextSoft.Fg()
 
 	for col := 0; col < state.width; col++ {
 		scr.Set(col, y, ' ', fg, bg, "")
@@ -196,34 +196,24 @@ func drawOverlayText(x, y, maxW int, text, fg, bg string) {
 }
 
 func drawOverlayFill(x, y, w int, bg string) {
-	fg := ansiFg(232, 229, 241)
+	fg := theme.Text.Fg()
 	for i := 0; i < w; i++ {
 		scr.Set(x+i, y, ' ', fg, bg, "")
 	}
 }
 
-func ansiFg(r, g, b uint8) string {
-	style := layout.Style{}
-	style.SetForeground(r, g, b)
-	return style.GetForeground()
-}
-
-func ansiFgColor(c []uint8, r, g, b uint8) string {
+// ansiFgColor and ansiBgColor resolve a user-configured RGB triple, falling
+// back to the given theme colour when the config does not override it.
+func ansiFgColor(c []uint8, fallback theme.Color) string {
 	if len(c) == 3 {
-		return ansiFg(c[0], c[1], c[2])
+		return theme.Color{R: c[0], G: c[1], B: c[2]}.Fg()
 	}
-	return ansiFg(r, g, b)
+	return fallback.Fg()
 }
 
-func ansiBgColor(c []uint8, r, g, b uint8) string {
+func ansiBgColor(c []uint8, fallback theme.Color) string {
 	if len(c) == 3 {
-		return ansiBg(c[0], c[1], c[2])
+		return theme.Color{R: c[0], G: c[1], B: c[2]}.Bg()
 	}
-	return ansiBg(r, g, b)
-}
-
-func ansiBg(r, g, b uint8) string {
-	style := layout.Style{}
-	style.SetBackground(r, g, b)
-	return style.GetBackground()
+	return fallback.Bg()
 }

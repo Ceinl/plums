@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -12,6 +13,11 @@ func (cl *ChatLog) Render(s *screen.Screen) {
 	bg := cl.style.GetBackground()
 	if cl.parent != nil {
 		bg = cl.parent.GetStyle().GetBackground()
+	}
+
+	if len(cl.messages) == 0 && cl.aioutput == "" && !cl.isStreaming {
+		cl.renderEmptyState(s, bg)
+		return
 	}
 
 	// Build the full list of logical lines (may be taller than cl.h).
@@ -47,6 +53,23 @@ func (cl *ChatLog) Render(s *screen.Screen) {
 			cl.clearRow(s, y, bg)
 		}
 	}
+}
+
+// renderEmptyState fills the chat area and draws a centred placeholder so an
+// empty conversation is not just a dark void.
+func (cl *ChatLog) renderEmptyState(s *screen.Screen, bg string) {
+	for row := 0; row < cl.h; row++ {
+		cl.clearRow(s, cl.y+row, bg)
+	}
+	if cl.onMaxScroll != nil {
+		cl.onMaxScroll(0)
+	}
+	if cl.w < 10 || cl.h < 3 {
+		return
+	}
+	mid := cl.y + cl.h/2 - 1
+	drawCenteredText(s, cl.x, mid, cl.w, "✳ plums", theme.Accent.Fg(), bg)
+	drawCenteredText(s, cl.x, mid+2, cl.w, "type a message below to start", theme.TextFaint.Fg(), bg)
 }
 
 // buildLines converts all messages (and in-progress AI output) into a flat
@@ -93,7 +116,7 @@ func (cl *ChatLog) buildContentLines(content, fg, bg string) []renderLine {
 	for _, block := range blocks {
 		switch block.kind {
 		case blockKindCode:
-			bgCodeBlock := "\x1b[48;2;24;22;30m"
+			bgCodeBlock := theme.BgSurface.Bg()
 			langLabel := block.lang
 			if langLabel == "" {
 				langLabel = "code"

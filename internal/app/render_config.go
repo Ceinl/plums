@@ -207,7 +207,7 @@ func buildComponent(state *State, node LayoutNode) (layout.Component, error) {
 		return state.Editor, nil
 	case "input_box", "text_box":
 		box := components.NewInputBox(state.Editor)
-		box.SetStatus(chatStatusText(state))
+		box.SetStatusSegments(chatStatusSegments(state))
 		return box, nil
 	case "command_palette_panel":
 		popup := components.NewPopup()
@@ -352,7 +352,7 @@ const defaultLayoutJSON = `{
         { "component": "vertical_status_separator", "size": { "width": 1, "height": "100%" } },
         { "type": "div", "size": { "width": "grow", "height": "100%" }, "direction": "column", "align_items": "center", "padding": { "top": 0, "right": 0, "bottom": 0, "left": 0 }, "style": { "background": [22, 20, 27] }, "children": [
           { "component": "chat_output", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 0, "right": 2, "bottom": 0, "left": 2 }, "style": { "background": [22, 20, 27] } },
-          { "component": "input_box", "size": { "width": "100%", "height": 9 }, "padding": { "top": 0, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27], "foreground": [220, 228, 216] } }
+          { "component": "input_box", "size": { "width": "100%", "height": 9 }, "padding": { "top": 0, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27], "foreground": [232, 229, 241] } }
         ] }
       ],
       "fallback": "narrow_chat"
@@ -363,7 +363,7 @@ const defaultLayoutJSON = `{
       "direction": "row",
       "min_width": "MinSplitLayoutWidth",
       "children": [
-        { "component": "editor_or_palette", "size": { "width": "state.SplitLeftPercent%", "height": "100%" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [32, 30, 40], "foreground": [220, 218, 230] }, "when_popup_open": { "component": "command_palette_panel", "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 } } },
+        { "component": "editor_or_palette", "size": { "width": "state.SplitLeftPercent%", "height": "100%" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [32, 30, 40], "foreground": [232, 229, 241] }, "when_popup_open": { "component": "command_palette_panel", "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 } } },
         { "component": "vertical_status_separator", "size": { "width": 1, "height": "100%" } },
         { "type": "div", "size": { "width": "grow", "height": "100%" }, "direction": "column", "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27] }, "children": [
           { "component": "info_tabs", "size": { "width": "100%", "height": 1 }, "style": { "background": [22, 20, 27] } },
@@ -380,7 +380,7 @@ const defaultLayoutJSON = `{
       "children": [
         { "component": "chat_output", "size": { "width": "100%", "height": "50%" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27] } },
         { "component": "status_separator", "size": { "width": "100%", "height": 1 } },
-        { "component": "editor", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [32, 30, 40], "foreground": [220, 218, 230] } }
+        { "component": "editor", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [32, 30, 40], "foreground": [232, 229, 241] } }
       ]
     },
     "narrow_chat": {
@@ -391,13 +391,13 @@ const defaultLayoutJSON = `{
       "children": [
         { "component": "sessions_horizontal", "size": { "width": "100%", "height": 3 } },
         { "component": "chat_output", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 0, "right": 2, "bottom": 0, "left": 2 }, "style": { "background": [22, 20, 27] } },
-        { "component": "input_box", "size": { "width": "100%", "height": 9 }, "padding": { "top": 0, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27], "foreground": [220, 228, 216] } }
+        { "component": "input_box", "size": { "width": "100%", "height": 9 }, "padding": { "top": 0, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27], "foreground": [232, 229, 241] } }
       ]
     },
     "fullscreen": { "component": "fullscreen_view" }
   },
   "overlays": {
-    "slash_command_dropdown": { "enabled_when": "!state.PopupOpen && len(state.SlashCommands()) > 0", "width": { "preferred": 44, "min": 20, "max": "state.width - 2" }, "style": { "background": [30, 27, 38], "foreground": [232, 229, 241], "muted": [159, 153, 176], "accent": [247, 184, 90] } },
+    "slash_command_dropdown": { "enabled_when": "!state.PopupOpen && len(state.SlashCommands()) > 0", "width": { "preferred": 44, "min": 20, "max": "state.width - 2" }, "style": { "background": [30, 27, 38], "foreground": [232, 229, 241], "muted": [145, 140, 160], "accent": [247, 184, 90] } },
     "command_palette_popup": { "enabled_when": "state.PopupOpen && (state.EffectiveLayout() != \"split\" || state.width < MinSplitLayoutWidth)" }
   }
 }`
