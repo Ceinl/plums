@@ -40,22 +40,17 @@ func InitLocalConfigFiles() (string, error) {
 	return dir, nil
 }
 
-// ResolveConfigPath picks the layout config path based on CLI flags.
+// ResolveConfigPath picks the layout config path based on CLI flags. Global is
+// the default so zero-value callers behave like passing --config-global/-cg.
 func ResolveConfigPath(global, local bool) (string, error) {
-	if global && local {
-		return "", fmt.Errorf("use only one of --config-global/-cg or --config-local/-cl")
-	}
 	if local {
 		return "./.agents/plums/config/layout.json", nil
 	}
-	if global {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, ".config", "plums", "config", "layout.json"), nil
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
 	}
-	return "", nil
+	return filepath.Join(home, ".config", "plums", "config", "layout.json"), nil
 }
 
 // ResolveCommandsConfigPath derives the commands config path from the layout
@@ -263,11 +258,18 @@ func LoadDefaultLayout(path, fallback string) (string, error) {
 
 // LoadHideThinking reads hide_thinking from the TOML file at path.
 func LoadHideThinking(path string, fallback bool) bool {
+	return loadBoolKey(path, "hide_thinking", fallback)
+}
+
+// LoadClearHistory reads clear_history from the TOML file at path.
+func LoadClearHistory(path string, fallback bool) bool {
+	return loadBoolKey(path, "clear_history", fallback)
+}
+
+// loadBoolKey reads a top-level boolean key from the TOML file at path.
+func loadBoolKey(path, wantKey string, fallback bool) bool {
 	file, err := os.Open(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return fallback
-		}
 		return fallback
 	}
 	defer func() { _ = file.Close() }()
@@ -284,7 +286,7 @@ func LoadHideThinking(path string, fallback bool) bool {
 		if !ok {
 			continue
 		}
-		if strings.TrimSpace(key) != "hide_thinking" {
+		if strings.TrimSpace(key) != wantKey {
 			continue
 		}
 		v := strings.ToLower(strings.TrimSpace(value))

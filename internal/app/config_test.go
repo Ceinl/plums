@@ -103,6 +103,30 @@ func TestResolveCommandsConfigPathDefaultsWhenMissing(t *testing.T) {
 	}
 }
 
+func TestResolveConfigPathDefaultsToGlobal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	got, err := ResolveConfigPath(false, false)
+	if err != nil {
+		t.Fatalf("resolve default config: %v", err)
+	}
+	want := filepath.Join(home, ".config", "plums", "config", "layout.json")
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestResolveConfigPathLocalOverridesDefaultGlobal(t *testing.T) {
+	got, err := ResolveConfigPath(false, true)
+	if err != nil {
+		t.Fatalf("resolve local config: %v", err)
+	}
+	if got != "./.agents/plums/config/layout.json" {
+		t.Fatalf("expected local config, got %q", got)
+	}
+}
+
 func TestResolveOpencodeConfigPathUsesLayoutConfigDir(t *testing.T) {
 	layoutPath := filepath.Join("/tmp", "plums", "config", "layout.json")
 	got := ResolveOpencodeConfigPath(layoutPath)
