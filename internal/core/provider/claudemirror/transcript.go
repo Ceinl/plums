@@ -151,6 +151,61 @@ func conversationEntry(entry transcriptEntry) bool {
 	return entry.Type == "user" || entry.Type == "assistant"
 }
 
+// hasPendingQuestion reports whether the transcript ends with an
+// AskUserQuestion the user has not yet answered in the real window. Injecting
+// keystrokes while its dialog is open would answer it accidentally.
+func hasPendingQuestion(entries []transcriptEntry) bool {
+	pendingID := ""
+	for _, entry := range entries {
+		if !conversationEntry(entry) {
+			continue
+		}
+		for _, block := range contentBlocks(entry.Message.Content) {
+			switch block.Type {
+			case "tool_use":
+				if block.Name == "AskUserQuestion" {
+					pendingID = block.ID
+				}
+			case "tool_result":
+				if block.ToolUseID == pendingID {
+					pendingID = ""
+				}
+			case "text":
+				// A later typed prompt means the question was dismissed.
+				if entry.Message.Role == "user" && !isHarnessText(block.Text) {
+					pendingID = ""
+				}
+			}
+		}
+	}
+	return pendingID != ""
+}
+
+// formatQuestions renders an AskUserQuestion tool input as readable text.
+func formatQuestions(input string) string {
+	var payload struct {
+		Questions []struct {
+			Question string `json:"question"`
+			Options  []struct {
+				Label string `json:"label"`
+			} `json:"options"`
+		} `json:"questions"`
+	}
+	if json.Unmarshal([]byte(input), &payload) != nil || len(payload.Questions) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nClaude is asking in the real window:\n")
+	for _, q := range payload.Questions {
+		b.WriteString("• " + q.Question + "\n")
+		for _, o := range q.Options {
+			b.WriteString("    - " + o.Label + "\n")
+		}
+	}
+	b.WriteString("Answer in the Claude Code window to continue.\n")
+	return b.String()
+}
+
 // transcriptTitle derives a session title from the first typed user message.
 func transcriptTitle(entries []transcriptEntry, fallback string) string {
 	for _, entry := range entries {

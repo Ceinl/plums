@@ -3,7 +3,9 @@ package claudemirror
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestEncodeProjectDir(t *testing.T) {
@@ -85,13 +87,81 @@ func TestIsInteractiveClaudeCommand(t *testing.T) {
 		"claude":                             true,
 		"/usr/local/bin/claude --resume abc": true,
 		"node /opt/cc/claude":                true,
-		"claude -p --output-format json":     false,
-		"claude --version":                   false,
-		"vim notes.md":                       false,
+		"node /opt/node_modules/@anthropic-ai/claude-code/cli.js": true,
+		"bun /opt/claude-code/cli.js":                             true,
+		"claude -p --output-format json":                          false,
+		"claude --version":                                        false,
+		"claude --output-format=stream-json":                      false,
+		"vim notes.md":                                            false,
+		// Claude desktop app spawns headless stream-json instances.
+		"/Applications/Claude.app/x/claude --output-format stream-json --input-format stream-json --permission-prompt-tool stdio": false,
 	}
 	for command, want := range cases {
 		if got := isInteractiveClaudeCommand(command); got != want {
 			t.Errorf("isInteractiveClaudeCommand(%q) = %t, want %t", command, got, want)
 		}
+	}
+}
+
+func TestPairGroupMatchesByStartOrder(t *testing.T) {
+	t0 := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
+	procs := []claudeProc{
+		{pid: 2, started: t0.Add(time.Hour), cwd: "/tmp/p"},
+		{pid: 1, started: t0, cwd: "/tmp/p"},
+	}
+	transcripts := []transcriptFile{
+		{path: "old.jsonl", sessionID: "old", born: t0.Add(time.Minute), modified: t0.Add(2 * time.Hour)},
+		{path: "stale.jsonl", sessionID: "stale", born: t0.Add(-24 * time.Hour), modified: t0.Add(-23 * time.Hour)},
+		{path: "new.jsonl", sessionID: "new", born: t0.Add(time.Hour + time.Minute), modified: t0.Add(90 * time.Minute)},
+	}
+	instances := pairGroup(procs, transcripts)
+	if len(instances) != 2 {
+		t.Fatalf("got %d instances, want 2", len(instances))
+	}
+	got := map[int]string{}
+	for _, inst := range instances {
+		got[inst.pid] = inst.sessionID
+	}
+	if got[1] != "old" || got[2] != "new" {
+		t.Fatalf("pairing = %v, want pid1->old pid2->new (stale dropped)", got)
+	}
+}
+
+func TestHasPendingQuestion(t *testing.T) {
+	ask := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"q1","name":"AskUserQuestion","input":{"questions":[{"question":"Which?","options":[{"label":"A"},{"label":"B"}]}]}}],"stop_reason":"tool_use"},"uuid":"a1"}` + "\n"
+	answer := `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"q1","content":"A"}]},"uuid":"u1"}` + "\n"
+	typed := `{"type":"user","message":{"role":"user","content":"moved on"},"uuid":"u2"}` + "\n"
+
+	parse := func(raw string) []transcriptEntry {
+		path := filepath.Join(t.TempDir(), "t.jsonl")
+		if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := readTranscript(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return entries
+	}
+	if !hasPendingQuestion(parse(ask)) {
+		t.Error("unanswered question should be pending")
+	}
+	if hasPendingQuestion(parse(ask + answer)) {
+		t.Error("answered question should not be pending")
+	}
+	if hasPendingQuestion(parse(ask + typed)) {
+		t.Error("dismissed question should not be pending")
+	}
+}
+
+func TestFormatQuestions(t *testing.T) {
+	text := formatQuestions(`{"questions":[{"question":"Which?","options":[{"label":"A"},{"label":"B"}]}]}`)
+	for _, want := range []string{"Which?", "- A", "- B", "Answer in the Claude Code window"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("formatted questions missing %q in %q", want, text)
+		}
+	}
+	if formatQuestions("not json") != "" {
+		t.Error("invalid input should format to empty string")
 	}
 }

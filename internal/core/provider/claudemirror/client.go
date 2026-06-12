@@ -21,6 +21,7 @@ const (
 
 	tailPollInterval  = 300 * time.Millisecond
 	firstReplyTimeout = 60 * time.Second
+	idleTimeout       = 10 * time.Minute
 )
 
 // Client implements adapter.Backend by attaching to already-running
@@ -47,6 +48,13 @@ func (c *Client) Health(ctx context.Context) error {
 	}
 	if _, err := os.Stat(root); err != nil {
 		return fmt.Errorf("claude transcripts directory not found (has Claude Code run before?): %w", err)
+	}
+	instances, err := discoverInstances(ctx)
+	if err != nil {
+		return err
+	}
+	if len(instances) == 0 {
+		return fmt.Errorf("no running interactive Claude Code window found; open one in a terminal first")
 	}
 	return nil
 }
@@ -189,6 +197,9 @@ func (c *Client) runMirroredTurn(ctx context.Context, out chan<- adapter.StreamE
 		return err
 	}
 	offset := info.Size()
+	if entries, err := readTranscript(path); err == nil && hasPendingQuestion(entries) {
+		return fmt.Errorf("the Claude Code window is waiting for you to answer a question; answer it there before sending more prompts")
+	}
 	if err := injectPrompt(ctx, pid, text); err != nil {
 		return err
 	}
@@ -218,10 +229,13 @@ func (c *Client) resolvePID(ctx context.Context, sessionID string) (int, error) 
 	return 0, fmt.Errorf("no running Claude Code window found for session %s", sessionID)
 }
 
-// tailTurn streams new transcript entries until the assistant ends its turn.
+// tailTurn streams new transcript entries until the assistant ends its turn,
+// the transcript goes idle (e.g. a permission prompt is blocking the real
+// window), or the context is cancelled.
 func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, offset int64) error {
 	deadline := time.Now().Add(firstReplyTimeout)
 	sawActivity := false
+	lastActivity := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -238,6 +252,7 @@ func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, 
 				continue
 			}
 			sawActivity = true
+			lastActivity = time.Now()
 			if entry.Message.Role == "assistant" || entry.Type == "user" {
 				emitEntry(ctx, out, entry)
 			}
@@ -247,6 +262,12 @@ func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, 
 		}
 		if !sawActivity && time.Now().After(deadline) {
 			return fmt.Errorf("no transcript activity within %s — the prompt may not have reached the window", firstReplyTimeout)
+		}
+		if sawActivity && time.Since(lastActivity) > idleTimeout {
+			emit(ctx, out, adapter.StreamEvent{Text: fmt.Sprintf(
+				"\n[claude-mirror] no transcript activity for %s — the real window may be waiting for input (permission prompt or question); check it there\n",
+				idleTimeout)})
+			return nil
 		}
 	}
 }
@@ -258,6 +279,13 @@ func emitEntry(ctx context.Context, out chan<- adapter.StreamEvent, entry transc
 		switch {
 		case part.Tool != nil:
 			emit(ctx, out, adapter.StreamEvent{Tool: part.Tool})
+			// Questions block the real window; mirror them readably so the
+			// user knows to answer there.
+			if part.Tool.Name == "AskUserQuestion" {
+				if text := formatQuestions(part.Tool.Input); text != "" {
+					emit(ctx, out, adapter.StreamEvent{Text: text})
+				}
+			}
 		case entry.Message.Role == "assistant":
 			if text := adapter.DisplayTextForPart(part); text != "" {
 				emit(ctx, out, adapter.StreamEvent{Text: text})
