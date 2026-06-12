@@ -7,25 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/Ceinl/plums/internal/debuglog"
 )
-
-// injectPrompt types a prompt into the real Claude Code window that owns pid.
-// Only tmux is supported: it is the one mechanism that can target the exact
-// pane owning the process.
-func injectPrompt(ctx context.Context, pid int, text string) error {
-	parents, err := parentMap(ctx)
-	if err != nil {
-		return err
-	}
-	pane, err := tmuxPaneForPID(ctx, pid, parents)
-	if err != nil {
-		return fmt.Errorf("claude-mirror requires the Claude Code window to run inside tmux: %w", err)
-	}
-	debuglog.Printf("claude-mirror: injecting into tmux pane %s for pid %d", pane, pid)
-	return tmuxInject(ctx, pane, text)
-}
 
 // tmuxPaneForPID finds the tmux pane whose process tree contains pid.
 func tmuxPaneForPID(ctx context.Context, pid int, parents map[int]int) (string, error) {

@@ -33,10 +33,14 @@ const (
 type Client struct {
 	mu        sync.Mutex
 	instances map[string]instance // session id -> attached window
+	bindings  map[string]int      // transcript path -> verified owning pid
 }
 
 func NewBackend() adapter.Backend {
-	return &Client{instances: make(map[string]instance)}
+	return &Client{
+		instances: make(map[string]instance),
+		bindings:  make(map[string]int),
+	}
 }
 
 func (c *Client) Health(ctx context.Context) error {
@@ -216,6 +220,10 @@ func (c *Client) runMirroredTurn(ctx context.Context, out chan<- adapter.StreamE
 			return fmt.Errorf("the Claude Code window is waiting for you to answer a question; answer it there before sending more prompts")
 		}
 	}
+	pane, pid, err := c.resolvePane(ctx, inst)
+	if err != nil {
+		return err
+	}
 	dir, err := projectDirFor(inst)
 	if err != nil {
 		return err
@@ -224,20 +232,84 @@ func (c *Client) runMirroredTurn(ctx context.Context, out chan<- adapter.StreamE
 	if err != nil {
 		return err
 	}
-	if err := injectPrompt(ctx, inst.pid, text); err != nil {
+	debuglog.Printf("claude-mirror: injecting into tmux pane %s (pid %d) for session %s", pane, pid, sessionID)
+	if err := tmuxInject(ctx, pane, text); err != nil {
 		return err
 	}
 	activePath, offset, err := awaitActiveTranscript(ctx, dir, baseline, text)
 	if err != nil {
 		return err
 	}
-	if activePath != inst.transcript {
-		debuglog.Printf("claude-mirror: session %s actually writes to %s (expected %q)", sessionID, activePath, inst.transcript)
+	if activePath != inst.transcript || pid != inst.pid {
+		debuglog.Printf("claude-mirror: session %s verified as pid %d writing %s", sessionID, pid, activePath)
 		inst.transcript = activePath
+		inst.pid = pid
 		c.remember(inst)
 	}
-	debuglog.Printf("claude-mirror: prompt injected into pid %d, tailing %s from %d", inst.pid, activePath, offset)
+	// The prompt provably landed in this transcript via this pid: a verified
+	// binding that outlives the discovery heuristics.
+	c.bind(activePath, pid)
+	debuglog.Printf("claude-mirror: tailing %s from %d", activePath, offset)
 	return tailTurn(ctx, out, activePath, offset)
+}
+
+// resolvePane finds the tmux pane to type into. Discovery's pid pairing is a
+// heuristic, so it prefers a binding verified by an earlier turn; failing
+// that, the discovered pid's pane; failing that, the only tmux-hosted Claude
+// Code sibling in the same directory (the discovered pid then likely belongs
+// to a non-tmux process such as another agent working in the same repo).
+func (c *Client) resolvePane(ctx context.Context, inst instance) (string, int, error) {
+	parents, err := parentMap(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	if inst.transcript != "" {
+		if pid, ok := c.binding(inst.transcript); ok && processAlive(pid) {
+			if pane, err := tmuxPaneForPID(ctx, pid, parents); err == nil {
+				return pane, pid, nil
+			}
+		}
+	}
+	if pane, err := tmuxPaneForPID(ctx, inst.pid, parents); err == nil {
+		return pane, inst.pid, nil
+	}
+	instances, err := discoverInstances(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	var panes []string
+	var pids []int
+	for _, sibling := range instances {
+		if sibling.cwd != inst.cwd || sibling.pid == inst.pid {
+			continue
+		}
+		if pane, err := tmuxPaneForPID(ctx, sibling.pid, parents); err == nil {
+			panes = append(panes, pane)
+			pids = append(pids, sibling.pid)
+		}
+	}
+	switch len(panes) {
+	case 1:
+		debuglog.Printf("claude-mirror: pid %d has no tmux pane; using sibling pid %d in %s", inst.pid, pids[0], inst.cwd)
+		return panes[0], pids[0], nil
+	case 0:
+		return "", 0, fmt.Errorf("no Claude Code window in %s runs inside tmux; claude-mirror can only type into tmux panes", inst.cwd)
+	default:
+		return "", 0, fmt.Errorf("%d tmux Claude Code windows in %s; cannot tell which one this session belongs to — close the extras or attach via the session list", len(panes), inst.cwd)
+	}
+}
+
+func (c *Client) bind(transcript string, pid int) {
+	c.mu.Lock()
+	c.bindings[transcript] = pid
+	c.mu.Unlock()
+}
+
+func (c *Client) binding(transcript string) (int, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	pid, ok := c.bindings[transcript]
+	return pid, ok
 }
 
 // projectDirFor returns the transcript directory to watch for an instance,
