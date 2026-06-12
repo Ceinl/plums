@@ -16,6 +16,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.ClipboardCommand == "" {
 		t.Error("ClipboardCommand must have a default")
 	}
+	if !cfg.UseGlobalConfig {
+		t.Error("UseGlobalConfig must default to true")
+	}
 	if cfg.ShowVersion || cfg.InitConfig || cfg.InitLocalConfig {
 		t.Error("action flags must default to false")
 	}

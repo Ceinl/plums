@@ -45,6 +45,7 @@ func DefaultConfig() *Config {
 		OpencodeServerURL: defs.DefaultBaseURL,
 		BackendProvider:   "opencode",
 		ClipboardCommand:  defs.ClipboardCommand,
+		UseGlobalConfig:   true,
 	}
 }
 
@@ -52,8 +53,8 @@ func DefaultConfig() *Config {
 func RegisterFlags(cfg *Config) {
 	flag.StringVar(&cfg.OpencodeServerURL, "server-url", cfg.OpencodeServerURL, "opencode server URL")
 	flag.StringVar(&cfg.BackendProvider, "provider", cfg.BackendProvider, "backend provider: opencode, codex, or claude")
-	flag.BoolVar(&cfg.UseGlobalConfig, "config-global", false, "use global plums layout config")
-	flag.BoolVar(&cfg.UseGlobalConfig, "cg", false, "use global plums layout config")
+	flag.BoolVar(&cfg.UseGlobalConfig, "config-global", cfg.UseGlobalConfig, "use global plums layout config")
+	flag.BoolVar(&cfg.UseGlobalConfig, "cg", cfg.UseGlobalConfig, "use global plums layout config")
 	flag.BoolVar(&cfg.UseLocalConfig, "config-local", false, "use local plums layout config")
 	flag.BoolVar(&cfg.UseLocalConfig, "cl", false, "use local plums layout config")
 	flag.BoolVar(&cfg.InitConfig, "init-config", false, "create default config files in ~/.config/plums/config and exit")
