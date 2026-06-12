@@ -1,5 +1,7 @@
-default_layout = "chat"
+default_layout = "split"
 hide_thinking = false
+# Hide pre-existing backend sessions; only sessions created in this run are shown.
+clear_history = false
 
 # Backend provider: "opencode" or "codex".
 [backend]

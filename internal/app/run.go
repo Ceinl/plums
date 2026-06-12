@@ -15,6 +15,41 @@ import (
 	"github.com/Ceinl/plums/internal/ui/tui/components"
 )
 
+const doubleEscapeStopWindow = 750 * time.Millisecond
+
+type sessionAborter interface {
+	AbortSession(ctx context.Context, sessionID string) error
+}
+
+type doubleEscapeStopper struct {
+	lastEscape time.Time
+}
+
+func (s *doubleEscapeStopper) Reset() {
+	s.lastEscape = time.Time{}
+}
+
+func (s *doubleEscapeStopper) ShouldStop(ev keyboard.Event, streaming bool, now time.Time) bool {
+	if !streaming {
+		s.Reset()
+		return false
+	}
+	if ev.Type != keyboard.KeyEscape {
+		s.Reset()
+		return false
+	}
+	if ev.Alt {
+		s.Reset()
+		return true
+	}
+	if !s.lastEscape.IsZero() && now.Sub(s.lastEscape) <= doubleEscapeStopWindow {
+		s.Reset()
+		return true
+	}
+	s.lastEscape = now
+	return false
+}
+
 // RunConfig holds timing and behaviour overrides for the event loop.
 type RunConfig struct {
 	OpencodeServerURL    string
@@ -30,6 +65,8 @@ type RunConfig struct {
 	DefaultLayout        string
 	HideThinking         bool
 	SplitLeftWidth       int
+	// ClearHistory hides backend sessions that were not created in this run.
+	ClearHistory bool
 }
 
 // ServerProcess abstracts the lifecycle of a managed backend server.
@@ -134,6 +171,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 	var pendingQuestion *adapter.QuestionRequest
 	var serverProc ServerProcess
 	emittedTools := make(map[string]bool)
+	var escStopper doubleEscapeStopper
 
 	type savedConfigValues struct {
 		layout       string
@@ -175,6 +213,32 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 		}
 		return nil
 	}
+	stopActiveStream := func() {
+		if aborter, ok := backend.(sessionAborter); ok && state.SessionID != "" {
+			sessionID := state.SessionID
+			timeout := cfg.ListTimeout
+			go func() {
+				abortCtx := ctx
+				var cancel context.CancelFunc
+				if timeout > 0 {
+					abortCtx, cancel = context.WithTimeout(ctx, timeout)
+				} else {
+					abortCtx, cancel = context.WithCancel(ctx)
+				}
+				defer cancel()
+				if err := aborter.AbortSession(abortCtx, sessionID); err != nil && abortCtx.Err() == nil {
+					debuglog.Printf("stream: abort failed: %v", err)
+				}
+			}()
+		}
+		if cancelStream != nil {
+			cancelStream()
+			cancelStream = nil
+		}
+		aiStream = nil
+		state.FinalizeAiOutput()
+		escStopper.Reset()
+	}
 
 	for {
 		select {
@@ -191,6 +255,10 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 					cancelStream()
 				}
 				return resolveServerProc(), nil
+			}
+			if escStopper.ShouldStop(ev, state.IsStreaming(), time.Now()) {
+				stopActiveStream()
+				handled = true
 			}
 			if action := state.ConsumePendingAction(); action != PaletteActionNone {
 				if action == PaletteActionAnswerQuestion {
@@ -222,7 +290,6 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 						backend = selected.Backend
 						state.ResetBackendSession()
 						state.SessionItems = nil
-						state.AddMessage("system", "switching backend provider to "+selected.ID)
 						startBackend(selected)
 					}
 				} else {
@@ -259,6 +326,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 								sctx, cancelStream = context.WithCancel(ctx)
 								state.SetStreaming(true)
 								state.ClearAiOutput()
+								escStopper.Reset()
 								emittedTools = make(map[string]bool)
 								agent := deps.Registry.ResolveAgent(state.Mode)
 								aiStream = backend.SendMessageEvents(sctx, state.SessionID, input, state.ModelProvider, state.ModelID, agent)
@@ -286,6 +354,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 				refreshSessionModel(ctx, state, backend, cfg)
 				aiStream = nil
 				cancelStream = nil
+				escStopper.Reset()
 				Render(state, deps.RenderConfig)
 			}
 		case <-spinTicker.C:

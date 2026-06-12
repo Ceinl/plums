@@ -74,6 +74,19 @@ func (s *State) SelectEditorDropdownItem() bool {
 	return true
 }
 
+func (s *State) SubmitExactSlashCommand() bool {
+	input := strings.TrimSpace(s.Editor.GetContent())
+	if input == "" || strings.Contains(input, "\n") {
+		return false
+	}
+	for _, command := range s.commandConfig.SlashCommands {
+		if input == command.Name {
+			return s.runSlashCommand(strings.TrimPrefix(command.Name, "/"))
+		}
+	}
+	return false
+}
+
 func (s *State) CloseEditorDropdown() bool {
 	if !s.EditorDropdownOpen() {
 		return false

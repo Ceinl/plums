@@ -105,19 +105,23 @@ func ensureSession(ctx context.Context, state *State, client adapter.Backend, cf
 			return fmt.Errorf("failed to get working directory: %w", err)
 		}
 	}
-	listCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
-	sessions, err := client.ListSessions(listCtx)
-	cancel()
-	if err == nil {
-		if session := latestSessionForDirectory(sessions, wd); session != nil {
-			applySession(state, session)
-			if session.Model == nil && state.ModelID == "" {
-				applyRecentModel(ctx, state, client, cfg)
+	// With ClearHistory we never attach to pre-existing sessions; a fresh one
+	// is created below instead.
+	if !cfg.ClearHistory {
+		listCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
+		sessions, err := client.ListSessions(listCtx)
+		cancel()
+		if err == nil {
+			if session := latestSessionForDirectory(sessions, wd); session != nil {
+				applySession(state, session)
+				if session.Model == nil && state.ModelID == "" {
+					applyRecentModel(ctx, state, client, cfg)
+				}
+				return nil
 			}
-			return nil
+		} else {
+			debuglog.Printf("session: startup session lookup failed: %v", err)
 		}
-	} else {
-		debuglog.Printf("session: startup session lookup failed: %v", err)
 	}
 
 	sessionCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
@@ -129,6 +133,7 @@ func ensureSession(ctx context.Context, state *State, client adapter.Backend, cf
 	if session.Directory != "" && session.Directory != wd {
 		return fmt.Errorf("opencode session directory is %q, expected %q; stop the existing opencode server or configure plums to use a different port", session.Directory, wd)
 	}
+	state.MarkRunSession(session.ID)
 	applySession(state, session)
 	if session.Model == nil && state.ModelID == "" {
 		applyRecentModel(ctx, state, client, cfg)

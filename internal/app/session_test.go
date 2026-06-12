@@ -100,6 +100,51 @@ func TestEnsureSessionCreatesWhenNoWorkingDirectoryMatch(t *testing.T) {
 	}
 }
 
+func TestEnsureSessionClearHistorySkipsExistingSessions(t *testing.T) {
+	backend := &sessionTestBackend{sessions: []adapter.Session{
+		{ID: "old", Title: "Old", Directory: "/tmp/project", Time: adapter.SessionTime{Updated: 100}},
+	}}
+	state := NewState(80, 24)
+	cfg := RunConfig{WorkingDirectory: "/tmp/project", ListTimeout: time.Second, RecentModelTimeout: time.Second, ClearHistory: true}
+
+	if err := ensureSession(context.Background(), state, backend, cfg); err != nil {
+		t.Fatalf("ensure session: %v", err)
+	}
+	if backend.createCalls != 1 || state.SessionID != "created" {
+		t.Fatalf("expected fresh session despite existing history, calls=%d session=%q", backend.createCalls, state.SessionID)
+	}
+	if !state.IsRunSession("created") {
+		t.Fatalf("expected created session to be marked as run session")
+	}
+}
+
+func TestListSessionItemsClearHistoryFiltersToRunSessions(t *testing.T) {
+	backend := &sessionTestBackend{sessions: []adapter.Session{
+		{ID: "old", Title: "Old", Directory: "/tmp/project", Time: adapter.SessionTime{Updated: 100}},
+		{ID: "mine", Title: "Mine", Directory: "/tmp/project", Time: adapter.SessionTime{Updated: 200}},
+	}}
+	state := NewState(80, 24)
+	state.MarkRunSession("mine")
+	cfg := RunConfig{ListTimeout: time.Second, ClearHistory: true}
+
+	items, err := listSessionItems(context.Background(), state, backend, cfg)
+	if err != nil {
+		t.Fatalf("list session items: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "mine" {
+		t.Fatalf("expected only run session, got %#v", items)
+	}
+
+	cfg.ClearHistory = false
+	items, err = listSessionItems(context.Background(), state, backend, cfg)
+	if err != nil {
+		t.Fatalf("list session items: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected full history without ClearHistory, got %#v", items)
+	}
+}
+
 func TestEnsureSessionCreatesWhenStartupLookupFails(t *testing.T) {
 	backend := &sessionTestBackend{listErr: errors.New("boom")}
 	state := NewState(80, 24)

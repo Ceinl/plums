@@ -156,6 +156,89 @@ func TestReplyQuestionPostsAnswers(t *testing.T) {
 	}
 }
 
+func TestAbortSessionPostsAbortEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/session/s1/abort" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		if _, err := fmt.Fprint(w, `true`); err != nil {
+			t.Fatalf("write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	if err := client.AbortSession(context.Background(), "s1"); err != nil {
+		t.Fatalf("abort session: %v", err)
+	}
+}
+
+func TestAbortSessionReturnsStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusConflict)
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	err := client.AbortSession(context.Background(), "s1")
+	if err == nil {
+		t.Fatalf("expected abort error")
+	}
+	if got := err.Error(); !strings.Contains(got, "status 409") {
+		t.Fatalf("expected status in error, got %q", got)
+	}
+}
+
+func TestListProvidersDecodesCurrentProvidersKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/provider" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		_, _ = fmt.Fprint(w, `{"providers":[{"id":"openai","name":"OpenAI","models":{"gpt-5.5":{"id":"gpt-5.5","providerID":"openai","name":"GPT-5.5"}}}],"connected":["openai"]}`)
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	providers, connected, err := client.ListProviders(context.Background())
+	if err != nil {
+		t.Fatalf("list providers: %v", err)
+	}
+	if len(providers) != 1 || providers[0].ID != "openai" {
+		t.Fatalf("expected openai provider, got %#v", providers)
+	}
+	if _, ok := providers[0].Models["gpt-5.5"]; !ok {
+		t.Fatalf("expected decoded model, got %#v", providers[0].Models)
+	}
+	if !reflect.DeepEqual(connected, []string{"openai"}) {
+		t.Fatalf("expected connected openai, got %#v", connected)
+	}
+}
+
+func TestListProvidersDecodesLegacyAllKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"all":[{"id":"anthropic","name":"Anthropic","models":{}}],"connected":["anthropic"]}`)
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	providers, connected, err := client.ListProviders(context.Background())
+	if err != nil {
+		t.Fatalf("list providers: %v", err)
+	}
+	if len(providers) != 1 || providers[0].ID != "anthropic" {
+		t.Fatalf("expected anthropic provider, got %#v", providers)
+	}
+	if !reflect.DeepEqual(connected, []string{"anthropic"}) {
+		t.Fatalf("expected connected anthropic, got %#v", connected)
+	}
+}
+
 func TestSendMessageEventsEmitsReasoningDeltasRaw(t *testing.T) {
 	promptSeen := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +284,179 @@ func TestSendMessageEventsEmitsReasoningDeltasRaw(t *testing.T) {
 
 	if got.String() != "<thinking>secret</thinking> answer" {
 		t.Fatalf("unexpected stream text %q", got.String())
+	}
+}
+
+func TestSendMessageEventsCompletesOnAssistantMessageFinish(t *testing.T) {
+	promptSeen := make(chan struct{})
+	releaseSSE := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/event":
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				t.Fatalf("expected flusher")
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher.Flush()
+
+			select {
+			case <-promptSeen:
+			case <-r.Context().Done():
+				return
+			}
+
+			writeSSE(t, w, "message.part.updated", partUpdatedProperties{Part: opencodePart{ID: "t1", SessionID: "s1", Type: "text"}})
+			writeSSE(t, w, "message.part.delta", partDeltaProperties{SessionID: "s1", PartID: "t1", Field: "text", Delta: "done"})
+			writeSSE(t, w, "message.updated", messageUpdatedProperties{
+				SessionID: "s1",
+				Info: struct {
+					Role   string `json:"role"`
+					Finish string `json:"finish"`
+					Time   struct {
+						Completed int64 `json:"completed"`
+					} `json:"time"`
+				}{Role: "assistant", Finish: "stop"},
+			})
+			flusher.Flush()
+			<-releaseSSE
+
+		case "/session/s1/prompt_async":
+			close(promptSeen)
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	defer close(releaseSSE)
+
+	client := NewClientWithURL(server.URL)
+	stream := client.SendMessageEvents(context.Background(), "s1", "hello", "", "", "")
+	var got strings.Builder
+	for event := range stream {
+		got.WriteString(event.Text)
+	}
+
+	if got.String() != "done" {
+		t.Fatalf("unexpected stream text %q", got.String())
+	}
+}
+
+func TestSendMessageEventsContinuesPastToolCallsFinish(t *testing.T) {
+	promptSeen := make(chan struct{})
+	releaseSSE := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/event":
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				t.Fatalf("expected flusher")
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher.Flush()
+
+			select {
+			case <-promptSeen:
+			case <-r.Context().Done():
+				return
+			}
+
+			// A tool-call step ends with finish "tool-calls" and a completed
+			// timestamp, but the turn is still in progress.
+			writeSSE(t, w, "message.updated", messageUpdatedProperties{
+				SessionID: "s1",
+				Info: struct {
+					Role   string `json:"role"`
+					Finish string `json:"finish"`
+					Time   struct {
+						Completed int64 `json:"completed"`
+					} `json:"time"`
+				}{Role: "assistant", Finish: "tool-calls", Time: struct {
+					Completed int64 `json:"completed"`
+				}{Completed: 123}},
+			})
+			writeSSE(t, w, "message.part.updated", partUpdatedProperties{Part: opencodePart{ID: "t1", SessionID: "s1", Type: "text"}})
+			writeSSE(t, w, "message.part.delta", partDeltaProperties{SessionID: "s1", PartID: "t1", Field: "text", Delta: "after tools"})
+			writeSSE(t, w, "session.idle", sessionIdleProperties{SessionID: "s1"})
+			flusher.Flush()
+			<-releaseSSE
+
+		case "/session/s1/prompt_async":
+			close(promptSeen)
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	defer close(releaseSSE)
+
+	client := NewClientWithURL(server.URL)
+	stream := client.SendMessageEvents(context.Background(), "s1", "hello", "", "", "")
+	var got strings.Builder
+	for event := range stream {
+		got.WriteString(event.Text)
+	}
+
+	if got.String() != "after tools" {
+		t.Fatalf("expected text after tool-calls finish, got %q", got.String())
+	}
+}
+
+func TestSendMessageEventsSurfacesSessionError(t *testing.T) {
+	promptSeen := make(chan struct{})
+	releaseSSE := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/event":
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				t.Fatalf("expected flusher")
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher.Flush()
+
+			select {
+			case <-promptSeen:
+			case <-r.Context().Done():
+				return
+			}
+
+			var props sessionErrorProperties
+			props.SessionID = "s1"
+			props.Error.Name = "UnknownError"
+			props.Error.Data.Message = "SQLiteError: NOT NULL constraint failed"
+			writeSSE(t, w, "session.error", props)
+			flusher.Flush()
+			<-releaseSSE
+
+		case "/session/s1/prompt_async":
+			close(promptSeen)
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	defer close(releaseSSE)
+
+	client := NewClientWithURL(server.URL)
+	stream := client.SendMessageEvents(context.Background(), "s1", "hello", "", "", "")
+	var got strings.Builder
+	for event := range stream {
+		got.WriteString(event.Text)
+	}
+
+	want := "\n⚠️  opencode error: SQLiteError: NOT NULL constraint failed\n"
+	if got.String() != want {
+		t.Fatalf("unexpected stream text %q, want %q", got.String(), want)
 	}
 }
 

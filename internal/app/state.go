@@ -84,6 +84,10 @@ type State struct {
 	commandConfig   *CommandConfig
 	projectFiles    []string
 
+	// runSessionIDs tracks sessions created during this run, so pre-existing
+	// backend history can be hidden when RunConfig.ClearHistory is set.
+	runSessionIDs map[string]bool
+
 	chatLog            *components.ChatLog
 	diffLog            *components.DiffLog
 	sessions           *components.Sessions
@@ -104,7 +108,21 @@ func NewState(width int, height int) *State {
 		OutputPercent:    defaultOutputPercentage,
 		commandConfig:    DefaultCommandConfig(),
 		ThinkingMode:     components.ThinkingVisibilityHidden,
+		runSessionIDs:    map[string]bool{},
 	}
+}
+
+// MarkRunSession records a session as created during this run.
+func (s *State) MarkRunSession(id string) {
+	if id == "" {
+		return
+	}
+	s.runSessionIDs[id] = true
+}
+
+// IsRunSession reports whether the session was created during this run.
+func (s *State) IsRunSession(id string) bool {
+	return s.runSessionIDs[id]
 }
 
 func (s *State) SubmitInput() string {

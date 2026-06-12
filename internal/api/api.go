@@ -32,6 +32,7 @@ type Config struct {
 	UseLocalConfig  bool
 	InitConfig      bool
 	InitLocalConfig bool
+	ClearHistory    bool
 	ShowVersion     bool
 }
 
@@ -57,6 +58,8 @@ func RegisterFlags(cfg *Config) {
 	flag.BoolVar(&cfg.UseGlobalConfig, "cg", cfg.UseGlobalConfig, "use global plums layout config")
 	flag.BoolVar(&cfg.UseLocalConfig, "config-local", false, "use local plums layout config")
 	flag.BoolVar(&cfg.UseLocalConfig, "cl", false, "use local plums layout config")
+	flag.BoolVar(&cfg.ClearHistory, "clear-history", false, "hide pre-existing backend sessions; show only sessions created in this run")
+	flag.BoolVar(&cfg.ClearHistory, "ch", false, "hide pre-existing backend sessions; show only sessions created in this run")
 	flag.BoolVar(&cfg.InitConfig, "init-config", false, "create default config files in ~/.config/plums/config and exit")
 	flag.BoolVar(&cfg.InitLocalConfig, "init-config-local", false, "create default config files in ./.agents/plums/config and exit")
 	flag.BoolVar(&cfg.ShowVersion, "version", false, "show version metadata and exit")
@@ -145,11 +148,13 @@ func Run(cfg *Config) error {
 	defaultLayout, _ := app.LoadDefaultLayout(opencodeConfigPath, "split")
 	hideThinking := app.LoadHideThinking(opencodeConfigPath, true)
 	leftWidth := app.LoadSplitLeftWidth(opencodeConfigPath, 50)
+	clearHistory := cfg.ClearHistory || app.LoadClearHistory(opencodeConfigPath, false)
 	debuglog.Printf("config: opencode server URL %s", serverURL)
 	debuglog.Printf("config: backend provider %s", backendProvider)
 	debuglog.Printf("config: default_layout %s", defaultLayout)
 	debuglog.Printf("config: hide_thinking %t", hideThinking)
 	debuglog.Printf("config: split.left_width %d", leftWidth)
+	debuglog.Printf("config: clear_history %t", clearHistory)
 	opencodeBackend := opencode.NewBackend(serverURL)
 	codexBackend := codex.NewBackend()
 	claudeBackend := claudecode.NewBackend()
@@ -171,6 +176,7 @@ func Run(cfg *Config) error {
 		DefaultLayout:        defaultLayout,
 		HideThinking:         hideThinking,
 		SplitLeftWidth:       leftWidth,
+		ClearHistory:         clearHistory,
 	}
 
 	deps := app.Deps{

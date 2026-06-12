@@ -16,15 +16,18 @@ func listSessionItems(ctx context.Context, state *State, client adapter.Backend,
 	if err != nil {
 		return nil, err
 	}
-	items := make([]SessionListItem, len(sessions))
-	for i, session := range sessions {
-		items[i] = SessionListItem{
+	items := make([]SessionListItem, 0, len(sessions))
+	for _, session := range sessions {
+		if cfg.ClearHistory && !state.IsRunSession(session.ID) {
+			continue
+		}
+		items = append(items, SessionListItem{
 			ID:        session.ID,
 			Title:     session.Title,
 			Directory: session.Directory,
 			Updated:   session.Time.Updated,
 			Current:   session.ID == state.SessionID,
-		}
+		})
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Directory != items[j].Directory {
@@ -54,33 +57,29 @@ func handlePaletteAction(ctx context.Context, state *State, client adapter.Backe
 			state.AddMessage("system", fmt.Sprintf("failed to create session: %v", err))
 			return
 		}
+		state.MarkRunSession(session.ID)
 		applySession(state, session)
 		if session.Model == nil && state.ModelID == "" {
 			applyRecentModel(ctx, state, client, cfg)
 		}
 		state.ClearConversation()
-		state.AddMessage("system", "started new session "+sessionDisplayName(session))
 		if items, err := listSessionItems(ctx, state, client, cfg); err == nil {
 			state.SessionItems = items
 		}
 	case PaletteActionSwitchMode:
 		state.ToggleMode()
-		state.AddMessage("system", "switched to "+state.Mode+" mode")
 	case PaletteActionCycleThinkingVisibility:
 		state.CycleThinkingVisibility()
-		state.AddMessage("system", "thinking visibility: "+state.ThinkingVisibilityLabel())
 	case PaletteActionLayoutsList:
 		state.SetLayoutItems()
 	case PaletteActionChatLayout:
 		state.SetLayout(LayoutChat)
-		state.AddMessage("system", "layout: "+state.LayoutLabel())
 	case PaletteActionSelectLayout:
 		layoutType, ok := state.SelectedLayout()
 		if !ok {
 			return
 		}
 		state.SetLayout(layoutType)
-		state.AddMessage("system", "layout: "+state.LayoutLabel())
 	case PaletteActionChangeModel:
 		providersCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
 		providers, connected, err := client.ListProviders(providersCtx)
@@ -96,7 +95,6 @@ func handlePaletteAction(ctx context.Context, state *State, client adapter.Backe
 			return
 		}
 		state.SetModel(providerID, modelID)
-		state.AddMessage("system", "switched model to "+providerID+"/"+modelID)
 	case PaletteActionSessionsList:
 		items, err := listSessionItems(ctx, state, client, cfg)
 		if err != nil {

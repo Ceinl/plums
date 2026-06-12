@@ -260,6 +260,26 @@ func TestEnterSelectsEditorDropdownItem(t *testing.T) {
 	}
 }
 
+func TestEnterSubmitsExactSlashCommandWhenDropdownOpen(t *testing.T) {
+	state := NewState(80, 24)
+	state.Layout = LayoutChat
+	state.Editor.SetContent("/new")
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter}, DefaultClipboardCommand())
+	if !handled || quit {
+		t.Fatalf("expected exact slash command handled without quit, handled=%v quit=%v", handled, quit)
+	}
+	if got := state.ConsumePendingAction(); got != PaletteActionNewSession {
+		t.Fatalf("expected new session action, got %v", got)
+	}
+	if got := state.ConsumeSubmittedInput(); got != "" {
+		t.Fatalf("expected slash command not submitted as text, got %q", got)
+	}
+	if got := state.Editor.GetContent(); got != "" {
+		t.Fatalf("expected editor cleared, got %q", got)
+	}
+}
+
 func TestMouseDragCopiesOutputSelection(t *testing.T) {
 	state := NewState(80, 24)
 	state.Layout = LayoutDefault

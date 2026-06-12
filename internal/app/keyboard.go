@@ -88,6 +88,9 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 			state.MoveEditorDropdown(1)
 			return true, false
 		case keyboard.KeyEnter:
+			if state.SubmitExactSlashCommand() {
+				return true, false
+			}
 			state.SelectEditorDropdownItem()
 			return true, false
 		}

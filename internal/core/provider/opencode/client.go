@@ -163,6 +163,22 @@ func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]adapter.
 	return messages, nil
 }
 
+func (c *Client) AbortSession(ctx context.Context, sessionID string) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/session/"+url.PathEscape(sessionID)+"/abort", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("opencode server: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("opencode server returned status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func (c *Client) ListProviders(ctx context.Context) ([]adapter.Provider, []string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/provider", nil)
 	if err != nil {
@@ -180,7 +196,11 @@ func (c *Client) ListProviders(ctx context.Context) ([]adapter.Provider, []strin
 	if err := json.NewDecoder(resp.Body).Decode(&providers); err != nil {
 		return nil, nil, err
 	}
-	return providers.All, providers.Connected, nil
+	all := providers.All
+	if len(all) == 0 {
+		all = providers.Providers
+	}
+	return all, providers.Connected, nil
 }
 
 // SendMessage streams the assistant's reply token-by-token via the returned
@@ -475,6 +495,42 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 					case out <- adapter.StreamEvent{Question: &props}:
 					}
 				}
+
+			case "message.updated":
+				var props messageUpdatedProperties
+				if err := json.Unmarshal(env.Properties, &props); err != nil {
+					continue
+				}
+				// Only finish == "stop" ends the turn; "tool-calls" (and its
+				// completed timestamp) just closes one step of a tool loop while
+				// the session keeps working toward session.idle.
+				if props.SessionID == sessionID && props.Info.Role == "assistant" && props.Info.Finish == "stop" {
+					result.completed = true
+					return result, nil
+				}
+
+			case "session.error":
+				var props sessionErrorProperties
+				if err := json.Unmarshal(env.Properties, &props); err != nil {
+					continue
+				}
+				if props.SessionID == sessionID {
+					message := props.Error.Data.Message
+					if message == "" {
+						message = props.Error.Name
+					}
+					if message == "" {
+						message = "unknown error"
+					}
+					select {
+					case <-ctx.Done():
+						return result, ctx.Err()
+					case out <- adapter.StreamEvent{Text: fmt.Sprintf("\n⚠️  opencode error: %s\n", message)}:
+						result.emitted = true
+					}
+					result.completed = true
+					return result, nil
+				}
 			}
 		}
 	}
@@ -592,6 +648,7 @@ type sendMessageBody struct {
 
 type providerListResponse struct {
 	All       []adapter.Provider `json:"all"`
+	Providers []adapter.Provider `json:"providers"`
 	Connected []string           `json:"connected"`
 }
 
@@ -648,6 +705,27 @@ type sessionStatusProperties struct {
 }
 
 type questionAskedProperties = adapter.QuestionRequest
+
+type messageUpdatedProperties struct {
+	SessionID string `json:"sessionID"`
+	Info      struct {
+		Role   string `json:"role"`
+		Finish string `json:"finish"`
+		Time   struct {
+			Completed int64 `json:"completed"`
+		} `json:"time"`
+	} `json:"info"`
+}
+
+type sessionErrorProperties struct {
+	SessionID string `json:"sessionID"`
+	Error     struct {
+		Name string `json:"name"`
+		Data struct {
+			Message string `json:"message"`
+		} `json:"data"`
+	} `json:"error"`
+}
 
 type sseResult struct {
 	emitted   bool
