@@ -25,8 +25,8 @@ const (
 )
 
 // Client implements adapter.Backend by attaching to already-running
-// interactive Claude Code instances: prompts are typed into the real window
-// (tmux pane or Ghostty) and output is mirrored by tailing the session's
+// interactive Claude Code instances: prompts are typed into the real
+// window's tmux pane and output is mirrored by tailing the session's
 // JSONL transcript under ~/.claude/projects. The real window stays the
 // driver; this backend never spawns headless `claude -p` turns.
 type Client struct {

@@ -12,19 +12,19 @@ import (
 )
 
 // injectPrompt types a prompt into the real Claude Code window that owns pid.
-// It prefers tmux (precise pane targeting); otherwise it falls back to macOS
-// System Events keystrokes, but only when that is provably unambiguous.
+// Only tmux is supported: it is the one mechanism that can target the exact
+// pane owning the process.
 func injectPrompt(ctx context.Context, pid int, text string) error {
 	parents, err := parentMap(ctx)
 	if err != nil {
 		return err
 	}
-	if pane, err := tmuxPaneForPID(ctx, pid, parents); err == nil {
-		debuglog.Printf("claude-mirror: injecting into tmux pane %s for pid %d", pane, pid)
-		return tmuxInject(ctx, pane, text)
+	pane, err := tmuxPaneForPID(ctx, pid, parents)
+	if err != nil {
+		return fmt.Errorf("claude-mirror requires the Claude Code window to run inside tmux: %w", err)
 	}
-	debuglog.Printf("claude-mirror: no tmux pane for pid %d, trying Ghostty keystrokes", pid)
-	return ghosttyInject(ctx, pid, parents, text)
+	debuglog.Printf("claude-mirror: injecting into tmux pane %s for pid %d", pane, pid)
+	return tmuxInject(ctx, pane, text)
 }
 
 // tmuxPaneForPID finds the tmux pane whose process tree contains pid.
@@ -97,76 +97,4 @@ func tmuxInject(ctx context.Context, pane, text string) error {
 		return fmt.Errorf("tmux send-keys Enter: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
-}
-
-// ghosttyInject pastes the prompt via the clipboard and System Events
-// (requires Accessibility permission). System Events cannot target a
-// specific Ghostty window or tab, so this refuses to run unless the target
-// pid actually descends from Ghostty and Ghostty has exactly one window —
-// otherwise the keystrokes could land in the wrong session.
-func ghosttyInject(ctx context.Context, pid int, parents map[int]int, text string) error {
-	if !descendsFromGhostty(ctx, pid, parents) {
-		return fmt.Errorf("session pid %d is not running under tmux or Ghostty; run Claude Code inside tmux for precise targeting", pid)
-	}
-	count, err := ghosttyWindowCount(ctx)
-	if err != nil {
-		return err
-	}
-	if count != 1 {
-		return fmt.Errorf("Ghostty has %d windows and keystrokes cannot target a specific one; run Claude Code inside tmux instead", count)
-	}
-	clip := exec.CommandContext(ctx, "pbcopy")
-	clip.Stdin = strings.NewReader(text)
-	if err := clip.Run(); err != nil {
-		return fmt.Errorf("copying prompt to clipboard: %w", err)
-	}
-	script := `tell application "Ghostty" to activate
-delay 0.3
-tell application "System Events" to keystroke "v" using command down
-delay 0.3
-tell application "System Events" to key code 36`
-	if out, err := exec.CommandContext(ctx, "osascript", "-e", script).CombinedOutput(); err != nil {
-		return fmt.Errorf("ghostty keystroke injection (is Accessibility permission granted?): %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// descendsFromGhostty reports whether any ancestor of pid is a ghostty
-// process.
-func descendsFromGhostty(ctx context.Context, pid int, parents map[int]int) bool {
-	out, err := exec.CommandContext(ctx, "ps", "-axo", "pid=,comm=").Output()
-	if err != nil {
-		return false
-	}
-	ghostty := make(map[int]bool)
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		if strings.Contains(strings.ToLower(fields[len(fields)-1]), "ghostty") {
-			if p, err := strconv.Atoi(fields[0]); err == nil {
-				ghostty[p] = true
-			}
-		}
-	}
-	for p := pid; p > 1; p = parents[p] {
-		if ghostty[p] {
-			return true
-		}
-	}
-	return false
-}
-
-func ghosttyWindowCount(ctx context.Context) (int, error) {
-	out, err := exec.CommandContext(ctx, "osascript", "-e",
-		`tell application "System Events" to count windows of process "Ghostty"`).CombinedOutput()
-	if err != nil {
-		return 0, fmt.Errorf("counting Ghostty windows (is Accessibility permission granted?): %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	count, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	if err != nil {
-		return 0, fmt.Errorf("unexpected Ghostty window count output %q", strings.TrimSpace(string(out)))
-	}
-	return count, nil
 }
