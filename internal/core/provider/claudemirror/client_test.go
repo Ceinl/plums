@@ -153,6 +153,43 @@ func TestHasPendingQuestion(t *testing.T) {
 	if hasPendingQuestion(parse(ask + typed)) {
 		t.Error("dismissed question should not be pending")
 	}
+	if got := pendingQuestionID(parse(ask)); got != "q1" {
+		t.Fatalf("pendingQuestionID = %q, want q1", got)
+	}
+}
+
+func TestParseQuestionRequest(t *testing.T) {
+	req := parseQuestionRequest("s1", "q1", `{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A","description":"first"},{"label":"B"}],"multiple":true}]}`)
+	if req == nil {
+		t.Fatal("expected question request")
+	}
+	if req.ID != "s1:q1" || req.SessionID != "s1" {
+		t.Fatalf("unexpected ids: %+v", req)
+	}
+	q := req.Questions[0]
+	if q.Question != "Which?" || q.Header != "Pick" || !q.Multiple || len(q.Options) != 2 || q.Options[0].Description != "first" {
+		t.Fatalf("unexpected question: %+v", q)
+	}
+	if parseQuestionRequest("", "q1", `{"questions":[{"question":"Which?"}]}`) != nil {
+		t.Fatal("missing session id must not produce an answerable request")
+	}
+}
+
+func TestQuestionRequestIDRoundTrip(t *testing.T) {
+	sessionID, toolUseID, ok := splitQuestionRequestID(questionRequestID("live-123", "tool-1"))
+	if !ok || sessionID != "live-123" || toolUseID != "tool-1" {
+		t.Fatalf("split = %q, %q, %t", sessionID, toolUseID, ok)
+	}
+	if _, _, ok := splitQuestionRequestID("bad"); ok {
+		t.Fatal("invalid request id should not parse")
+	}
+}
+
+func TestQuestionAnswerText(t *testing.T) {
+	got := questionAnswerText([][]string{{" A ", "B"}, {"custom"}, {" "}})
+	if got != "A, B\ncustom" {
+		t.Fatalf("questionAnswerText = %q", got)
+	}
 }
 
 func TestAwaitActiveTranscriptLocksOnNewFile(t *testing.T) {

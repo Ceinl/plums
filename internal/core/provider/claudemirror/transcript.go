@@ -155,6 +155,10 @@ func conversationEntry(entry transcriptEntry) bool {
 // AskUserQuestion the user has not yet answered in the real window. Injecting
 // keystrokes while its dialog is open would answer it accidentally.
 func hasPendingQuestion(entries []transcriptEntry) bool {
+	return pendingQuestionID(entries) != ""
+}
+
+func pendingQuestionID(entries []transcriptEntry) string {
 	pendingID := ""
 	for _, entry := range entries {
 		if !conversationEntry(entry) {
@@ -178,25 +182,51 @@ func hasPendingQuestion(entries []transcriptEntry) bool {
 			}
 		}
 	}
-	return pendingID != ""
+	return pendingID
+}
+
+func parseQuestionRequest(sessionID, toolUseID, input string) *adapter.QuestionRequest {
+	if sessionID == "" || toolUseID == "" {
+		return nil
+	}
+	payload := parseQuestionPayload(input)
+	if payload == nil {
+		return nil
+	}
+	payload.ID = questionRequestID(sessionID, toolUseID)
+	payload.SessionID = sessionID
+	return payload
+}
+
+func parseQuestionPayload(input string) *adapter.QuestionRequest {
+	var payload adapter.QuestionRequest
+	if json.Unmarshal([]byte(input), &payload) != nil || len(payload.Questions) == 0 {
+		return nil
+	}
+	return &payload
+}
+
+func questionRequestID(sessionID, toolUseID string) string {
+	return sessionID + ":" + toolUseID
+}
+
+func splitQuestionRequestID(id string) (sessionID, toolUseID string, ok bool) {
+	i := strings.LastIndexByte(id, ':')
+	if i <= 0 || i == len(id)-1 {
+		return "", "", false
+	}
+	return id[:i], id[i+1:], true
 }
 
 // formatQuestions renders an AskUserQuestion tool input as readable text.
 func formatQuestions(input string) string {
-	var payload struct {
-		Questions []struct {
-			Question string `json:"question"`
-			Options  []struct {
-				Label string `json:"label"`
-			} `json:"options"`
-		} `json:"questions"`
-	}
-	if json.Unmarshal([]byte(input), &payload) != nil || len(payload.Questions) == 0 {
+	req := parseQuestionPayload(input)
+	if req == nil {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("\nClaude is asking in the real window:\n")
-	for _, q := range payload.Questions {
+	for _, q := range req.Questions {
 		b.WriteString("• " + q.Question + "\n")
 		for _, o := range q.Options {
 			b.WriteString("    - " + o.Label + "\n")

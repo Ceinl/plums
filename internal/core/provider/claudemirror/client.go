@@ -198,7 +198,44 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, _ strin
 }
 
 func (c *Client) ReplyQuestion(ctx context.Context, requestID string, answers [][]string) error {
-	return fmt.Errorf("claude-mirror: answer the prompt in the real Claude Code window")
+	sessionID, toolUseID, ok := splitQuestionRequestID(requestID)
+	if !ok {
+		return fmt.Errorf("claude-mirror: invalid question request id %q", requestID)
+	}
+	answer := questionAnswerText(answers)
+	if answer == "" {
+		return fmt.Errorf("claude-mirror: empty question answer")
+	}
+	inst, err := c.resolveInstance(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	path := inst.transcript
+	if path == "" {
+		path, err = c.transcriptFor(sessionID)
+		if err != nil {
+			return err
+		}
+	}
+	if path == "" {
+		return fmt.Errorf("claude-mirror: no transcript available to verify pending question")
+	}
+	entries, err := readTranscript(path)
+	if err != nil {
+		return err
+	}
+	if pending := pendingQuestionID(entries); pending != toolUseID {
+		if pending == "" {
+			return fmt.Errorf("claude-mirror: question %s is no longer pending", toolUseID)
+		}
+		return fmt.Errorf("claude-mirror: pending question is %s, not %s", pending, toolUseID)
+	}
+	pane, pid, err := c.resolvePane(ctx, inst)
+	if err != nil {
+		return err
+	}
+	debuglog.Printf("claude-mirror: answering question %s in tmux pane %s (pid %d)", toolUseID, pane, pid)
+	return tmuxInject(ctx, pane, answer)
 }
 
 func (c *Client) BaseURL() string {
@@ -472,10 +509,12 @@ func emitEntry(ctx context.Context, out chan<- adapter.StreamEvent, entry transc
 		switch {
 		case part.Tool != nil:
 			emit(ctx, out, adapter.StreamEvent{Tool: part.Tool})
-			// Questions block the real window; mirror them readably so the
-			// user knows to answer there.
+			// Questions block the real window; surface them in Plums when the
+			// input matches Claude's question tool schema.
 			if part.Tool.Name == "AskUserQuestion" {
-				if text := formatQuestions(part.Tool.Input); text != "" {
+				if req := parseQuestionRequest(entry.SessionID, part.Tool.ID, part.Tool.Input); req != nil {
+					emit(ctx, out, adapter.StreamEvent{Question: req})
+				} else if text := formatQuestions(part.Tool.Input); text != "" {
 					emit(ctx, out, adapter.StreamEvent{Text: text})
 				}
 			}
@@ -485,6 +524,23 @@ func emitEntry(ctx context.Context, out chan<- adapter.StreamEvent, entry transc
 			}
 		}
 	}
+}
+
+func questionAnswerText(answers [][]string) string {
+	lines := make([]string, 0, len(answers))
+	for _, answer := range answers {
+		var parts []string
+		for _, part := range answer {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				parts = append(parts, part)
+			}
+		}
+		if len(parts) > 0 {
+			lines = append(lines, strings.Join(parts, ", "))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // readNewEntries parses complete JSONL lines appended past offset, returning

@@ -3,3 +3,4 @@ docs/
 /plums
 **/.DS_Store
 **/.agents/
+.branch/
