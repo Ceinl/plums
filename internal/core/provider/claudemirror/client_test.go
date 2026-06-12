@@ -1,6 +1,7 @@
 package claudemirror
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,6 +152,37 @@ func TestHasPendingQuestion(t *testing.T) {
 	}
 	if hasPendingQuestion(parse(ask + typed)) {
 		t.Error("dismissed question should not be pending")
+	}
+}
+
+func TestAwaitActiveTranscriptLocksOnNewFile(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "stale.jsonl")
+	if err := os.WriteFile(stale, []byte(`{"type":"user","message":{"role":"user","content":"old"},"uuid":"u0"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := snapshotSizes(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		// Unrelated growth in the stale file must not be locked onto.
+		f, _ := os.OpenFile(stale, os.O_APPEND|os.O_WRONLY, 0o644)
+		f.WriteString(`{"type":"user","message":{"role":"user","content":"other session"},"uuid":"u1"}` + "\n")
+		f.Close()
+		time.Sleep(100 * time.Millisecond)
+		os.WriteFile(filepath.Join(dir, "fresh.jsonl"),
+			[]byte(`{"type":"user","message":{"role":"user","content":"hello mirror"},"uuid":"u2"}`+"\n"), 0o644)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	path, offset, err := awaitActiveTranscript(ctx, dir, baseline, "hello mirror")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(path) != "fresh.jsonl" || offset != 0 {
+		t.Fatalf("locked onto %s@%d, want fresh.jsonl@0", path, offset)
 	}
 }
 

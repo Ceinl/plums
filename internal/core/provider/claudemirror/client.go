@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -182,7 +183,10 @@ func (c *Client) BaseURL() string {
 }
 
 // runMirroredTurn injects the prompt into the live window and mirrors the
-// transcript until the assistant finishes its turn.
+// transcript until the assistant finishes its turn. The session's paired
+// transcript is only a guess (mtime heuristic), so after injecting it locks
+// onto whichever transcript in the project directory actually receives the
+// prompt — a fresh window may write to a file that didn't exist yet.
 func (c *Client) runMirroredTurn(ctx context.Context, out chan<- adapter.StreamEvent, sessionID, text string) error {
 	path, err := findTranscript(sessionID)
 	if err != nil {
@@ -192,19 +196,94 @@ func (c *Client) runMirroredTurn(ctx context.Context, out chan<- adapter.StreamE
 	if err != nil {
 		return err
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	offset := info.Size()
 	if entries, err := readTranscript(path); err == nil && hasPendingQuestion(entries) {
 		return fmt.Errorf("the Claude Code window is waiting for you to answer a question; answer it there before sending more prompts")
+	}
+	dir := filepath.Dir(path)
+	baseline, err := snapshotSizes(dir)
+	if err != nil {
+		return err
 	}
 	if err := injectPrompt(ctx, pid, text); err != nil {
 		return err
 	}
-	debuglog.Printf("claude-mirror: prompt injected into pid %d, tailing %s from %d", pid, path, offset)
-	return tailTurn(ctx, out, path, offset)
+	activePath, offset, err := awaitActiveTranscript(ctx, dir, baseline, text)
+	if err != nil {
+		return err
+	}
+	if activePath != path {
+		debuglog.Printf("claude-mirror: session %s actually writes to %s (expected %s)", sessionID, activePath, path)
+	}
+	debuglog.Printf("claude-mirror: prompt injected into pid %d, tailing %s from %d", pid, activePath, offset)
+	return tailTurn(ctx, out, activePath, offset)
+}
+
+// snapshotSizes records the current size of every transcript in a project
+// directory so growth after injection can be detected.
+func snapshotSizes(dir string) (map[string]int64, error) {
+	matches, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	sizes := make(map[string]int64, len(matches))
+	for _, match := range matches {
+		if info, err := os.Stat(match); err == nil {
+			sizes[match] = info.Size()
+		}
+	}
+	return sizes, nil
+}
+
+// awaitActiveTranscript polls the project directory until some transcript
+// (possibly a brand-new file) receives a user entry containing the injected
+// prompt, returning that file and the offset it grew from.
+func awaitActiveTranscript(ctx context.Context, dir string, baseline map[string]int64, text string) (string, int64, error) {
+	needle := strings.TrimSpace(text)
+	deadline := time.Now().Add(firstReplyTimeout)
+	for {
+		select {
+		case <-ctx.Done():
+			return "", 0, ctx.Err()
+		case <-time.After(tailPollInterval):
+		}
+		matches, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+		if err != nil {
+			return "", 0, err
+		}
+		for _, match := range matches {
+			start := baseline[match] // 0 for files created after injection
+			info, err := os.Stat(match)
+			if err != nil || info.Size() <= start {
+				continue
+			}
+			entries, _, err := readNewEntries(match, start)
+			if err != nil {
+				continue
+			}
+			if transcriptHasPrompt(entries, needle) {
+				return match, start, nil
+			}
+			// Growth without our prompt is another session's activity.
+			baseline[match] = info.Size()
+		}
+		if time.Now().After(deadline) {
+			return "", 0, fmt.Errorf("prompt was sent but never appeared in any transcript within %s — check the Claude Code window", firstReplyTimeout)
+		}
+	}
+}
+
+func transcriptHasPrompt(entries []transcriptEntry, needle string) bool {
+	for _, entry := range entries {
+		if !conversationEntry(entry) || entry.Message.Role != "user" {
+			continue
+		}
+		for _, block := range contentBlocks(entry.Message.Content) {
+			if block.Type == "text" && strings.Contains(block.Text, needle) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // resolvePID returns the interactive claude pid driving a session, refreshing
