@@ -31,12 +31,12 @@ const (
 // JSONL transcript under ~/.claude/projects. The real window stays the
 // driver; this backend never spawns headless `claude -p` turns.
 type Client struct {
-	mu   sync.Mutex
-	pids map[string]int // session id -> owning interactive claude pid
+	mu        sync.Mutex
+	instances map[string]instance // session id -> attached window
 }
 
 func NewBackend() adapter.Backend {
-	return &Client{pids: make(map[string]int)}
+	return &Client{instances: make(map[string]instance)}
 }
 
 func (c *Client) Health(ctx context.Context) error {
@@ -61,8 +61,9 @@ func (c *Client) Health(ctx context.Context) error {
 }
 
 // CreateSession attaches to a running Claude Code window rather than creating
-// anything: it prefers an instance whose cwd matches directory, then any
-// live instance.
+// anything: the instance whose cwd matches directory, or the only live one.
+// With several candidates and no directory match it refuses rather than
+// guessing — injecting into the wrong window must never happen.
 func (c *Client) CreateSession(ctx context.Context, directory string) (*adapter.Session, error) {
 	instances, err := discoverInstances(ctx)
 	if err != nil {
@@ -71,15 +72,26 @@ func (c *Client) CreateSession(ctx context.Context, directory string) (*adapter.
 	if len(instances) == 0 {
 		return nil, fmt.Errorf("no running interactive Claude Code instance found; open one in a terminal first")
 	}
-	chosen := instances[0]
-	for _, inst := range instances {
-		if inst.cwd == directory {
-			chosen = inst
+	var chosen *instance
+	for i := range instances {
+		if instances[i].cwd == directory {
+			chosen = &instances[i]
 			break
 		}
 	}
-	c.rememberPID(chosen.sessionID, chosen.pid)
-	session := c.sessionFromInstance(chosen)
+	if chosen == nil && len(instances) == 1 {
+		chosen = &instances[0]
+	}
+	if chosen == nil {
+		var dirs []string
+		for _, inst := range instances {
+			dirs = append(dirs, inst.cwd)
+		}
+		return nil, fmt.Errorf("no Claude Code window running in %s and %d candidates elsewhere (%s); pick one from the session list instead",
+			directory, len(instances), strings.Join(dirs, ", "))
+	}
+	c.remember(*chosen)
+	session := c.sessionFromInstance(*chosen)
 	return &session, nil
 }
 
@@ -90,7 +102,7 @@ func (c *Client) ListSessions(ctx context.Context) ([]adapter.Session, error) {
 	}
 	sessions := make([]adapter.Session, 0, len(instances))
 	for _, inst := range instances {
-		c.rememberPID(inst.sessionID, inst.pid)
+		c.remember(inst)
 		sessions = append(sessions, c.sessionFromInstance(inst))
 	}
 	return sessions, nil
@@ -101,11 +113,15 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*adapter.Ses
 	if err == nil {
 		for _, inst := range instances {
 			if inst.sessionID == sessionID {
-				c.rememberPID(inst.sessionID, inst.pid)
+				c.remember(inst)
 				session := c.sessionFromInstance(inst)
 				return &session, nil
 			}
 		}
+	}
+	if inst, ok := c.instance(sessionID); ok {
+		session := c.sessionFromInstance(inst)
+		return &session, nil
 	}
 	// The window may have closed; the transcript still mirrors history.
 	path, err := findTranscript(sessionID)
@@ -120,9 +136,12 @@ func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]adapter.
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	path, err := findTranscript(sessionID)
+	path, err := c.transcriptFor(sessionID)
 	if err != nil {
 		return nil, err
+	}
+	if path == "" {
+		return nil, nil // fresh window, nothing written yet
 	}
 	entries, err := readTranscript(path)
 	if err != nil {
@@ -188,34 +207,50 @@ func (c *Client) BaseURL() string {
 // onto whichever transcript in the project directory actually receives the
 // prompt — a fresh window may write to a file that didn't exist yet.
 func (c *Client) runMirroredTurn(ctx context.Context, out chan<- adapter.StreamEvent, sessionID, text string) error {
-	path, err := findTranscript(sessionID)
+	inst, err := c.resolveInstance(ctx, sessionID)
 	if err != nil {
 		return err
 	}
-	pid, err := c.resolvePID(ctx, sessionID)
+	if inst.transcript != "" {
+		if entries, err := readTranscript(inst.transcript); err == nil && hasPendingQuestion(entries) {
+			return fmt.Errorf("the Claude Code window is waiting for you to answer a question; answer it there before sending more prompts")
+		}
+	}
+	dir, err := projectDirFor(inst)
 	if err != nil {
 		return err
 	}
-	if entries, err := readTranscript(path); err == nil && hasPendingQuestion(entries) {
-		return fmt.Errorf("the Claude Code window is waiting for you to answer a question; answer it there before sending more prompts")
-	}
-	dir := filepath.Dir(path)
 	baseline, err := snapshotSizes(dir)
 	if err != nil {
 		return err
 	}
-	if err := injectPrompt(ctx, pid, text); err != nil {
+	if err := injectPrompt(ctx, inst.pid, text); err != nil {
 		return err
 	}
 	activePath, offset, err := awaitActiveTranscript(ctx, dir, baseline, text)
 	if err != nil {
 		return err
 	}
-	if activePath != path {
-		debuglog.Printf("claude-mirror: session %s actually writes to %s (expected %s)", sessionID, activePath, path)
+	if activePath != inst.transcript {
+		debuglog.Printf("claude-mirror: session %s actually writes to %s (expected %q)", sessionID, activePath, inst.transcript)
+		inst.transcript = activePath
+		c.remember(inst)
 	}
-	debuglog.Printf("claude-mirror: prompt injected into pid %d, tailing %s from %d", pid, activePath, offset)
+	debuglog.Printf("claude-mirror: prompt injected into pid %d, tailing %s from %d", inst.pid, activePath, offset)
 	return tailTurn(ctx, out, activePath, offset)
+}
+
+// projectDirFor returns the transcript directory to watch for an instance,
+// derived from its cwd when no transcript exists yet.
+func projectDirFor(inst instance) (string, error) {
+	if inst.transcript != "" {
+		return filepath.Dir(inst.transcript), nil
+	}
+	root, err := projectsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, encodeProjectDir(inst.cwd)), nil
 }
 
 // snapshotSizes records the current size of every transcript in a project
@@ -286,26 +321,23 @@ func transcriptHasPrompt(entries []transcriptEntry, needle string) bool {
 	return false
 }
 
-// resolvePID returns the interactive claude pid driving a session, refreshing
-// discovery if the cached pid is gone.
-func (c *Client) resolvePID(ctx context.Context, sessionID string) (int, error) {
-	c.mu.Lock()
-	pid, ok := c.pids[sessionID]
-	c.mu.Unlock()
-	if ok && processAlive(pid) {
-		return pid, nil
+// resolveInstance returns the attached window for a session, refreshing
+// discovery if the cached process is gone.
+func (c *Client) resolveInstance(ctx context.Context, sessionID string) (instance, error) {
+	if inst, ok := c.instance(sessionID); ok && processAlive(inst.pid) {
+		return inst, nil
 	}
 	instances, err := discoverInstances(ctx)
 	if err != nil {
-		return 0, err
+		return instance{}, err
 	}
 	for _, inst := range instances {
 		if inst.sessionID == sessionID {
-			c.rememberPID(sessionID, inst.pid)
-			return inst.pid, nil
+			c.remember(inst)
+			return inst, nil
 		}
 	}
-	return 0, fmt.Errorf("no running Claude Code window found for session %s", sessionID)
+	return instance{}, fmt.Errorf("no running Claude Code window found for session %s", sessionID)
 }
 
 // tailTurn streams new transcript entries until the assistant ends its turn,
@@ -315,6 +347,11 @@ func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, 
 	deadline := time.Now().Add(firstReplyTimeout)
 	sawActivity := false
 	lastActivity := time.Now()
+	// Interactive Claude Code writes one transcript line per content block,
+	// each repeating the message's final stop_reason — so an end_turn line is
+	// not the end of the writes. End only once an end_turn was seen and a
+	// poll produces nothing further.
+	turnEnded := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -326,18 +363,23 @@ func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, 
 			return err
 		}
 		offset = newOffset
+		progressed := false
 		for _, entry := range entries {
 			if !conversationEntry(entry) {
 				continue
 			}
+			progressed = true
 			sawActivity = true
 			lastActivity = time.Now()
 			if entry.Message.Role == "assistant" || entry.Type == "user" {
 				emitEntry(ctx, out, entry)
 			}
-			if entry.Type == "assistant" && entry.Message.StopReason != "" && entry.Message.StopReason != "tool_use" {
-				return nil
+			if entry.Type == "assistant" && entry.Message.StopReason != "" {
+				turnEnded = entry.Message.StopReason != "tool_use"
 			}
+		}
+		if turnEnded && !progressed {
+			return nil
 		}
 		if !sawActivity && time.Now().After(deadline) {
 			return fmt.Errorf("no transcript activity within %s — the prompt may not have reached the window", firstReplyTimeout)
@@ -400,10 +442,29 @@ func readNewEntries(path string, offset int64) ([]transcriptEntry, int64, error)
 	}
 }
 
-func (c *Client) rememberPID(sessionID string, pid int) {
+func (c *Client) remember(inst instance) {
 	c.mu.Lock()
-	c.pids[sessionID] = pid
+	c.instances[inst.sessionID] = inst
 	c.mu.Unlock()
+}
+
+func (c *Client) instance(sessionID string) (instance, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	inst, ok := c.instances[sessionID]
+	return inst, ok
+}
+
+// transcriptFor resolves a session id to its transcript path; empty for a
+// fresh window that has not written one yet.
+func (c *Client) transcriptFor(sessionID string) (string, error) {
+	if inst, ok := c.instance(sessionID); ok {
+		return inst.transcript, nil
+	}
+	if strings.HasPrefix(sessionID, livePrefix) {
+		return "", nil
+	}
+	return findTranscript(sessionID)
 }
 
 func processAlive(pid int) bool {
@@ -415,6 +476,16 @@ func processAlive(pid int) bool {
 }
 
 func (c *Client) sessionFromInstance(inst instance) adapter.Session {
+	if inst.transcript == "" {
+		now := inst.started.UnixMilli()
+		return adapter.Session{
+			ID:        inst.sessionID,
+			Title:     "Claude window (new)",
+			Directory: inst.cwd,
+			Model:     &adapter.ModelRef{ID: defaultModelID, ProviderID: providerID},
+			Time:      adapter.SessionTime{Created: now, Updated: now},
+		}
+	}
 	return c.sessionFromTranscript(inst.sessionID, inst.transcript, inst.cwd)
 }
 

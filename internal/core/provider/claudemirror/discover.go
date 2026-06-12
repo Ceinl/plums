@@ -52,12 +52,17 @@ func encodeProjectDir(cwd string) string {
 	return b.String()
 }
 
+// livePrefix marks placeholder session ids for windows that have not written
+// a transcript yet (Claude Code creates the file on the first message).
+const livePrefix = "live-"
+
 // discoverInstances finds interactive `claude` processes and pairs each with
 // a transcript in its project directory. With one process per cwd the most
 // recently updated transcript wins; with several, processes and transcripts
 // are matched in session-start order (process start time vs transcript file
 // birth time), since Claude Code keeps no open fd on its transcript to pair
-// against directly.
+// against directly. Processes without any transcript yet get a placeholder
+// session id so fresh windows are still attachable.
 func discoverInstances(ctx context.Context) ([]instance, error) {
 	procs, err := interactiveClaudeProcesses(ctx)
 	if err != nil {
@@ -79,10 +84,7 @@ func discoverInstances(ctx context.Context) ([]instance, error) {
 	}
 	var instances []instance
 	for dir, group := range byDir {
-		transcripts, err := listTranscripts(dir)
-		if err != nil || len(transcripts) == 0 {
-			continue
-		}
+		transcripts, _ := listTranscripts(dir)
 		instances = append(instances, pairGroup(group, transcripts)...)
 	}
 	sort.Slice(instances, func(i, j int) bool { return instances[i].pid < instances[j].pid })
@@ -91,7 +93,9 @@ func discoverInstances(ctx context.Context) ([]instance, error) {
 
 // pairGroup matches processes sharing one cwd to that cwd's transcripts. The
 // N most recently active transcripts are assumed to belong to the N live
-// processes, matched oldest session to oldest process.
+// processes, matched oldest session to oldest process. Processes left over
+// (more windows than transcripts — i.e. fresh windows that haven't written
+// anything yet) get placeholder sessions.
 func pairGroup(procs []claudeProc, transcripts []transcriptFile) []instance {
 	sort.Slice(transcripts, func(i, j int) bool { return transcripts[i].modified.After(transcripts[j].modified) })
 	if len(transcripts) > len(procs) {
@@ -99,7 +103,7 @@ func pairGroup(procs []claudeProc, transcripts []transcriptFile) []instance {
 	}
 	sort.Slice(transcripts, func(i, j int) bool { return transcripts[i].born.Before(transcripts[j].born) })
 	sort.Slice(procs, func(i, j int) bool { return procs[i].started.Before(procs[j].started) })
-	instances := make([]instance, 0, len(transcripts))
+	instances := make([]instance, 0, len(procs))
 	for i, t := range transcripts {
 		instances = append(instances, instance{
 			pid:        procs[i].pid,
@@ -107,6 +111,14 @@ func pairGroup(procs []claudeProc, transcripts []transcriptFile) []instance {
 			cwd:        procs[i].cwd,
 			sessionID:  t.sessionID,
 			transcript: t.path,
+		})
+	}
+	for _, proc := range procs[len(transcripts):] {
+		instances = append(instances, instance{
+			pid:       proc.pid,
+			started:   proc.started,
+			cwd:       proc.cwd,
+			sessionID: fmt.Sprintf("%s%d", livePrefix, proc.pid),
 		})
 	}
 	return instances
