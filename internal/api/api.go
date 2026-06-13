@@ -126,6 +126,11 @@ func Run(cfg *Config) error {
 	}
 	defer t.Exit()
 
+	// Inside tmux, Shift+Enter only reaches the app when extended-keys is on;
+	// enable it for this run so split-layout submit works, then restore it.
+	tmuxKeys := ui.EnableTmuxExtendedKeys()
+	defer tmuxKeys.Restore()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
