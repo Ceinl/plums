@@ -67,9 +67,8 @@ var (
 	ChatInlineCode = Color{245, 190, 120}
 	ChatCodeFence  = Color{120, 118, 140}
 	ChatListMarker = Color{155, 188, 255} // bullets / numbers
-	ToolCall       = Color{160, 230, 180}
-	ToolOutput     = Color{160, 180, 220}
-	ToolIndicator  = Color{245, 190, 120}
+	ToolCall       = Color{115, 165, 135}
+	ToolIndicator  = Color{175, 135, 90}
 )
 
 // Diff colours.

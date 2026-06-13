@@ -133,20 +133,29 @@ func (cl *ChatLog) buildContentLines(content, fg, bg string) []renderLine {
 			lines = append(lines, renderLine{kind: lineKindContent, spans: footerSpans, contentFg: fgCodeFence, contentBg: bgCodeBlock})
 
 		case blockKindToolCall:
-			displayText := truncateToolSummary(toolCallSummary(block.toolName, block.text), cl.contentWidth()-4)
-
+			name := block.toolName
+			if name == "" {
+				name = "tool"
+			}
 			spans := []textSpan{
-				{text: "◆ ", fg: fgToolIndicator},
-				{text: displayText, fg: fgToolCall},
+				{text: "● ", fg: fgToolIndicator},
+				{text: name, fg: fgToolCall, decor: decorBold},
+			}
+			if arg := toolCallArg(block.text); arg != "" {
+				avail := cl.contentWidth() - 3 - len([]rune(name))
+				spans = append(spans, textSpan{text: " " + truncateToolSummary(arg, avail), fg: fgToolArg})
 			}
 			lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fgToolCall, contentBg: bg})
 
 		case blockKindToolOutput:
 			outputCompact := compactToOneLine(block.text)
-			displayText := truncateToolSummary("response: "+outputCompact, cl.contentWidth()-4)
+			if outputCompact == "" {
+				break
+			}
+			displayText := truncateToolSummary(outputCompact, cl.contentWidth()-4)
 
 			spans := []textSpan{
-				{text: "◇ ", fg: fgToolIndicator},
+				{text: "  ⎿ ", fg: fgToolMarker},
 				{text: displayText, fg: fgToolOutput},
 			}
 			lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fgToolOutput, contentBg: bg})

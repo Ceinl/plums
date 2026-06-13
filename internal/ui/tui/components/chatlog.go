@@ -20,9 +20,11 @@ var (
 	fgCodeFence  = theme.ChatCodeFence.Fg()  // dim purple for code fences
 	fgListMarker = theme.ChatListMarker.Fg() // cool accent for bullets / numbers
 
-	fgToolCall      = theme.ToolCall.Fg()      // soft green for tool calls
-	fgToolOutput    = theme.ToolOutput.Fg()    // soft blue-gray for tool output
-	fgToolIndicator = theme.ToolIndicator.Fg() // soft yellow-orange for the diamond indicator
+	fgToolCall      = theme.ToolCall.Fg()      // dim green for the tool name
+	fgToolArg       = theme.TextMuted.Fg()     // primary argument next to the tool name
+	fgToolOutput    = theme.TextFaint.Fg()     // output should recede behind prose
+	fgToolMarker    = theme.TextDim.Fg()       // the ⎿ connector under a tool call
+	fgToolIndicator = theme.ToolIndicator.Fg() // dim amber for the ● indicator
 
 	fgContent     = theme.TextSoft.Fg()               // near-white for message body
 	fgDimRule     = theme.TextDim.Fg()                // very dim, for the system rule

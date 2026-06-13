@@ -226,7 +226,7 @@ func TestChatLogRendersPlainToolCallTranscriptAsSingleLine(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected 1 rendered line, got %d", len(lines))
 	}
-	if got := spanText(lines[0].spans); got != `◆ Called Read with {"filePath":"/tmp/example.go"}` {
+	if got := spanText(lines[0].spans); got != `● Read /tmp/example.go` {
 		t.Fatalf("expected tool call summary, got %q", got)
 	}
 	if lines[0].spans[0].fg != fgToolIndicator || lines[0].spans[1].fg != fgToolCall {
