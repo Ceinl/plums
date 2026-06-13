@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
 func TestE2EManual(t *testing.T) {
@@ -31,5 +33,23 @@ func TestE2EManual(t *testing.T) {
 		if got == "" {
 			t.Fatalf("turn %d: no text mirrored back", i+1)
 		}
+	}
+
+	// ResetSession starts a fresh conversation in the same window via /clear.
+	reset, err := b.(interface {
+		ResetSession(context.Context, string) (*adapter.Session, error)
+	}).ResetSession(ctx, dir)
+	if err != nil {
+		t.Fatalf("ResetSession: %v", err)
+	}
+	t.Logf("reset session=%s", reset.ID)
+	got := ""
+	for ev := range b.SendMessageEvents(ctx, reset.ID, "Reply with exactly: MIRROR_THREE", "", "", "") {
+		if ev.Text != "" {
+			got += ev.Text
+		}
+	}
+	if got == "" {
+		t.Fatal("post-reset turn: no text mirrored back")
 	}
 }

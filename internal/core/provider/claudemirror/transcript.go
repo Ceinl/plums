@@ -14,15 +14,17 @@ const maxTranscriptLine = 16 * 1024 * 1024
 // transcriptEntry is one JSONL line of a Claude Code session transcript
 // (~/.claude/projects/<encoded-cwd>/<session-id>.jsonl).
 type transcriptEntry struct {
-	Type        string `json:"type"`
-	UUID        string `json:"uuid"`
-	SessionID   string `json:"sessionId"`
-	Cwd         string `json:"cwd"`
-	Timestamp   string `json:"timestamp"`
-	IsMeta      bool   `json:"isMeta"`
-	IsSidechain bool   `json:"isSidechain"`
+	Type           string `json:"type"`
+	UUID           string `json:"uuid"`
+	SessionID      string `json:"sessionId"`
+	Cwd            string `json:"cwd"`
+	Timestamp      string `json:"timestamp"`
+	IsMeta         bool   `json:"isMeta"`
+	IsSidechain    bool   `json:"isSidechain"`
+	PermissionMode string `json:"permissionMode"` // on type:"permission-mode" entries
 	Message     struct {
 		Role       string          `json:"role"`
+		Model      string          `json:"model"`
 		Content    json.RawMessage `json:"content"`
 		StopReason string          `json:"stop_reason"`
 	} `json:"message"`
@@ -234,6 +236,32 @@ func formatQuestions(input string) string {
 	}
 	b.WriteString("Answer in the Claude Code window to continue.\n")
 	return b.String()
+}
+
+// transcriptPermissionMode returns the most recent permission mode recorded in
+// the transcript (e.g. "bypassPermissions", "default"), or "" if none is found.
+// Claude Code writes a permission-mode entry at turn boundaries and whenever the
+// mode is cycled, so the last one reflects the window's current mode.
+func transcriptPermissionMode(entries []transcriptEntry) string {
+	mode := ""
+	for _, entry := range entries {
+		if entry.Type == "permission-mode" && entry.PermissionMode != "" {
+			mode = entry.PermissionMode
+		}
+	}
+	return mode
+}
+
+// transcriptModel returns the model id from the most recent assistant entry,
+// so the status line shows what the live window is actually running (e.g.
+// claude-fable-5) rather than the "live" placeholder. Empty if none is found.
+func transcriptModel(entries []transcriptEntry) string {
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].Type == "assistant" && entries[i].Message.Model != "" {
+			return entries[i].Message.Model
+		}
+	}
+	return ""
 }
 
 // transcriptTitle derives a session title from the first typed user message.

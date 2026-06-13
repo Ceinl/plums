@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Ceinl/plums/internal/core/adapter"
@@ -24,6 +26,18 @@ const (
 	firstReplyTimeout = 60 * time.Second
 	idleTimeout       = 10 * time.Minute
 )
+
+// commandReplyTimeout caps how long a slash-command turn waits for the prompt
+// to surface in the transcript. Locally handled commands (/clear, /model, ...)
+// run inside the real window and never write a transcript entry, so the full
+// firstReplyTimeout would leave the user on a spinner for a minute; commands
+// that do trigger a model turn (e.g. /compact) start writing well within this.
+// Variable so tests can shorten it.
+var commandReplyTimeout = 10 * time.Second
+
+// errPromptNotSeen is returned by awaitActiveTranscript when the injected
+// prompt never appears in any transcript before the deadline.
+var errPromptNotSeen = fmt.Errorf("prompt was sent but never appeared in any transcript")
 
 // Client implements adapter.Backend by attaching to already-running
 // interactive Claude Code instances: prompts are typed into the real
@@ -69,6 +83,20 @@ func (c *Client) Health(ctx context.Context) error {
 // With several candidates and no directory match it refuses rather than
 // guessing — injecting into the wrong window must never happen.
 func (c *Client) CreateSession(ctx context.Context, directory string) (*adapter.Session, error) {
+	chosen, err := chooseInstance(ctx, directory)
+	if err != nil {
+		return nil, err
+	}
+	c.remember(*chosen)
+	session := c.sessionFromInstance(*chosen)
+	return &session, nil
+}
+
+// chooseInstance picks the window to attach to: the one whose cwd matches
+// directory, or the only live one. With several candidates and no directory
+// match it refuses rather than guessing — attaching to the wrong window must
+// never happen.
+func chooseInstance(ctx context.Context, directory string) (*instance, error) {
 	instances, err := discoverInstances(ctx)
 	if err != nil {
 		return nil, err
@@ -76,26 +104,44 @@ func (c *Client) CreateSession(ctx context.Context, directory string) (*adapter.
 	if len(instances) == 0 {
 		return nil, fmt.Errorf("no running interactive Claude Code instance found; open one in a terminal first")
 	}
-	var chosen *instance
 	for i := range instances {
 		if instances[i].cwd == directory {
-			chosen = &instances[i]
-			break
+			return &instances[i], nil
 		}
 	}
-	if chosen == nil && len(instances) == 1 {
-		chosen = &instances[0]
+	if len(instances) == 1 {
+		return &instances[0], nil
 	}
-	if chosen == nil {
-		var dirs []string
-		for _, inst := range instances {
-			dirs = append(dirs, inst.cwd)
-		}
-		return nil, fmt.Errorf("no Claude Code window running in %s and %d candidates elsewhere (%s); pick one from the session list instead",
-			directory, len(instances), strings.Join(dirs, ", "))
+	var dirs []string
+	for _, inst := range instances {
+		dirs = append(dirs, inst.cwd)
 	}
-	c.remember(*chosen)
-	session := c.sessionFromInstance(*chosen)
+	return nil, fmt.Errorf("no Claude Code window running in %s and %d candidates elsewhere (%s); pick one from the session list instead",
+		directory, len(instances), strings.Join(dirs, ", "))
+}
+
+// ResetSession implements "new session" for the mirror: it can't spawn a
+// window, so it starts a fresh conversation in the attached one by injecting
+// Claude Code's own /clear, then returns the window as a fresh live instance
+// whose next prompt re-discovers the new transcript.
+func (c *Client) ResetSession(ctx context.Context, directory string) (*adapter.Session, error) {
+	chosen, err := chooseInstance(ctx, directory)
+	if err != nil {
+		return nil, err
+	}
+	pane, pid, err := c.resolvePane(ctx, *chosen)
+	if err != nil {
+		return nil, err
+	}
+	debuglog.Printf("claude-mirror: starting new conversation via /clear in pane %s (pid %d)", pane, pid)
+	if err := tmuxInject(ctx, pane, "/clear"); err != nil {
+		return nil, fmt.Errorf("failed to clear the Claude Code window: %w", err)
+	}
+	// /clear starts a new transcript; until the next prompt writes it, treat the
+	// window as a fresh live instance with no transcript bound yet.
+	fresh := instance{pid: pid, started: chosen.started, cwd: chosen.cwd, sessionID: fmt.Sprintf("%s%d", livePrefix, pid)}
+	c.remember(fresh)
+	session := c.sessionFromInstance(fresh)
 	return &session, nil
 }
 
@@ -197,6 +243,11 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, _ strin
 	return out
 }
 
+// ReplyQuestion delivers the user's pick. To surface the question at all the
+// mirror declined it in the real window (Claude Code never writes a pending
+// AskUserQuestion to the transcript), so the dialog is already closed and the
+// window is waiting for the user's next message — the answer is simply injected
+// as that next prompt, which Claude reads as the response to the question.
 func (c *Client) ReplyQuestion(ctx context.Context, requestID string, answers [][]string) error {
 	sessionID, toolUseID, ok := splitQuestionRequestID(requestID)
 	if !ok {
@@ -209,26 +260,6 @@ func (c *Client) ReplyQuestion(ctx context.Context, requestID string, answers []
 	inst, err := c.resolveInstance(ctx, sessionID)
 	if err != nil {
 		return err
-	}
-	path := inst.transcript
-	if path == "" {
-		path, err = c.transcriptFor(sessionID)
-		if err != nil {
-			return err
-		}
-	}
-	if path == "" {
-		return fmt.Errorf("claude-mirror: no transcript available to verify pending question")
-	}
-	entries, err := readTranscript(path)
-	if err != nil {
-		return err
-	}
-	if pending := pendingQuestionID(entries); pending != toolUseID {
-		if pending == "" {
-			return fmt.Errorf("claude-mirror: question %s is no longer pending", toolUseID)
-		}
-		return fmt.Errorf("claude-mirror: pending question is %s, not %s", pending, toolUseID)
 	}
 	pane, pid, err := c.resolvePane(ctx, inst)
 	if err != nil {
@@ -275,6 +306,14 @@ func (c *Client) runMirroredTurn(ctx context.Context, out chan<- adapter.StreamE
 	}
 	activePath, offset, err := awaitActiveTranscript(ctx, dir, baseline, text)
 	if err != nil {
+		// A slash command (e.g. /clear, /model) handled inside the real window
+		// produces no transcript output; it was still injected, so report it as
+		// sent rather than failing the turn.
+		if isSlashCommand(text) && errors.Is(err, errPromptNotSeen) {
+			emit(ctx, out, adapter.StreamEvent{Text: fmt.Sprintf(
+				"\n[claude-mirror] sent %q to the Claude Code window (no transcript output to mirror)\n", strings.TrimSpace(text))})
+			return nil
+		}
 		return err
 	}
 	if activePath != inst.transcript || pid != inst.pid {
@@ -287,7 +326,7 @@ func (c *Client) runMirroredTurn(ctx context.Context, out chan<- adapter.StreamE
 	// binding that outlives the discovery heuristics.
 	c.bind(activePath, pid)
 	debuglog.Printf("claude-mirror: tailing %s from %d", activePath, offset)
-	return tailTurn(ctx, out, activePath, offset)
+	return tailTurn(ctx, out, activePath, offset, pane, pid)
 }
 
 // resolvePane finds the tmux pane to type into. Discovery's pid pairing is a
@@ -379,11 +418,25 @@ func snapshotSizes(dir string) (map[string]int64, error) {
 }
 
 // awaitActiveTranscript polls the project directory until some transcript
-// (possibly a brand-new file) receives a user entry containing the injected
-// prompt, returning that file and the offset it grew from.
+// (possibly a brand-new file) receives the injected prompt, returning that
+// file and the offset it grew from.
+//
+// The prompt is matched verbatim when possible, but Claude Code rewrites the
+// transcript for some inputs: large/multi-line pastes collapse to a
+// "[Pasted text #1 +N lines]" placeholder and slash commands are wrapped in
+// <command-name> scaffolding — neither contains the literal text. So a fresh
+// user entry in a transcript that grew after injection is accepted as a
+// fallback, with the verbatim match preferred when several files grew at once.
+// Slash commands handled entirely inside the real window (/clear, /model)
+// never write anything; those time out with errPromptNotSeen at the shorter
+// commandReplyTimeout so the caller can report them as fire-and-forget.
 func awaitActiveTranscript(ctx context.Context, dir string, baseline map[string]int64, text string) (string, int64, error) {
 	needle := strings.TrimSpace(text)
-	deadline := time.Now().Add(firstReplyTimeout)
+	timeout := firstReplyTimeout
+	if isSlashCommand(needle) {
+		timeout = commandReplyTimeout
+	}
+	deadline := time.Now().Add(timeout)
 	for {
 		select {
 		case <-ctx.Done():
@@ -394,29 +447,41 @@ func awaitActiveTranscript(ctx context.Context, dir string, baseline map[string]
 		if err != nil {
 			return "", 0, err
 		}
+		var fallback string
+		var fallbackStart int64
 		for _, match := range matches {
 			start := baseline[match] // 0 for files created after injection
 			info, err := os.Stat(match)
 			if err != nil || info.Size() <= start {
 				continue
 			}
-			entries, _, err := readNewEntries(match, start)
+			entries, newOffset, err := readNewEntries(match, start)
 			if err != nil {
 				continue
 			}
 			if transcriptHasPrompt(entries, needle) {
 				return match, start, nil
 			}
-			// Growth without our prompt is another session's activity.
-			baseline[match] = info.Size()
+			if fallback == "" && hasFreshUserEntry(entries) {
+				fallback, fallbackStart = match, start
+			}
+			// Advance only past complete lines: stepping to info.Size() could
+			// land mid-line and skip the prompt entry on the next read.
+			baseline[match] = newOffset
+		}
+		if fallback != "" {
+			return fallback, fallbackStart, nil
 		}
 		if time.Now().After(deadline) {
-			return "", 0, fmt.Errorf("prompt was sent but never appeared in any transcript within %s — check the Claude Code window", firstReplyTimeout)
+			return "", 0, fmt.Errorf("%w within %s — check the Claude Code window", errPromptNotSeen, timeout)
 		}
 	}
 }
 
 func transcriptHasPrompt(entries []transcriptEntry, needle string) bool {
+	if needle == "" {
+		return false
+	}
 	for _, entry := range entries {
 		if !conversationEntry(entry) || entry.Message.Role != "user" {
 			continue
@@ -428,6 +493,36 @@ func transcriptHasPrompt(entries []transcriptEntry, needle string) bool {
 		}
 	}
 	return false
+}
+
+// hasFreshUserEntry reports whether entries contain a typed user message that
+// is not harness scaffolding — the signal that an injected prompt landed even
+// when Claude Code rewrote its text (paste placeholder, slash-command wrapper).
+func hasFreshUserEntry(entries []transcriptEntry) bool {
+	for _, entry := range entries {
+		if isTypedUserPrompt(entry) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTypedUserPrompt reports whether entry is a user message the human typed —
+// not a tool result (also user-role) and not harness scaffolding.
+func isTypedUserPrompt(entry transcriptEntry) bool {
+	if !conversationEntry(entry) || entry.Message.Role != "user" {
+		return false
+	}
+	for _, block := range contentBlocks(entry.Message.Content) {
+		if block.Type == "text" && strings.TrimSpace(block.Text) != "" && !isHarnessText(block.Text) {
+			return true
+		}
+	}
+	return false
+}
+
+func isSlashCommand(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), "/")
 }
 
 // resolveInstance returns the attached window for a session, refreshing
@@ -450,9 +545,17 @@ func (c *Client) resolveInstance(ctx context.Context, sessionID string) (instanc
 }
 
 // tailTurn streams new transcript entries until the assistant ends its turn,
-// the transcript goes idle (e.g. a permission prompt is blocking the real
-// window), or the context is cancelled.
-func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, offset int64) error {
+// the transcript goes idle, or the context is cancelled.
+//
+// A pending AskUserQuestion is the awkward case: Claude Code buffers the whole
+// question turn and writes nothing to the transcript until it is answered or
+// declined, so the window can sit "waiting" while the tail sees only silence.
+// When the session state reports the window parked on input, tailTurn presses
+// Escape once to decline the question — that forces Claude Code to flush the
+// AskUserQuestion (with its full options) to the transcript, where the next
+// poll reads it and surfaces the native picker in Plums. The user's selection
+// is then injected as the next prompt (see ReplyQuestion).
+func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, offset int64, pane string, pid int) error {
 	deadline := time.Now().Add(firstReplyTimeout)
 	sawActivity := false
 	lastActivity := time.Now()
@@ -461,6 +564,9 @@ func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, 
 	// not the end of the writes. End only once an end_turn was seen and a
 	// poll produces nothing further.
 	turnEnded := false
+	declined := false    // pressed Escape to flush a pending question this turn
+	declinedID := ""     // tool_use id of the question we declined, once it flushes
+	actedOnWait := false // handled a "waiting for input" state this turn
 	for {
 		select {
 		case <-ctx.Done():
@@ -480,8 +586,26 @@ func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, 
 			progressed = true
 			sawActivity = true
 			lastActivity = time.Now()
+			// The question we forced flushes as an AskUserQuestion tool_use
+			// immediately followed by a synthetic "user declined" tool_result;
+			// remember its id so that rejection is suppressed below — the user
+			// never declined, the mirror did, and showing the error misleads.
+			if declined && declinedID == "" {
+				if id := askQuestionID(entry); id != "" {
+					declinedID = id
+				}
+			}
 			if entry.Message.Role == "assistant" || entry.Type == "user" {
-				emitEntry(ctx, out, entry)
+				emitEntry(ctx, out, entry, declinedID)
+			}
+			// A new typed prompt starts the turn we're mirroring. The previous
+			// turn's trailing end_turn line can flush late and land in the same
+			// poll batch as this prompt (awaitActiveTranscript hands us the
+			// offset before it); without this reset that stale end_turn would
+			// satisfy turnEnded and make the tail return before the assistant
+			// even responds — losing, e.g., an AskUserQuestion that follows.
+			if entry.Type == "user" && isTypedUserPrompt(entry) {
+				turnEnded = false
 			}
 			if entry.Type == "assistant" && entry.Message.StopReason != "" {
 				turnEnded = entry.Message.StopReason != "tool_use"
@@ -489,6 +613,38 @@ func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, 
 		}
 		if turnEnded && !progressed {
 			return nil
+		}
+		// A window parked "waiting" with no transcript progress is blocked on
+		// input we cannot see — a pending AskUserQuestion or a tool-permission
+		// prompt, which the session file reports identically ("permission
+		// prompt"). We can only tell them apart by the permission mode: under
+		// bypassPermissions nothing prompts for permission, so waiting must be a
+		// question — decline it (Esc) to flush it and surface the picker. In any
+		// other mode the wait could be a real permission prompt; declining it
+		// would reject the tool, so we leave it alone and just tell the user to
+		// handle it in the real window.
+		if !actedOnWait && !turnEnded && pane != "" {
+			if st, err := readSessionState(pid); err == nil && st.isWaitingForInput() {
+				actedOnWait = true
+				bypass := false
+				if entries, rerr := readTranscript(path); rerr == nil {
+					bypass = transcriptPermissionMode(entries) == "bypassPermissions"
+				}
+				if bypass {
+					debuglog.Printf("claude-mirror: pid %d waiting (%s) in bypass mode; pressing Esc to flush pending question", pid, st.WaitingFor)
+					if err := tmuxEscape(ctx, pane); err != nil {
+						debuglog.Printf("claude-mirror: failed to decline question: %v", err)
+						actedOnWait = false // let a later poll retry
+					} else {
+						declined = true
+						lastActivity = time.Now()
+					}
+				} else {
+					debuglog.Printf("claude-mirror: pid %d waiting (%s) without bypass; leaving it for the real window", pid, st.WaitingFor)
+					emit(ctx, out, adapter.StreamEvent{Text: "\n[claude-mirror] the Claude Code window is waiting for your input (a question or a permission prompt) — handle it there; the reply will mirror back here\n"})
+					lastActivity = time.Now()
+				}
+			}
 		}
 		if !sawActivity && time.Now().After(deadline) {
 			return fmt.Errorf("no transcript activity within %s — the prompt may not have reached the window", firstReplyTimeout)
@@ -502,12 +658,35 @@ func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, 
 	}
 }
 
+// askQuestionID returns the tool_use id of an AskUserQuestion in an assistant
+// entry, or "" if the entry contains none.
+func askQuestionID(entry transcriptEntry) string {
+	if entry.Type != "assistant" {
+		return ""
+	}
+	for _, block := range contentBlocks(entry.Message.Content) {
+		if block.Type == "tool_use" && block.Name == "AskUserQuestion" {
+			return block.ID
+		}
+	}
+	return ""
+}
+
 // emitEntry converts one transcript entry into stream events. The echoed user
 // prompt itself produces no parts worth mirroring (tool results do).
-func emitEntry(ctx context.Context, out chan<- adapter.StreamEvent, entry transcriptEntry) {
+//
+// suppressResultID is the tool_use id of a question the mirror auto-declined to
+// flush it; that question's synthetic rejection tool_result is dropped so Plums
+// does not show a "declined" error the user never caused.
+func emitEntry(ctx context.Context, out chan<- adapter.StreamEvent, entry transcriptEntry, suppressResultID string) {
 	for _, part := range entryParts(entry) {
 		switch {
 		case part.Tool != nil:
+			// A tool_result carries Output/Error and no Name; drop the one that
+			// belongs to the question we declined on the user's behalf.
+			if suppressResultID != "" && part.Tool.Name == "" && part.Tool.ID == suppressResultID {
+				continue
+			}
 			emit(ctx, out, adapter.StreamEvent{Tool: part.Tool})
 			// Questions block the real window; surface them in Plums when the
 			// input matches Claude's question tool schema.
@@ -596,11 +775,22 @@ func (c *Client) transcriptFor(sessionID string) (string, error) {
 }
 
 func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return false
 	}
-	return proc.Signal(nil) == nil
+	// Signal 0 probes existence without delivering anything. os.Process.Signal
+	// type-asserts to syscall.Signal, so a nil signal would fail the assertion
+	// and never report a live process — syscall.Signal(0) is the real check.
+	err = proc.Signal(syscall.Signal(0))
+	if err == nil {
+		return true
+	}
+	// An existing process we don't own returns EPERM rather than ESRCH.
+	return errors.Is(err, syscall.EPERM)
 }
 
 func (c *Client) sessionFromInstance(inst instance) adapter.Session {
@@ -619,6 +809,7 @@ func (c *Client) sessionFromInstance(inst instance) adapter.Session {
 
 func (c *Client) sessionFromTranscript(sessionID, path, cwd string) adapter.Session {
 	title := "Claude window"
+	modelID := defaultModelID
 	created := int64(0)
 	updated := int64(0)
 	if info, err := os.Stat(path); err == nil {
@@ -626,6 +817,9 @@ func (c *Client) sessionFromTranscript(sessionID, path, cwd string) adapter.Sess
 	}
 	if entries, err := readTranscript(path); err == nil && len(entries) > 0 {
 		title = transcriptTitle(entries, title)
+		if model := transcriptModel(entries); model != "" {
+			modelID = model
+		}
 		for _, entry := range entries {
 			if entry.Cwd != "" && cwd == "" {
 				cwd = entry.Cwd
@@ -642,7 +836,7 @@ func (c *Client) sessionFromTranscript(sessionID, path, cwd string) adapter.Sess
 		ID:        sessionID,
 		Title:     title,
 		Directory: cwd,
-		Model:     &adapter.ModelRef{ID: defaultModelID, ProviderID: providerID},
+		Model:     &adapter.ModelRef{ID: modelID, ProviderID: providerID},
 		Time:      adapter.SessionTime{Created: created, Updated: updated},
 	}
 }
