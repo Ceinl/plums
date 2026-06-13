@@ -21,6 +21,7 @@ const (
 	PaletteActionSelectSkill
 	PaletteActionAnswerQuestion
 	PaletteActionCycleThinkingVisibility
+	PaletteActionCycleToolCallVisibility
 	PaletteActionBackendList
 	PaletteActionSelectBackend
 	PaletteActionLayoutsList
