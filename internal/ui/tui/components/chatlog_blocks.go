@@ -1,7 +1,9 @@
 package components
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
@@ -279,15 +281,44 @@ func parsePlainToolCall(line string) (name, input string, ok bool) {
 	return name, input, true
 }
 
-func toolCallSummary(name, input string) string {
-	if name == "" {
-		name = "tool"
+// toolArgPriority lists input keys whose value alone summarises a call well,
+// most informative first.
+var toolArgPriority = []string{
+	"command", "file_path", "filePath", "path", "pattern", "query",
+	"url", "prompt", "description", "skill", "content",
+}
+
+// toolCallArg reduces a tool's JSON input to a one-line human summary:
+// the highest-priority string argument if one exists, otherwise compact
+// "key: value" pairs. An empty input ("{}") yields "".
+func toolCallArg(input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" || input == "{}" {
+		return ""
 	}
-	input = compactToOneLine(input)
-	if input == "" {
-		return "Called " + name
+
+	var args map[string]any
+	if err := json.Unmarshal([]byte(input), &args); err != nil || len(args) == 0 {
+		return compactToOneLine(input)
 	}
-	return "Called " + name + " with " + input
+
+	for _, key := range toolArgPriority {
+		if v, ok := args[key].(string); ok && strings.TrimSpace(v) != "" {
+			return compactToOneLine(v)
+		}
+	}
+
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	pairs := make([]string, 0, len(keys))
+	for _, k := range keys {
+		pairs = append(pairs, k+": "+compactToOneLine(fmt.Sprintf("%v", args[k])))
+	}
+	return strings.Join(pairs, ", ")
 }
 
 func truncateToolSummary(s string, max int) string {

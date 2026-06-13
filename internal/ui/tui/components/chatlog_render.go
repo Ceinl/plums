@@ -1,6 +1,7 @@
 package components
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
@@ -113,7 +114,8 @@ func (cl *ChatLog) buildContentLines(content, fg, bg string) []renderLine {
 	blocks := parseChatBlocks(content)
 	var lines []renderLine
 
-	for _, block := range blocks {
+	for i := 0; i < len(blocks); i++ {
+		block := blocks[i]
 		switch block.kind {
 		case blockKindCode:
 			bgCodeBlock := theme.BgSurface.Bg()
@@ -132,24 +134,19 @@ func (cl *ChatLog) buildContentLines(content, fg, bg string) []renderLine {
 			footerSpans := []textSpan{{text: "╰" + strings.Repeat("─", 20), fg: fgCodeFence}}
 			lines = append(lines, renderLine{kind: lineKindContent, spans: footerSpans, contentFg: fgCodeFence, contentBg: bgCodeBlock})
 
-		case blockKindToolCall:
-			displayText := truncateToolSummary(toolCallSummary(block.toolName, block.text), cl.contentWidth()-4)
-
-			spans := []textSpan{
-				{text: "◆ ", fg: fgToolIndicator},
-				{text: displayText, fg: fgToolCall},
+		case blockKindToolCall, blockKindToolOutput:
+			// Consume the whole run of consecutive tool blocks so collapse
+			// mode can summarise multiple calls as one line.
+			run := 1
+			for i+run < len(blocks) {
+				k := blocks[i+run].kind
+				if k != blockKindToolCall && k != blockKindToolOutput {
+					break
+				}
+				run++
 			}
-			lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fgToolCall, contentBg: bg})
-
-		case blockKindToolOutput:
-			outputCompact := compactToOneLine(block.text)
-			displayText := truncateToolSummary("response: "+outputCompact, cl.contentWidth()-4)
-
-			spans := []textSpan{
-				{text: "◇ ", fg: fgToolIndicator},
-				{text: displayText, fg: fgToolOutput},
-			}
-			lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fgToolOutput, contentBg: bg})
+			lines = append(lines, cl.buildToolLines(blocks[i:i+run], bg)...)
+			i += run - 1
 
 		case blockKindText:
 			lines = append(lines, cl.buildMarkdownLines(block.text, fg, bg)...)
@@ -157,6 +154,84 @@ func (cl *ChatLog) buildContentLines(content, fg, bg string) []renderLine {
 	}
 
 	return lines
+}
+
+// buildToolLines renders a run of consecutive tool-call/output blocks according
+// to the active visibility mode. In collapse mode a run with more than one call
+// is reduced to a single summary line; hidden mode drops the run entirely.
+func (cl *ChatLog) buildToolLines(blocks []chatBlock, bg string) []renderLine {
+	switch cl.toolCallMode {
+	case ToolCallVisibilityHidden:
+		return nil
+
+	case ToolCallVisibilityCollapse:
+		var names []string
+		for _, b := range blocks {
+			if b.kind == blockKindToolCall {
+				names = append(names, toolDisplayName(b.toolName))
+			}
+		}
+		if len(names) <= 1 {
+			// A lone call: show just the call line, no verbose output.
+			return cl.toolCallLines(blocks, bg, false)
+		}
+		summary := fmt.Sprintf("%d tool calls", len(names))
+		spans := []textSpan{
+			{text: "● ", fg: fgToolIndicator},
+			{text: summary, fg: fgToolCall, decor: decorBold},
+		}
+		joined := strings.Join(names, ", ")
+		avail := cl.contentWidth() - 3 - len([]rune(summary))
+		spans = append(spans, textSpan{text: " " + truncateToolSummary(joined, avail), fg: fgToolArg})
+		return []renderLine{{kind: lineKindContent, spans: spans, contentFg: fgToolCall, contentBg: bg}}
+
+	default:
+		return cl.toolCallLines(blocks, bg, true)
+	}
+}
+
+// toolCallLines renders each call (and, when withOutput is set, its response)
+// as its own line.
+func (cl *ChatLog) toolCallLines(blocks []chatBlock, bg string, withOutput bool) []renderLine {
+	var lines []renderLine
+	for _, block := range blocks {
+		switch block.kind {
+		case blockKindToolCall:
+			name := toolDisplayName(block.toolName)
+			spans := []textSpan{
+				{text: "● ", fg: fgToolIndicator},
+				{text: name, fg: fgToolCall, decor: decorBold},
+			}
+			if arg := toolCallArg(block.text); arg != "" {
+				avail := cl.contentWidth() - 3 - len([]rune(name))
+				spans = append(spans, textSpan{text: " " + truncateToolSummary(arg, avail), fg: fgToolArg})
+			}
+			lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fgToolCall, contentBg: bg})
+
+		case blockKindToolOutput:
+			if !withOutput {
+				continue
+			}
+			outputCompact := compactToOneLine(block.text)
+			if outputCompact == "" {
+				continue
+			}
+			displayText := truncateToolSummary(outputCompact, cl.contentWidth()-4)
+			spans := []textSpan{
+				{text: "  ⎿ ", fg: fgToolMarker},
+				{text: displayText, fg: fgToolOutput},
+			}
+			lines = append(lines, renderLine{kind: lineKindContent, spans: spans, contentFg: fgToolOutput, contentBg: bg})
+		}
+	}
+	return lines
+}
+
+func toolDisplayName(name string) string {
+	if name == "" {
+		return "tool"
+	}
+	return name
 }
 
 func (cl *ChatLog) roleStyle(role string) (bodyFg, bodyBg string) {

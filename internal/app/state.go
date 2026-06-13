@@ -74,6 +74,7 @@ type State struct {
 	BackendProvider string
 	Mode            string
 	ThinkingMode    components.ThinkingVisibility
+	ToolCallMode    components.ToolCallVisibility
 	ModelProvider   string
 	ModelID         string
 	InfoView        InfoView
@@ -108,6 +109,7 @@ func NewState(width int, height int) *State {
 		OutputPercent:    defaultOutputPercentage,
 		commandConfig:    DefaultCommandConfig(),
 		ThinkingMode:     components.ThinkingVisibilityHidden,
+		ToolCallMode:     components.ToolCallVisibilityFull,
 		runSessionIDs:    map[string]bool{},
 	}
 }
@@ -346,6 +348,30 @@ func (s *State) CycleThinkingVisibility() {
 	}
 	s.invalidateOutputMax()
 	s.ChatLog().SetThinkingVisibility(s.ThinkingMode)
+}
+
+func (s *State) ToolCallVisibilityLabel() string {
+	switch s.ToolCallMode {
+	case components.ToolCallVisibilityHidden:
+		return "hidden"
+	case components.ToolCallVisibilityCollapse:
+		return "collapse"
+	default:
+		return "full"
+	}
+}
+
+func (s *State) CycleToolCallVisibility() {
+	switch s.ToolCallMode {
+	case components.ToolCallVisibilityFull:
+		s.ToolCallMode = components.ToolCallVisibilityCollapse
+	case components.ToolCallVisibilityCollapse:
+		s.ToolCallMode = components.ToolCallVisibilityHidden
+	default:
+		s.ToolCallMode = components.ToolCallVisibilityFull
+	}
+	s.invalidateOutputMax()
+	s.ChatLog().SetToolCallVisibility(s.ToolCallMode)
 }
 
 func (s *State) ToggleMode() {

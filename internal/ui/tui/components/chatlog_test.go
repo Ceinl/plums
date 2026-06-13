@@ -226,11 +226,47 @@ func TestChatLogRendersPlainToolCallTranscriptAsSingleLine(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected 1 rendered line, got %d", len(lines))
 	}
-	if got := spanText(lines[0].spans); got != `◆ Called Read with {"filePath":"/tmp/example.go"}` {
+	if got := spanText(lines[0].spans); got != `● Read /tmp/example.go` {
 		t.Fatalf("expected tool call summary, got %q", got)
 	}
 	if lines[0].spans[0].fg != fgToolIndicator || lines[0].spans[1].fg != fgToolCall {
 		t.Fatalf("expected tool call colors")
+	}
+}
+
+func TestChatLogCollapsesConsecutiveToolCalls(t *testing.T) {
+	cl := NewChatLog()
+	cl.Layout(0, 0, 80, 10)
+	cl.SetToolCallVisibility(ToolCallVisibilityCollapse)
+	cl.SetAiOutput("text\n" +
+		`<tool_call name="read">{"file_path":"/a.go"}</tool_call>` + "\n" +
+		"<tool_output>contents of a</tool_output>\n" +
+		`<tool_call name="grep">{"pattern":"foo"}</tool_call>` + "\n" +
+		"<tool_output>1 match</tool_output>\n")
+
+	lines := cl.lines()
+	var collapsed string
+	for _, l := range lines {
+		if got := spanText(l.spans); strings.Contains(got, "tool calls") {
+			collapsed = got
+		}
+	}
+	if collapsed != "● 2 tool calls read, grep" {
+		t.Fatalf("expected collapsed summary, got %q", collapsed)
+	}
+}
+
+func TestChatLogHidesToolCalls(t *testing.T) {
+	cl := NewChatLog()
+	cl.Layout(0, 0, 80, 10)
+	cl.SetToolCallVisibility(ToolCallVisibilityHidden)
+	cl.SetAiOutput(`<tool_call name="read">{"file_path":"/a.go"}</tool_call>` + "\n" +
+		"<tool_output>contents</tool_output>\n")
+
+	for _, l := range cl.lines() {
+		if got := spanText(l.spans); strings.Contains(got, "read") {
+			t.Fatalf("expected tool call hidden, got line %q", got)
+		}
 	}
 }
 

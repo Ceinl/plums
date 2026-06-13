@@ -77,6 +77,11 @@
         "action": "cycle_thinking_visibility"
       },
       {
+        "title": "Tool call visibility",
+        "detail": "Current: {toolcall_visibility} (cycles full/collapse/hidden)",
+        "action": "cycle_toolcall_visibility"
+      },
+      {
         "title": "Output percentage",
         "detail": "Left/Right adjust - current: {output_percent}%",
         "action": "adjust_output_percentage"
@@ -116,6 +121,9 @@
       "kind": "builtin"
     },
     "cycle_thinking_visibility": {
+      "kind": "builtin"
+    },
+    "cycle_toolcall_visibility": {
       "kind": "builtin"
     },
     "adjust_output_percentage": {
