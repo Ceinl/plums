@@ -72,9 +72,10 @@ func (cl *ChatLog) renderEmptyState(s *screen.Screen, bg string) {
 	drawCenteredText(s, cl.x, mid+2, cl.w, "type a message below to start", theme.TextFaint.Fg(), bg)
 }
 
-// buildLines converts all messages (and in-progress AI output) into a flat
-// slice of renderLine values that represent one terminal row each.
-func (cl *ChatLog) buildLines() []renderLine {
+// buildMessageLines converts committed messages into a flat slice of renderLine
+// values that represent one terminal row each. The result is cached and reused
+// across frames (see messageLines); only buildStreamingLines runs per token.
+func (cl *ChatLog) buildMessageLines() []renderLine {
 	var lines []renderLine
 
 	for i, msg := range cl.messages {
@@ -92,20 +93,26 @@ func (cl *ChatLog) buildLines() []renderLine {
 		lines = append(lines, withAccent(cl.buildContentLines(msg.Content, bodyFg, bodyBg), accentFg)...)
 	}
 
-	// In-progress streaming response.
-	if cl.aioutput != "" || cl.isStreaming {
-		if len(cl.messages) > 0 {
-			lines = append(lines, renderLine{kind: lineKindBlank})
-		}
-		if cl.aioutput != "" {
-			content := cl.aioutput
-			if cl.isStreaming {
-				content += "▌"
-			}
-			lines = append(lines, cl.buildContentLines(content, fgContent, "")...)
-		}
-	}
+	return lines
+}
 
+// buildStreamingLines renders the in-progress AI response that is appended below
+// the committed messages while a turn is streaming.
+func (cl *ChatLog) buildStreamingLines() []renderLine {
+	if cl.aioutput == "" && !cl.isStreaming {
+		return nil
+	}
+	var lines []renderLine
+	if len(cl.messages) > 0 {
+		lines = append(lines, renderLine{kind: lineKindBlank})
+	}
+	if cl.aioutput != "" {
+		content := cl.aioutput
+		if cl.isStreaming {
+			content += "▌"
+		}
+		lines = append(lines, cl.buildContentLines(content, fgContent, "")...)
+	}
 	return lines
 }
 
