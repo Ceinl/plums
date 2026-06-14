@@ -203,6 +203,10 @@ func (c *Client) ListProviders(ctx context.Context) ([]adapter.Provider, []strin
 	return all, providers.Connected, nil
 }
 
+// streamBufferSize is the slack between the SSE reader and the UI consumer.
+// Generous enough to ride out short consumer stalls without unbounded memory.
+const streamBufferSize = 256
+
 // SendMessage streams the assistant's reply token-by-token via the returned
 // channel. It first tries the SSE-based approach (prompt_async + /event); if
 // that fails (404 or connection error) it falls back to the synchronous
@@ -211,7 +215,7 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 	out := make(chan string)
 	go func() {
 		defer close(out)
-		events := make(chan adapter.StreamEvent)
+		events := make(chan adapter.StreamEvent, streamBufferSize)
 		go func() {
 			defer close(events)
 			result, err := c.sendWithSSE(ctx, sessionID, text, providerID, modelID, agent, events)
@@ -245,7 +249,11 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 }
 
 func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, providerID, modelID, agent string) <-chan adapter.StreamEvent {
-	out := make(chan adapter.StreamEvent)
+	// Buffered so a brief stall in the UI consumer (e.g. a synchronous question
+	// reply or post-stream model refresh) does not block the SSE reader. If the
+	// reader blocks, opencode's /event buffer fills and the agent's tool calls
+	// stall — the symptom that looks like "tool calls aborting".
+	out := make(chan adapter.StreamEvent, streamBufferSize)
 	go func() {
 		defer close(out)
 		result, err := c.sendWithSSE(ctx, sessionID, text, providerID, modelID, agent, out)
