@@ -487,6 +487,12 @@ func TestResetSessionRequiresWindow(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// The assertion only holds when no interactive Claude window is running. On
+	// a developer machine with one open, ResetSession would legitimately find it
+	// and not error, so skip rather than fail on ambient host state.
+	if procs, err := interactiveClaudeProcesses(ctx); err == nil && len(procs) > 0 {
+		t.Skip("interactive Claude Code window running; ResetSession would target it")
+	}
 	if _, err := r.ResetSession(ctx, "/no/such/dir"); err == nil {
 		t.Fatal("ResetSession should fail when no Claude Code window is running")
 	}

@@ -1,6 +1,7 @@
 package components
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -56,9 +57,21 @@ func TestStreamingFrameCostIndependentOfHistory(t *testing.T) {
 		return time.Since(start) / frames
 	}
 
-	small := measure(5)
-	large := measure(200)
-	t.Logf("per-frame: small-history=%s large-history=%s", small, large)
+	// Single samples are noisy on loaded CI runners; take the median of several
+	// so a one-off scheduling stall can't flip the guard either way.
+	median := func(history int) time.Duration {
+		const samples = 7
+		ds := make([]time.Duration, samples)
+		for i := range ds {
+			ds[i] = measure(history)
+		}
+		sort.Slice(ds, func(i, j int) bool { return ds[i] < ds[j] })
+		return ds[samples/2]
+	}
+
+	small := median(5)
+	large := median(200)
+	t.Logf("per-frame median: small-history=%s large-history=%s", small, large)
 
 	// A 40x larger history should not blow up per-frame cost. Allow generous
 	// slack for noise but catch full-history re-highlighting (which would make
