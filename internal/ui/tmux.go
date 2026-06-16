@@ -28,16 +28,20 @@ func EnableTmuxExtendedKeys() *TmuxKeys {
 	if os.Getenv("TMUX") == "" {
 		return keys
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	current := tmuxShowExtendedKeys(ctx)
+	showCtx, showCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	current := tmuxShowExtendedKeys(showCtx)
+	showCancel()
 	keys.previous = current
 	// "on" forwards extended keys to apps that request them; "always" forwards
 	// unconditionally. Either already satisfies us, so only act on "off"/unset.
 	if current == "on" || current == "always" {
 		return keys
 	}
-	if err := exec.CommandContext(ctx, "tmux", "set", "-s", "extended-keys", "on").Run(); err != nil {
+	// Give the set command its own fresh deadline so a slow show above doesn't
+	// leave it with a near-expired context.
+	setCtx, setCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer setCancel()
+	if err := exec.CommandContext(setCtx, "tmux", "set", "-s", "extended-keys", "on").Run(); err != nil {
 		return keys
 	}
 	keys.active = true
