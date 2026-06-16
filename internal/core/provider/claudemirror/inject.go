@@ -3,9 +3,11 @@ package claudemirror
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -67,13 +69,19 @@ func hasAncestor(pid, ancestor int, parents map[int]int) bool {
 	return false
 }
 
+// injectSeq makes each tmux buffer name unique so concurrent injections
+// (runMirroredTurn, ResetSession, ReplyQuestion) don't clobber one another's
+// buffer between set-buffer and paste-buffer.
+var injectSeq atomic.Uint64
+
 // tmuxInject pastes the prompt into a pane (bracketed paste keeps newlines
 // from submitting early) and then presses Enter.
 func tmuxInject(ctx context.Context, pane, text string) error {
-	if out, err := exec.CommandContext(ctx, "tmux", "set-buffer", "-b", "plums-mirror", "--", text).CombinedOutput(); err != nil {
+	buffer := fmt.Sprintf("plums-mirror-%d-%d", os.Getpid(), injectSeq.Add(1))
+	if out, err := exec.CommandContext(ctx, "tmux", "set-buffer", "-b", buffer, "--", text).CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux set-buffer: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	if out, err := exec.CommandContext(ctx, "tmux", "paste-buffer", "-p", "-d", "-b", "plums-mirror", "-t", pane).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(ctx, "tmux", "paste-buffer", "-p", "-d", "-b", buffer, "-t", pane).CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux paste-buffer: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	// Wait until the pane actually shows the pasted prompt before pressing

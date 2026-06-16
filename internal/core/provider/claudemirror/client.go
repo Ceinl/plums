@@ -642,6 +642,10 @@ func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, 
 				} else {
 					debuglog.Printf("claude-mirror: pid %d waiting (%s) without bypass; leaving it for the real window", pid, st.WaitingFor)
 					emit(ctx, out, adapter.StreamEvent{Text: "\n[claude-mirror] the Claude Code window is waiting for your input (a question or a permission prompt) — handle it there; the reply will mirror back here\n"})
+					// A detected wait is first-turn activity: the prompt reached the
+					// window. Mark it so a slow human reply doesn't trip the
+					// "no transcript activity" deadline below.
+					sawActivity = true
 					lastActivity = time.Now()
 				}
 			}
