@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -151,8 +150,8 @@ func listTranscripts(dir string) ([]transcriptFile, error) {
 			modified:  info.ModTime(),
 			born:      info.ModTime(),
 		}
-		if st, ok := info.Sys().(*syscall.Stat_t); ok {
-			file.born = time.Unix(st.Birthtimespec.Sec, st.Birthtimespec.Nsec)
+		if born, ok := birthTime(info); ok {
+			file.born = born
 		}
 		files = append(files, file)
 	}

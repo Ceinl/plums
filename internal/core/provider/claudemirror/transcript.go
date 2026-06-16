@@ -22,7 +22,7 @@ type transcriptEntry struct {
 	IsMeta         bool   `json:"isMeta"`
 	IsSidechain    bool   `json:"isSidechain"`
 	PermissionMode string `json:"permissionMode"` // on type:"permission-mode" entries
-	Message     struct {
+	Message        struct {
 		Role       string          `json:"role"`
 		Model      string          `json:"model"`
 		Content    json.RawMessage `json:"content"`
