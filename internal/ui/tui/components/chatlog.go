@@ -130,7 +130,7 @@ func (cl *ChatLog) SetMessages(msgs []ChatMessage) {
 		return
 	}
 	cl.messages = msgs
-	cl.invalidateLines()
+	cl.invalidateMessageLines()
 	cl.ClearSelection()
 	cl.isDirty = true
 }
@@ -140,7 +140,6 @@ func (cl *ChatLog) SetAiOutput(s string) {
 		return
 	}
 	cl.aioutput = s
-	cl.invalidateLines()
 	cl.ClearSelection()
 	cl.isDirty = true
 }
@@ -150,7 +149,6 @@ func (cl *ChatLog) SetStreaming(v bool) {
 		return
 	}
 	cl.isStreaming = v
-	cl.invalidateLines()
 	cl.ClearSelection()
 	cl.isDirty = true
 }
@@ -160,7 +158,7 @@ func (cl *ChatLog) SetThinkingVisibility(v ThinkingVisibility) {
 		return
 	}
 	cl.thinkingMode = v
-	cl.invalidateLines()
+	cl.invalidateMessageLines()
 	cl.ClearSelection()
 	cl.isDirty = true
 }
@@ -217,7 +215,7 @@ func (cl *ChatLog) SetStyle(s layout.Style) { cl.style = s }
 
 func (cl *ChatLog) Layout(x, y, w, h int) {
 	if cl.w != w {
-		cl.invalidateLines()
+		cl.invalidateMessageLines()
 	}
 	cl.x, cl.y, cl.w, cl.h = x, y, w, h
 }
@@ -363,18 +361,31 @@ func (cl *ChatLog) MaxScrollOffset() int {
 	return maxOffset
 }
 
-func (cl *ChatLog) invalidateLines() {
-	cl.linesCached = false
-	cl.cachedLines = nil
+func (cl *ChatLog) invalidateMessageLines() {
+	cl.msgLinesCached = false
+	cl.cachedMsgLines = nil
+}
+
+// messageLines returns the rendered lines for committed messages, rebuilding
+// (and re-highlighting) only when the messages or width change.
+func (cl *ChatLog) messageLines(width int) []renderLine {
+	if cl.msgLinesCached && cl.msgCachedWidth == width {
+		return cl.cachedMsgLines
+	}
+	cl.cachedMsgLines = cl.buildMessageLines()
+	cl.msgCachedWidth = width
+	cl.msgLinesCached = true
+	return cl.cachedMsgLines
 }
 
 func (cl *ChatLog) lines() []renderLine {
-	width := cl.contentWidth()
-	if cl.linesCached && cl.cachedWidth == width {
-		return cl.cachedLines
+	msg := cl.messageLines(cl.contentWidth())
+	stream := cl.buildStreamingLines()
+	if len(stream) == 0 {
+		return msg
 	}
-	cl.cachedLines = cl.buildLines()
-	cl.cachedWidth = width
-	cl.linesCached = true
-	return cl.cachedLines
+	out := make([]renderLine, 0, len(msg)+len(stream))
+	out = append(out, msg...)
+	out = append(out, stream...)
+	return out
 }

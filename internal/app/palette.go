@@ -9,6 +9,13 @@ import (
 	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
+// sessionResetter is implemented by backends whose "new session" cannot create
+// anything (e.g. claude-mirror, which attaches to a running window) and instead
+// starts a fresh conversation in place.
+type sessionResetter interface {
+	ResetSession(ctx context.Context, directory string) (*adapter.Session, error)
+}
+
 func listSessionItems(ctx context.Context, state *State, client adapter.Backend, cfg RunConfig) ([]SessionListItem, error) {
 	listCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
 	defer cancel()
@@ -52,7 +59,13 @@ func handlePaletteAction(ctx context.Context, state *State, client adapter.Backe
 				return
 			}
 		}
-		session, err := client.CreateSession(ctx, wd)
+		// A backend that can't literally create a session (claude-mirror attaches
+		// to a live window) defines "new session" via ResetSession instead.
+		newSession := client.CreateSession
+		if resetter, ok := client.(sessionResetter); ok {
+			newSession = resetter.ResetSession
+		}
+		session, err := newSession(ctx, wd)
 		if err != nil {
 			state.AddMessage("system", fmt.Sprintf("failed to create session: %v", err))
 			return

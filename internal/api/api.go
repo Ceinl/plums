@@ -11,6 +11,7 @@ import (
 	"github.com/Ceinl/plums/internal/core"
 	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/core/provider/claudecode"
+	"github.com/Ceinl/plums/internal/core/provider/claudemirror"
 	"github.com/Ceinl/plums/internal/core/provider/codex"
 	"github.com/Ceinl/plums/internal/core/provider/opencode"
 	"github.com/Ceinl/plums/internal/debuglog"
@@ -53,7 +54,7 @@ func DefaultConfig() *Config {
 // RegisterFlags binds CLI flags to the supplied Config.
 func RegisterFlags(cfg *Config) {
 	flag.StringVar(&cfg.OpencodeServerURL, "server-url", cfg.OpencodeServerURL, "opencode server URL")
-	flag.StringVar(&cfg.BackendProvider, "provider", cfg.BackendProvider, "backend provider: opencode, codex, or claude")
+	flag.StringVar(&cfg.BackendProvider, "provider", cfg.BackendProvider, "backend provider: opencode, codex, claude, or claude-mirror")
 	flag.BoolVar(&cfg.UseGlobalConfig, "config-global", cfg.UseGlobalConfig, "use global plums layout config")
 	flag.BoolVar(&cfg.UseGlobalConfig, "cg", cfg.UseGlobalConfig, "use global plums layout config")
 	flag.BoolVar(&cfg.UseLocalConfig, "config-local", false, "use local plums layout config")
@@ -125,6 +126,11 @@ func Run(cfg *Config) error {
 	}
 	defer t.Exit()
 
+	// Inside tmux, Shift+Enter only reaches the app when extended-keys is on;
+	// enable it for this run so split-layout submit works, then restore it.
+	tmuxKeys := ui.EnableTmuxExtendedKeys()
+	defer tmuxKeys.Restore()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -158,6 +164,7 @@ func Run(cfg *Config) error {
 	opencodeBackend := opencode.NewBackend(serverURL)
 	codexBackend := codex.NewBackend()
 	claudeBackend := claudecode.NewBackend()
+	mirrorBackend := claudemirror.NewBackend()
 
 	registry := core.NewAgentRegistry()
 	defs := adapter.NewDefaultConfig()
@@ -189,6 +196,7 @@ func Run(cfg *Config) error {
 			{ID: "opencode", Name: "Opencode", Backend: opencodeBackend, Startup: opencodeStartup(wd, runCfg.HealthTimeout)},
 			{ID: "codex", Name: "Codex", Backend: codexBackend, Startup: codexStartup(wd, codexBackend)},
 			{ID: "claude", Name: "Claude Code", Backend: claudeBackend, Startup: claudeStartup()},
+			{ID: "claude-mirror", Name: "Claude Mirror", Backend: mirrorBackend, Startup: claudeStartup()},
 		},
 	}
 

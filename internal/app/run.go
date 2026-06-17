@@ -171,6 +171,9 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 	var pendingQuestion *adapter.QuestionRequest
 	var serverProc ServerProcess
 	emittedTools := make(map[string]bool)
+	// pendingStreamRender marks streamed output that has been appended but not yet
+	// drawn; the spinner tick flushes it so render rate is decoupled from token rate.
+	var pendingStreamRender bool
 	var escStopper doubleEscapeStopper
 
 	type savedConfigValues struct {
@@ -345,11 +348,19 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 					pendingQuestion = event.Question
 					state.SetStreaming(false)
 					state.SetQuestionItems(questionTitle(event.Question), questionOptionItems(event.Question))
+					// Streaming just stopped, so the spinner tick won't redraw;
+					// render the question prompt now.
+					Render(state, deps.RenderConfig)
 				} else if text := displayTextForStreamEvent(event, emittedTools); text != "" {
+					// Don't render per token: high-rate streams (opencode emits a
+					// delta per token) would re-render faster than a frame can be
+					// built, stalling the loop. The spinner tick coalesces these
+					// into ~12 fps while streaming.
 					state.AppendAiOutput(text)
+					pendingStreamRender = true
 				}
-				Render(state, deps.RenderConfig)
 			} else {
+				pendingStreamRender = false
 				state.FinalizeAiOutput()
 				refreshSessionModel(ctx, state, backend, cfg)
 				aiStream = nil
@@ -358,7 +369,8 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 				Render(state, deps.RenderConfig)
 			}
 		case <-spinTicker.C:
-			if state.IsStreaming() || state.ServerStarting {
+			if state.IsStreaming() || state.ServerStarting || pendingStreamRender {
+				pendingStreamRender = false
 				Render(state, deps.RenderConfig)
 			}
 		case result := <-startupCh:

@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -342,6 +344,173 @@ func TestSendMessageEventsCompletesOnAssistantMessageFinish(t *testing.T) {
 
 	if got.String() != "done" {
 		t.Fatalf("unexpected stream text %q", got.String())
+	}
+}
+
+func TestSendMessageEventsAutoGrantsPermission(t *testing.T) {
+	promptSeen := make(chan struct{})
+	granted := make(chan struct{})
+	var grantOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/event":
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				t.Fatalf("expected flusher")
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher.Flush()
+
+			select {
+			case <-promptSeen:
+			case <-r.Context().Done():
+				return
+			}
+
+			writeSSE(t, w, "permission.asked", permissionAskedProperties{ID: "per1", SessionID: "s1"})
+			flusher.Flush()
+
+			// Hold the turn open until the grant arrives so the reply is sent
+			// before the stream closes, then finish.
+			select {
+			case <-granted:
+			case <-r.Context().Done():
+				return
+			}
+			writeSSE(t, w, "session.idle", sessionIdleProperties{SessionID: "s1"})
+			flusher.Flush()
+
+		case "/session/s1/prompt_async":
+			close(promptSeen)
+			w.WriteHeader(http.StatusNoContent)
+
+		case "/permission/per1/reply":
+			body, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(body), `"reply":"once"`) {
+				t.Errorf("unexpected permission reply body %q", body)
+			}
+			grantOnce.Do(func() { close(granted) })
+			w.WriteHeader(http.StatusOK)
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	stream := client.SendMessageEvents(context.Background(), "s1", "hello", "", "", "")
+	for range stream { //nolint:revive // drain to completion
+	}
+
+	select {
+	case <-granted:
+	default:
+		t.Fatal("expected a permission grant POST to /permission/per1/reply")
+	}
+}
+
+// TestSendMessageEventsAutoGrantsV2Permission covers the permission.v2.asked
+// event shape, which carries the same properties and must be auto-granted too.
+func TestSendMessageEventsAutoGrantsV2Permission(t *testing.T) {
+	promptSeen := make(chan struct{})
+	granted := make(chan struct{})
+	var grantOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/event":
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				t.Fatalf("expected flusher")
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			flusher.Flush()
+
+			select {
+			case <-promptSeen:
+			case <-r.Context().Done():
+				return
+			}
+
+			writeSSE(t, w, "permission.v2.asked", permissionAskedProperties{ID: "per1", SessionID: "s1"})
+			flusher.Flush()
+
+			select {
+			case <-granted:
+			case <-r.Context().Done():
+				return
+			}
+			writeSSE(t, w, "session.idle", sessionIdleProperties{SessionID: "s1"})
+			flusher.Flush()
+
+		case "/session/s1/prompt_async":
+			close(promptSeen)
+			w.WriteHeader(http.StatusNoContent)
+
+		case "/permission/per1/reply":
+			grantOnce.Do(func() { close(granted) })
+			w.WriteHeader(http.StatusOK)
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	stream := client.SendMessageEvents(context.Background(), "s1", "hello", "", "", "")
+	for range stream { //nolint:revive // drain to completion
+	}
+
+	select {
+	case <-granted:
+	default:
+		t.Fatal("expected a permission grant POST for permission.v2.asked")
+	}
+}
+
+// TestGrantPermissionFallsBackToSessionEndpoint verifies that when the primary
+// /permission/{id}/reply endpoint rejects the reply, grantPermission falls back
+// to the legacy session-scoped permissions endpoint.
+func TestGrantPermissionFallsBackToSessionEndpoint(t *testing.T) {
+	primaryHit := make(chan struct{}, 1)
+	fallback := make(chan struct{})
+	var fallbackOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/permission/per1/reply":
+			select {
+			case primaryHit <- struct{}{}:
+			default:
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/session/s1/permissions/per1":
+			body, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(body), `"response":"once"`) {
+				t.Errorf("unexpected fallback reply body %q", body)
+			}
+			fallbackOnce.Do(func() { close(fallback) })
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	client.grantPermission(context.Background(), "s1", "per1")
+
+	select {
+	case <-primaryHit:
+	default:
+		t.Fatal("expected the primary /permission/per1/reply endpoint to be tried first")
+	}
+	select {
+	case <-fallback:
+	default:
+		t.Fatal("expected fallback to the session-scoped permissions endpoint")
 	}
 }
 

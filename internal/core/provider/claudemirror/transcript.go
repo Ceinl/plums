@@ -1,0 +1,280 @@
+package claudemirror
+
+import (
+	"bufio"
+	"encoding/json"
+	"os"
+	"strings"
+
+	"github.com/Ceinl/plums/internal/core/adapter"
+)
+
+const maxTranscriptLine = 16 * 1024 * 1024
+
+// transcriptEntry is one JSONL line of a Claude Code session transcript
+// (~/.claude/projects/<encoded-cwd>/<session-id>.jsonl).
+type transcriptEntry struct {
+	Type           string `json:"type"`
+	UUID           string `json:"uuid"`
+	SessionID      string `json:"sessionId"`
+	Cwd            string `json:"cwd"`
+	Timestamp      string `json:"timestamp"`
+	IsMeta         bool   `json:"isMeta"`
+	IsSidechain    bool   `json:"isSidechain"`
+	PermissionMode string `json:"permissionMode"` // on type:"permission-mode" entries
+	Message        struct {
+		Role       string          `json:"role"`
+		Model      string          `json:"model"`
+		Content    json.RawMessage `json:"content"`
+		StopReason string          `json:"stop_reason"`
+	} `json:"message"`
+}
+
+type contentBlock struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text"`
+	Thinking  string          `json:"thinking"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Input     json.RawMessage `json:"input"`
+	ToolUseID string          `json:"tool_use_id"`
+	Content   json.RawMessage `json:"content"`
+	IsError   bool            `json:"is_error"`
+}
+
+// contentBlocks decodes a message content field, which is either a plain
+// string (typed user prompts) or a list of content blocks.
+func contentBlocks(raw json.RawMessage) []contentBlock {
+	if len(raw) == 0 {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return []contentBlock{{Type: "text", Text: s}}
+	}
+	var blocks []contentBlock
+	if err := json.Unmarshal(raw, &blocks); err == nil {
+		return blocks
+	}
+	return nil
+}
+
+// isHarnessText reports whether a user text is harness-injected scaffolding
+// (slash-command markers, caveats) rather than something the user typed.
+func isHarnessText(text string) bool {
+	t := strings.TrimSpace(text)
+	return strings.HasPrefix(t, "<command-name>") ||
+		strings.HasPrefix(t, "<local-command-") ||
+		strings.HasPrefix(t, "<system-reminder>")
+}
+
+// entryParts converts a transcript entry into displayable message parts.
+func entryParts(entry transcriptEntry) []adapter.Part {
+	var parts []adapter.Part
+	for _, block := range contentBlocks(entry.Message.Content) {
+		switch block.Type {
+		case "text":
+			if block.Text != "" && !(entry.Message.Role == "user" && isHarnessText(block.Text)) {
+				parts = append(parts, adapter.Part{Type: "text", Text: block.Text})
+			}
+		case "thinking":
+			if block.Thinking != "" {
+				parts = append(parts, adapter.Part{Type: "thinking", Text: block.Thinking})
+			}
+		case "tool_use":
+			parts = append(parts, adapter.Part{Type: "tool", Tool: &adapter.ToolEvent{
+				ID:    block.ID,
+				Name:  block.Name,
+				Input: string(block.Input),
+			}})
+		case "tool_result":
+			tool := &adapter.ToolEvent{ID: block.ToolUseID}
+			output := toolResultText(block.Content)
+			if block.IsError {
+				tool.Error = output
+			} else {
+				tool.Output = output
+			}
+			parts = append(parts, adapter.Part{Type: "tool", Tool: tool})
+		}
+	}
+	return parts
+}
+
+// toolResultText extracts readable text from a tool_result content field,
+// which may be a plain string or a list of content blocks.
+func toolResultText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var texts []string
+	for _, b := range contentBlocks(raw) {
+		if b.Type == "text" && b.Text != "" {
+			texts = append(texts, b.Text)
+		}
+	}
+	return strings.Join(texts, "\n")
+}
+
+// readTranscript parses every entry in a transcript file.
+func readTranscript(path string) ([]transcriptEntry, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var entries []transcriptEntry
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), maxTranscriptLine)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var entry transcriptEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries, scanner.Err()
+}
+
+// conversationEntry reports whether an entry is part of the main
+// conversation (not meta, not a subagent sidechain).
+func conversationEntry(entry transcriptEntry) bool {
+	if entry.IsMeta || entry.IsSidechain {
+		return false
+	}
+	return entry.Type == "user" || entry.Type == "assistant"
+}
+
+// hasPendingQuestion reports whether the transcript ends with an
+// AskUserQuestion the user has not yet answered in the real window. Injecting
+// keystrokes while its dialog is open would answer it accidentally.
+func hasPendingQuestion(entries []transcriptEntry) bool {
+	return pendingQuestionID(entries) != ""
+}
+
+func pendingQuestionID(entries []transcriptEntry) string {
+	pendingID := ""
+	for _, entry := range entries {
+		if !conversationEntry(entry) {
+			continue
+		}
+		for _, block := range contentBlocks(entry.Message.Content) {
+			switch block.Type {
+			case "tool_use":
+				if block.Name == "AskUserQuestion" {
+					pendingID = block.ID
+				}
+			case "tool_result":
+				if block.ToolUseID == pendingID {
+					pendingID = ""
+				}
+			case "text":
+				// A later typed prompt means the question was dismissed.
+				if entry.Message.Role == "user" && !isHarnessText(block.Text) {
+					pendingID = ""
+				}
+			}
+		}
+	}
+	return pendingID
+}
+
+func parseQuestionRequest(sessionID, toolUseID, input string) *adapter.QuestionRequest {
+	if sessionID == "" || toolUseID == "" {
+		return nil
+	}
+	payload := parseQuestionPayload(input)
+	if payload == nil {
+		return nil
+	}
+	payload.ID = questionRequestID(sessionID, toolUseID)
+	payload.SessionID = sessionID
+	return payload
+}
+
+func parseQuestionPayload(input string) *adapter.QuestionRequest {
+	var payload adapter.QuestionRequest
+	if json.Unmarshal([]byte(input), &payload) != nil || len(payload.Questions) == 0 {
+		return nil
+	}
+	return &payload
+}
+
+func questionRequestID(sessionID, toolUseID string) string {
+	return sessionID + ":" + toolUseID
+}
+
+func splitQuestionRequestID(id string) (sessionID, toolUseID string, ok bool) {
+	i := strings.LastIndexByte(id, ':')
+	if i <= 0 || i == len(id)-1 {
+		return "", "", false
+	}
+	return id[:i], id[i+1:], true
+}
+
+// formatQuestions renders an AskUserQuestion tool input as readable text.
+func formatQuestions(input string) string {
+	req := parseQuestionPayload(input)
+	if req == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nClaude is asking in the real window:\n")
+	for _, q := range req.Questions {
+		b.WriteString("• " + q.Question + "\n")
+		for _, o := range q.Options {
+			b.WriteString("    - " + o.Label + "\n")
+		}
+	}
+	b.WriteString("Answer in the Claude Code window to continue.\n")
+	return b.String()
+}
+
+// transcriptPermissionMode returns the most recent permission mode recorded in
+// the transcript (e.g. "bypassPermissions", "default"), or "" if none is found.
+// Claude Code writes a permission-mode entry at turn boundaries and whenever the
+// mode is cycled, so the last one reflects the window's current mode.
+func transcriptPermissionMode(entries []transcriptEntry) string {
+	mode := ""
+	for _, entry := range entries {
+		if entry.Type == "permission-mode" && entry.PermissionMode != "" {
+			mode = entry.PermissionMode
+		}
+	}
+	return mode
+}
+
+// transcriptModel returns the model id from the most recent assistant entry,
+// so the status line shows what the live window is actually running (e.g.
+// claude-fable-5) rather than the "live" placeholder. Empty if none is found.
+func transcriptModel(entries []transcriptEntry) string {
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].Type == "assistant" && entries[i].Message.Model != "" {
+			return entries[i].Message.Model
+		}
+	}
+	return ""
+}
+
+// transcriptTitle derives a session title from the first typed user message.
+func transcriptTitle(entries []transcriptEntry, fallback string) string {
+	for _, entry := range entries {
+		if !conversationEntry(entry) || entry.Message.Role != "user" {
+			continue
+		}
+		for _, part := range entryParts(entry) {
+			if part.Type == "text" && part.Text != "" {
+				return adapter.TitleFromMessage(part.Text, fallback)
+			}
+		}
+	}
+	return fallback
+}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Ceinl/plums/internal/core/adapter"
+	"github.com/Ceinl/plums/internal/debuglog"
 )
 
 // Client communicates with a running `opencode serve` process.
@@ -203,6 +204,10 @@ func (c *Client) ListProviders(ctx context.Context) ([]adapter.Provider, []strin
 	return all, providers.Connected, nil
 }
 
+// streamBufferSize is the slack between the SSE reader and the UI consumer.
+// Generous enough to ride out short consumer stalls without unbounded memory.
+const streamBufferSize = 256
+
 // SendMessage streams the assistant's reply token-by-token via the returned
 // channel. It first tries the SSE-based approach (prompt_async + /event); if
 // that fails (404 or connection error) it falls back to the synchronous
@@ -211,7 +216,7 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 	out := make(chan string)
 	go func() {
 		defer close(out)
-		events := make(chan adapter.StreamEvent)
+		events := make(chan adapter.StreamEvent, streamBufferSize)
 		go func() {
 			defer close(events)
 			result, err := c.sendWithSSE(ctx, sessionID, text, providerID, modelID, agent, events)
@@ -245,7 +250,11 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 }
 
 func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, providerID, modelID, agent string) <-chan adapter.StreamEvent {
-	out := make(chan adapter.StreamEvent)
+	// Buffered so a brief stall in the UI consumer (e.g. a synchronous question
+	// reply or post-stream model refresh) does not block the SSE reader. If the
+	// reader blocks, opencode's /event buffer fills and the agent's tool calls
+	// stall — the symptom that looks like "tool calls aborting".
+	out := make(chan adapter.StreamEvent, streamBufferSize)
 	go func() {
 		defer close(out)
 		result, err := c.sendWithSSE(ctx, sessionID, text, providerID, modelID, agent, out)
@@ -290,6 +299,34 @@ func (c *Client) ReplyQuestion(ctx context.Context, requestID string, answers []
 		return fmt.Errorf("question reply returned status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// grantPermission approves an opencode tool permission request so the agent can
+// proceed. opencode 1.17 exposes a global reply endpoint; older builds use the
+// session-scoped one, so try the former and fall back to the latter.
+func (c *Client) grantPermission(ctx context.Context, sessionID, permissionID string) {
+	if c.replyPermission(ctx, "/permission/"+url.PathEscape(permissionID)+"/reply", `{"reply":"once"}`) {
+		return
+	}
+	c.replyPermission(ctx, "/session/"+url.PathEscape(sessionID)+"/permissions/"+url.PathEscape(permissionID), `{"response":"once"}`)
+}
+
+// replyPermission POSTs a permission reply and reports whether it was accepted.
+func (c *Client) replyPermission(ctx context.Context, path, body string) bool {
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+path, strings.NewReader(body))
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		if ctx.Err() == nil {
+			debuglog.Printf("opencode: permission reply %s failed: %v", path, err)
+		}
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -494,6 +531,19 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 						return result, ctx.Err()
 					case out <- adapter.StreamEvent{Question: &props}:
 					}
+				}
+
+			case "permission.asked", "permission.v2.asked":
+				// opencode pauses tool execution until the client replies to a
+				// permission request. plums has no interactive approval UI for
+				// these, so without a reply every tool call hangs forever (the
+				// "tool calls aborting" symptom). Auto-grant so the agent can run.
+				var props permissionAskedProperties
+				if err := json.Unmarshal(env.Properties, &props); err != nil {
+					continue
+				}
+				if props.SessionID == sessionID && props.ID != "" {
+					go c.grantPermission(ctx, sessionID, props.ID)
 				}
 
 			case "message.updated":
@@ -705,6 +755,13 @@ type sessionStatusProperties struct {
 }
 
 type questionAskedProperties = adapter.QuestionRequest
+
+// permissionAskedProperties is the shared subset of "permission.asked" and
+// "permission.v2.asked" event payloads that plums needs to send a reply.
+type permissionAskedProperties struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionID"`
+}
 
 type messageUpdatedProperties struct {
 	SessionID string `json:"sessionID"`
