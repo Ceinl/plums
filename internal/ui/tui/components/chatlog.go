@@ -97,17 +97,17 @@ const (
 // ── ChatLog component ─────────────────────────────────────────────────────────
 
 type ChatLog struct {
-	isDirty      bool
-	messages     []ChatMessage
-	aioutput     string
-	isStreaming  bool
-	scrollOffset int
-	onMaxScroll  func(int)
-	linesCached  bool
-	cachedWidth  int
-	cachedLines  []renderLine
-	thinkingMode ThinkingVisibility
-	toolCallMode ToolCallVisibility
+	isDirty        bool
+	messages       []ChatMessage
+	aioutput       string
+	isStreaming    bool
+	scrollOffset   int
+	onMaxScroll    func(int)
+	msgLinesCached bool
+	msgCachedWidth int
+	cachedMsgLines []renderLine
+	thinkingMode   ThinkingVisibility
+	toolCallMode   ToolCallVisibility
 
 	style  layout.Style
 	parent layout.Component
@@ -168,7 +168,7 @@ func (cl *ChatLog) SetToolCallVisibility(v ToolCallVisibility) {
 		return
 	}
 	cl.toolCallMode = v
-	cl.invalidateLines()
+	cl.invalidateMessageLines()
 	cl.ClearSelection()
 	cl.isDirty = true
 }
