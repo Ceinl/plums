@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/Ceinl/plums/internal/app/defaults"
 )
 
 type CommandConfig struct {
@@ -49,58 +51,14 @@ type AdjustmentSpec struct {
 	Step int `json:"step"`
 }
 
-const defaultCommandsJSON = `{
-  "version": 1,
-  "slash_commands": [
-    { "name": "/new", "detail": "Create a fresh opencode session", "action": "new_session" },
-    { "name": "/command", "detail": "Open the command palette", "action": "open_palette" },
-    { "name": "/backend", "detail": "Switch backend provider", "action": "backend_list" },
-    { "name": "/skills", "detail": "Load an opencode skill", "action": "skills_list" },
-    { "name": "/sessions", "detail": "Open existing opencode sessions", "action": "sessions_list" }
-  ],
-  "palette": {
-    "title": "Command Palette",
-    "empty_sessions_title": "No sessions",
-    "empty_sessions_detail": "No opencode sessions found",
-    "items": [
-      { "title": "Change model", "detail": "Select model for future prompts", "action": "change_model" },
-      { "title": "Backend provider", "detail": "Current backend: {backend_provider}", "action": "backend_list" },
-      { "title": "Start new session", "detail": "Create a fresh opencode session", "action": "new_session" },
-      {
-        "title": "Switch mode",
-        "detail": "Current mode: {mode}",
-        "action": "switch_mode",
-        "title_when": { "mode=plan": "Switch to build mode", "mode=build": "Switch to plan mode" }
-      },
-      { "title": "Layouts", "detail": "Select layout - current: {layout}", "action": "switch_layout" },
-      { "title": "Chat layout", "detail": "Switch to chat layout", "action": "chat_layout" },
-      { "title": "Thinking visibility", "detail": "Current: {thinking_visibility} (cycles full/title/hidden)", "action": "cycle_thinking_visibility" },
-      { "title": "Tool call visibility", "detail": "Current: {toolcall_visibility} (cycles full/collapse/hidden)", "action": "cycle_toolcall_visibility" },
-      { "title": "Output percentage", "detail": "Left/Right adjust - current: {output_percent}%", "action": "adjust_output_percentage" },
-      { "title": "Skills list", "detail": "Load an opencode skill for the next prompt", "action": "skills_list" },
-      { "title": "Sessions list", "detail": "Open existing opencode sessions", "action": "sessions_list" }
-    ]
-  },
-  "actions": {
-    "change_model": { "kind": "builtin" },
-    "backend_list": { "kind": "builtin" },
-    "new_session": { "kind": "builtin" },
-    "open_palette": { "kind": "builtin" },
-    "switch_mode": { "kind": "builtin" },
-    "switch_layout": { "kind": "builtin" },
-    "chat_layout": { "kind": "builtin" },
-    "cycle_thinking_visibility": { "kind": "builtin" },
-    "cycle_toolcall_visibility": { "kind": "builtin" },
-    "adjust_output_percentage": { "kind": "builtin", "adjustment": { "min": 25, "max": 75, "step": 5 } },
-    "skills_list": { "kind": "builtin" },
-    "sessions_list": { "kind": "builtin" }
-  }
-}`
-
 func LoadCommandConfig(path string) (*CommandConfig, error) {
-	data := []byte(defaultCommandsJSON)
+	// Single source of truth: the embedded defaults/commands.json, the same
+	// bytes seeded to disk — no hand-maintained second copy to drift.
+	data, err := defaults.Read("commands.json")
+	if err != nil {
+		return nil, err
+	}
 	if path != "" {
-		var err error
 		data, err = os.ReadFile(path)
 		if err != nil {
 			return nil, err
@@ -184,8 +142,6 @@ func builtinAction(name string) PaletteAction {
 		return PaletteActionSwitchMode
 	case "switch_layout":
 		return PaletteActionLayoutsList
-	case "chat_layout":
-		return PaletteActionChatLayout
 	case "cycle_thinking_visibility":
 		return PaletteActionCycleThinkingVisibility
 	case "cycle_toolcall_visibility":

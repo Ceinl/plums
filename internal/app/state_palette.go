@@ -26,7 +26,6 @@ const (
 	PaletteActionSelectBackend
 	PaletteActionLayoutsList
 	PaletteActionSelectLayout
-	PaletteActionChatLayout
 )
 
 type PaletteView int

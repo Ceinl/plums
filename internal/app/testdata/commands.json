@@ -57,11 +57,6 @@
         "action": "switch_layout"
       },
       {
-        "title": "Chat layout",
-        "detail": "Switch to chat layout",
-        "action": "chat_layout"
-      },
-      {
         "title": "Thinking visibility",
         "detail": "Current: {thinking_visibility} (cycles full/title/hidden)",
         "action": "cycle_thinking_visibility"
@@ -97,9 +92,6 @@
       "kind": "builtin"
     },
     "switch_layout": {
-      "kind": "builtin"
-    },
-    "chat_layout": {
       "kind": "builtin"
     },
     "cycle_thinking_visibility": {

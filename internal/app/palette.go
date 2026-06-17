@@ -87,8 +87,6 @@ func handlePaletteAction(ctx context.Context, state *State, client adapter.Backe
 		state.CycleToolCallVisibility()
 	case PaletteActionLayoutsList:
 		state.SetLayoutItems()
-	case PaletteActionChatLayout:
-		state.SetLayout(LayoutChat)
 	case PaletteActionSelectLayout:
 		layoutType, ok := state.SelectedLayout()
 		if !ok {

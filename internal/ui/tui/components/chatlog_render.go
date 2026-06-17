@@ -244,7 +244,10 @@ func toolDisplayName(name string) string {
 func (cl *ChatLog) roleStyle(role string) (bodyFg, bodyBg string) {
 	switch role {
 	case "user":
-		return fgContent, bgUserMessage
+		// Inherit the surrounding background; the amber accent bar (fgUserAccent)
+		// is what distinguishes a user prompt, so it stays legible on any layout
+		// palette instead of imposing a fixed panel colour.
+		return fgContent, ""
 	case "ai":
 		return fgContent, ""
 	case "system":

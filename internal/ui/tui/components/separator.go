@@ -9,12 +9,22 @@ import (
 )
 
 var (
-	sepFgDefault  = theme.TextFaint.Fg()
-	sepFgReady    = theme.StatusReady.Fg()
+	sepFgDefault  string
+	sepFgReady    string
+	sepFgStarting string
+	sepFgThinking string
+	sepBgDefault  string
+)
+
+func init() { registerColorRefresher(refreshSeparatorColors) }
+
+func refreshSeparatorColors() {
+	sepFgDefault = theme.TextFaint.Fg()
+	sepFgReady = theme.StatusReady.Fg()
 	sepFgStarting = theme.StatusStarting.Fg()
 	sepFgThinking = theme.StatusThinking.Fg()
-	sepBgDefault  = theme.BgHighlight.Bg()
-)
+	sepBgDefault = theme.BgHighlight.Bg()
+}
 
 var separatorSpinnerFrames = []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
 

@@ -9,19 +9,28 @@ import (
 )
 
 var (
-	diffFgFile   = decorBold + theme.DiffFile.Fg()
-	diffFgHunk   = theme.DiffHunk.Fg()
-	diffFgAdd    = theme.DiffAddFg.Fg()
+	diffFgFile, diffFgHunk, diffFgAdd, diffFgRemove string
+	diffBgAdd, diffBgRemove                         string
+	diffFgDefault, diffFgMeta                       string
+	diffSelFg, diffSelBg                            string
+)
+
+func init() { registerColorRefresher(refreshDiffLogColors) }
+
+func refreshDiffLogColors() {
+	diffFgFile = decorBold + theme.DiffFile.Fg()
+	diffFgHunk = theme.DiffHunk.Fg()
+	diffFgAdd = theme.DiffAddFg.Fg()
 	diffFgRemove = theme.DiffRemoveFg.Fg()
-	diffBgAdd    = theme.DiffAddBg.Bg()
+	diffBgAdd = theme.DiffAddBg.Bg()
 	diffBgRemove = theme.DiffRemoveBg.Bg()
 
 	diffFgDefault = theme.TextSoft.Fg()
-	diffFgMeta    = theme.TextFaint.Fg()
+	diffFgMeta = theme.TextFaint.Fg()
 
 	diffSelFg = theme.SelectionFg.Fg()
 	diffSelBg = theme.SelectionBg.Bg()
-)
+}
 
 type DiffLog struct {
 	isDirty      bool

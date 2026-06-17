@@ -7,10 +7,18 @@ import (
 )
 
 var (
-	infoTabsBg       = theme.BgBase.Bg()
-	infoTabsInactive = theme.TextFaint.Fg()
-	infoTabsActive   = theme.TextBright.Fg()
+	infoTabsBg       string
+	infoTabsInactive string
+	infoTabsActive   string
 )
+
+func init() { registerColorRefresher(refreshInfoTabsColors) }
+
+func refreshInfoTabsColors() {
+	infoTabsBg = theme.BgBase.Bg()
+	infoTabsInactive = theme.TextFaint.Fg()
+	infoTabsActive = theme.TextBright.Fg()
+}
 
 type InfoTab struct {
 	Label  string

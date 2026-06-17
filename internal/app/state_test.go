@@ -101,21 +101,19 @@ func TestDefaultCommandConfigIncludesLayoutCommand(t *testing.T) {
 	}
 }
 
-func TestDefaultCommandConfigIncludesChatLayoutCommand(t *testing.T) {
+func TestDefaultCommandConfigOmitsChatLayoutCommand(t *testing.T) {
 	state := NewState(120, 40)
 	state.OpenPalette()
-	for _, ch := range "chat" {
+	for _, ch := range "chat layout" {
 		state.InsertPaletteRune(ch)
 	}
 
-	items := state.PaletteItems()
-	if len(items) != 1 || items[0].Title != "Chat layout" {
-		t.Fatalf("expected chat layout command, got %#v", items)
-	}
-
-	state.SelectPaletteItem()
-	if got := state.ConsumePendingAction(); got != PaletteActionChatLayout {
-		t.Fatalf("expected chat layout action, got %v", got)
+	// Layout switching lives solely in the Layouts selector now; there is no
+	// standalone "Chat layout" command in the palette.
+	for _, item := range state.PaletteItems() {
+		if item.Title == "Chat layout" {
+			t.Fatalf("did not expect a standalone Chat layout command, got %#v", state.PaletteItems())
+		}
 	}
 }
 

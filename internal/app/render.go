@@ -19,9 +19,15 @@ func Render(state *State, cfg *RenderConfig) {
 	}
 	scr.Clear()
 
+	// Swap in the active layout's palette (global Default unless the layout
+	// overrides it) and refresh component colour caches so every surface —
+	// chat, sessions, popups, status bar — recolours to match.
+	theme.Apply(paletteForLayout(state.EffectiveLayout()))
+	components.RefreshColors()
+
 	root, err := buildLayout(state, cfg, layoutName(state.EffectiveLayout()))
 	if err != nil {
-		root = CreateDefaultLayout(state)
+		root = fallbackLayout(state)
 	}
 
 	root.Layout(0, 0, state.width, state.height)
@@ -47,6 +53,32 @@ func Render(state *State, cfg *RenderConfig) {
 	cx, cy := state.Editor.CursorScreenPos()
 	scr.SetCursor(cx, cy)
 	scr.ShowCursor()
+}
+
+// paletteForLayout maps a layout to its colour palette. Default is the global
+// base; only layouts that want a distinct look override it.
+func paletteForLayout(l LayoutType) theme.Palette {
+	switch l {
+	case LayoutZen:
+		return theme.Zen
+	default:
+		return theme.Default
+	}
+}
+
+// fallbackLayout picks a Go layout builder when the JSON config cannot be
+// built, honouring the current layout type where a dedicated builder exists.
+func fallbackLayout(state *State) *components.Div {
+	switch state.EffectiveLayout() {
+	case LayoutSplit:
+		return CreateSplitLayout(state)
+	case LayoutZen:
+		return CreateZenLayout(state)
+	case LayoutFullscreen:
+		return CreateFullscreenLayout(state)
+	default:
+		return CreateDefaultLayout(state)
+	}
 }
 
 func renderFullscreenTabs(state *State) {
@@ -173,17 +205,13 @@ func truncateRunes(value string, max int) string {
 	return string(runes[:max-1]) + "~"
 }
 
+// layoutName is the config key for a layout — identical to its id, except an
+// empty id maps to the default layout.
 func layoutName(t LayoutType) string {
-	switch t {
-	case LayoutChat:
-		return "chat"
-	case LayoutSplit:
-		return "split"
-	case LayoutFullscreen:
-		return "fullscreen"
-	default:
-		return "chat"
+	if t == "" {
+		return string(LayoutDefault)
 	}
+	return string(t)
 }
 
 func drawOverlayText(x, y, maxW int, text, fg, bg string) {

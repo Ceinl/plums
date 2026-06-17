@@ -191,7 +191,7 @@ func TestChatLogRendersListItemsWithHangingIndent(t *testing.T) {
 	}
 }
 
-func TestChatLogGivesUserMessagesBackgroundAndAiMessagesPlainBackground(t *testing.T) {
+func TestChatLogDistinguishesUserMessagesByAccentNotBackground(t *testing.T) {
 	cl := NewChatLog()
 	cl.Layout(0, 0, 80, 10)
 	cl.SetMessages([]ChatMessage{
@@ -203,8 +203,11 @@ func TestChatLogGivesUserMessagesBackgroundAndAiMessagesPlainBackground(t *testi
 	if len(lines) != 3 {
 		t.Fatalf("expected user line, separator, and ai line, got %d", len(lines))
 	}
-	if lines[0].contentBg != bgUserMessage {
-		t.Fatalf("expected user message background")
+	// User messages inherit the surrounding background (no imposed panel) so the
+	// chat blends into whichever layout palette is active; the accent bar is the
+	// sole distinguisher.
+	if lines[0].contentBg != "" {
+		t.Fatalf("expected user message to inherit background, got %q", lines[0].contentBg)
 	}
 	if lines[0].accentFg != fgUserAccent {
 		t.Fatalf("expected user message accent")

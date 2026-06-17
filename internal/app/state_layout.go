@@ -1,8 +1,14 @@
 package app
 
-import ()
+import "strings"
 
-type LayoutType int
+// LayoutType is the identifier of a layout — the same string used as its key in
+// the render config's "layouts" map. New layouts are added purely in JSON (a
+// layouts entry plus a "menu" entry); no Go constant is required. The named
+// constants below exist only for the built-in layouts that carry special
+// interaction behaviour (split's two-pane submit, fullscreen's tabs); any other
+// layout id is treated as a simple chat-style layout.
+type LayoutType string
 
 type InfoView int
 
@@ -18,9 +24,13 @@ const (
 )
 
 const (
-	LayoutChat LayoutType = iota
-	LayoutSplit
-	LayoutFullscreen
+	LayoutChat       LayoutType = "chat"
+	LayoutSplit      LayoutType = "split"
+	LayoutFullscreen LayoutType = "fullscreen"
+	// LayoutZen is the built-in minimalistic single-column layout in neutral
+	// greys. It needs no special Go behaviour — it's named only so the Go
+	// fallback builder and default cycle can reference it.
+	LayoutZen LayoutType = "zen"
 )
 
 const LayoutDefault = LayoutChat
@@ -38,7 +48,7 @@ const (
 )
 
 func defaultLayoutCycle() []LayoutType {
-	return []LayoutType{LayoutChat, LayoutSplit, LayoutFullscreen}
+	return []LayoutType{LayoutChat, LayoutSplit, LayoutZen, LayoutFullscreen}
 }
 
 func (s *State) SetAvailableLayouts(layouts []LayoutType) {
@@ -212,42 +222,43 @@ func (s *State) visibleLayoutItems() []LayoutType {
 	return items
 }
 
+// layoutLabel is the lower-case display label — just the layout id itself.
 func layoutLabel(layoutType LayoutType) string {
-	switch layoutType {
-	case LayoutChat:
-		return "chat"
-	case LayoutSplit:
-		return "split"
-	case LayoutFullscreen:
-		return "fullscreen"
-	default:
+	if layoutType == "" {
 		return "unknown"
 	}
+	return string(layoutType)
 }
 
-// LayoutTypeFromString parses a layout name into a LayoutType.
+// LayoutTypeFromString parses a layout name into a LayoutType. Any non-empty
+// name is a valid id (validity against the config is enforced where layouts are
+// listed); an empty name falls back to the default.
 func LayoutTypeFromString(name string) LayoutType {
-	switch name {
-	case "chat":
-		return LayoutChat
-	case "split":
-		return LayoutSplit
-	case "fullscreen":
-		return LayoutFullscreen
-	default:
+	if name == "" {
 		return LayoutDefault
 	}
+	return LayoutType(name)
 }
 
+// layoutTitle is the human-facing title: the id with its first letter
+// upper-cased (chat → Chat, zen → Zen).
 func layoutTitle(layoutType LayoutType) string {
-	switch layoutType {
-	case LayoutChat:
-		return "Chat"
-	case LayoutSplit:
-		return "Split"
-	case LayoutFullscreen:
-		return "Fullscreen"
-	default:
+	s := string(layoutType)
+	if s == "" {
 		return "Unknown"
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// LayoutScrollsOutput reports whether vertical scroll keys (PageUp/Down and the
+// mouse wheel) should move the chat output rather than the editor. True for
+// simple single-column layouts — chat, zen, and any custom layout that is
+// neither split nor fullscreen.
+func (s *State) LayoutScrollsOutput() bool {
+	switch s.EffectiveLayout() {
+	case LayoutSplit, LayoutFullscreen:
+		return false
+	default:
+		return true
 	}
 }

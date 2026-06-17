@@ -45,8 +45,6 @@ func (s *State) isEditorPoint(x, y int) bool {
 	}
 
 	switch s.EffectiveLayout() {
-	case LayoutChat:
-		return y >= s.height-3
 	case LayoutFullscreen:
 		return s.FullscreenShowsEditor()
 	case LayoutSplit:
@@ -57,7 +55,8 @@ func (s *State) isEditorPoint(x, y int) bool {
 		outputH := int(float64(s.height) * 0.5)
 		return y > outputH
 	default:
-		return false
+		// Chat, zen and other simple bottom-editor layouts.
+		return y >= s.height-3
 	}
 }
 

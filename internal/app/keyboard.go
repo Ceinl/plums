@@ -262,7 +262,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
 			return state.ScrollOutputPage(1), false
 		}
-		if state.EffectiveLayout() == LayoutChat {
+		if state.LayoutScrollsOutput() {
 			return state.ScrollOutputPage(1), false
 		}
 		return ed.ScrollPage(1), false
@@ -270,7 +270,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
 			return state.ScrollOutputPage(-1), false
 		}
-		if state.EffectiveLayout() == LayoutChat {
+		if state.LayoutScrollsOutput() {
 			return state.ScrollOutputPage(-1), false
 		}
 		return ed.ScrollPage(-1), false
@@ -281,7 +281,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
 			return state.ScrollOutputVisible(3), false
 		}
-		if state.EffectiveLayout() == LayoutChat {
+		if state.LayoutScrollsOutput() {
 			return state.ScrollOutputVisible(3), false
 		}
 		return ed.Scroll(3), false
@@ -292,7 +292,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
 			return state.ScrollOutputVisible(-3), false
 		}
-		if state.EffectiveLayout() == LayoutChat {
+		if state.LayoutScrollsOutput() {
 			return state.ScrollOutputVisible(-3), false
 		}
 		return ed.Scroll(-3), false

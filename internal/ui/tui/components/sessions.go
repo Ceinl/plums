@@ -19,16 +19,30 @@ const (
 )
 
 var (
-	sessionsBg        = theme.BgBase.Bg()
-	sessionsCardBg    = theme.BgRaised.Bg()
-	sessionsActiveBg  = theme.BgSelected.Bg()
-	sessionsFg        = theme.Text.Fg()
-	sessionsItemFg    = theme.TextSoft.Fg()
-	sessionsMutedFg   = theme.TextMuted.Fg()
-	sessionsTimeFg    = theme.TextFaint.Fg()
-	sessionsAccentFg  = theme.Accent.Fg()
-	sessionsCurrentFg = theme.Success.Fg()
+	sessionsBg        string
+	sessionsCardBg    string
+	sessionsActiveBg  string
+	sessionsFg        string
+	sessionsItemFg    string
+	sessionsMutedFg   string
+	sessionsTimeFg    string
+	sessionsAccentFg  string
+	sessionsCurrentFg string
 )
+
+func init() { registerColorRefresher(refreshSessionsColors) }
+
+func refreshSessionsColors() {
+	sessionsBg = theme.BgBase.Bg()
+	sessionsCardBg = theme.BgRaised.Bg()
+	sessionsActiveBg = theme.BgSelected.Bg()
+	sessionsFg = theme.Text.Fg()
+	sessionsItemFg = theme.TextSoft.Fg()
+	sessionsMutedFg = theme.TextMuted.Fg()
+	sessionsTimeFg = theme.TextFaint.Fg()
+	sessionsAccentFg = theme.Accent.Fg()
+	sessionsCurrentFg = theme.Success.Fg()
+}
 
 // sessionsNow is a test hook for relative timestamps.
 var sessionsNow = time.Now
@@ -93,8 +107,8 @@ const (
 
 func NewSessions(orientation SessionsOrientation) *Sessions {
 	style := layout.Style{}
-	style.SetBackground(25, 23, 32)
-	style.SetForeground(226, 222, 235)
+	style.SetBackground(theme.BgBase.R, theme.BgBase.G, theme.BgBase.B)
+	style.SetForeground(theme.Text.R, theme.Text.G, theme.Text.B)
 	return &Sessions{orientation: orientation, collapsed: map[string]bool{}, style: style}
 }
 

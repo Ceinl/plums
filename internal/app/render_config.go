@@ -8,13 +8,20 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Ceinl/plums/internal/app/defaults"
 	"github.com/Ceinl/plums/internal/ui/tui/components"
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
 )
 
 type RenderConfig struct {
-	Version  int                    `json:"version"`
-	Layouts  map[string]LayoutNode  `json:"layouts"`
+	Version int                   `json:"version"`
+	Layouts map[string]LayoutNode `json:"layouts"`
+	// Menu is the ordered list of user-selectable layout ids (the ones the
+	// layout cycle and palette offer). It is the data-driven knob for adding a
+	// layout: define it under "layouts" and list its key here. When empty, the
+	// built-in chat/split/fullscreen set is recognised for backwards
+	// compatibility.
+	Menu     []string               `json:"menu"`
 	Overlays map[string]OverlayNode `json:"overlays"`
 }
 
@@ -65,9 +72,14 @@ type OverlayWidthNode struct {
 }
 
 func LoadRenderConfig(path string) (*RenderConfig, error) {
-	data := []byte(defaultLayoutJSON)
+	// The single source of truth for the built-in layout is the embedded
+	// defaults/layout.json — the same bytes seeded to disk — so there is no
+	// hand-maintained second copy to drift out of sync.
+	data, err := defaults.Read("layout.json")
+	if err != nil {
+		return nil, err
+	}
 	if path != "" {
-		var err error
 		data, err = os.ReadFile(path)
 		if err != nil {
 			return nil, err
@@ -91,6 +103,27 @@ func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {
 	if cfg == nil {
 		return nil
 	}
+	// Explicit menu wins: a fully data-driven, ordered selection. Each entry
+	// must resolve to a defined layout ("chat" also accepts a "default" node).
+	if len(cfg.Menu) > 0 {
+		layouts := make([]LayoutType, 0, len(cfg.Menu))
+		for _, name := range cfg.Menu {
+			if name == "" {
+				continue
+			}
+			if _, ok := cfg.Layouts[name]; ok {
+				layouts = append(layouts, LayoutType(name))
+			} else if name == "chat" {
+				if _, ok := cfg.Layouts["default"]; ok {
+					layouts = append(layouts, LayoutChat)
+				}
+			}
+		}
+		return layouts
+	}
+
+	// Legacy fallback (no menu declared): recognise the built-in keys in their
+	// historical order.
 	layouts := make([]LayoutType, 0, 4)
 	if _, ok := cfg.Layouts["chat"]; ok {
 		layouts = append(layouts, LayoutChat)
@@ -99,6 +132,9 @@ func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {
 	}
 	if _, ok := cfg.Layouts["split"]; ok {
 		layouts = append(layouts, LayoutSplit)
+	}
+	if _, ok := cfg.Layouts["zen"]; ok {
+		layouts = append(layouts, LayoutZen)
 	}
 	if _, ok := cfg.Layouts["fullscreen"]; ok {
 		layouts = append(layouts, LayoutFullscreen)
@@ -338,66 +374,3 @@ func isEmptyPadding(node PaddingNode) bool {
 func isEmptyStyle(node StyleNode) bool {
 	return len(node.Background) == 0 && len(node.Foreground) == 0 && len(node.Muted) == 0 && len(node.Accent) == 0
 }
-
-const defaultLayoutJSON = `{
-  "version": 1,
-  "layouts": {
-    "chat": {
-      "type": "div",
-      "size": { "width": "100%", "height": "100%" },
-      "direction": "row",
-      "min_width": "MinSplitLayoutWidth",
-      "children": [
-        { "component": "sessions", "size": { "width": "15%", "height": "100%" } },
-        { "component": "vertical_status_separator", "size": { "width": 1, "height": "100%" } },
-        { "type": "div", "size": { "width": "grow", "height": "100%" }, "direction": "column", "align_items": "center", "padding": { "top": 0, "right": 0, "bottom": 0, "left": 0 }, "style": { "background": [22, 20, 27] }, "children": [
-          { "component": "chat_output", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 0, "right": 2, "bottom": 0, "left": 2 }, "style": { "background": [22, 20, 27] } },
-          { "component": "input_box", "size": { "width": "100%", "height": 9 }, "padding": { "top": 0, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27], "foreground": [232, 229, 241] } }
-        ] }
-      ],
-      "fallback": "narrow_chat"
-    },
-    "split": {
-      "type": "div",
-      "size": { "width": "100%", "height": "100%" },
-      "direction": "row",
-      "min_width": "MinSplitLayoutWidth",
-      "children": [
-        { "component": "editor_or_palette", "size": { "width": "state.SplitLeftPercent%", "height": "100%" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [32, 30, 40], "foreground": [232, 229, 241] }, "when_popup_open": { "component": "command_palette_panel", "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 } } },
-        { "component": "vertical_status_separator", "size": { "width": 1, "height": "100%" } },
-        { "type": "div", "size": { "width": "grow", "height": "100%" }, "direction": "column", "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27] }, "children": [
-          { "component": "info_tabs", "size": { "width": "100%", "height": 1 }, "style": { "background": [22, 20, 27] } },
-          { "component": "info_view", "variants": { "ai": "chat_log", "git_diff": "git_diff_log" } },
-          { "component": "split_status_bar", "size": { "width": "100%", "height": 1 }, "style": { "background": [22, 20, 27], "foreground": [100, 98, 112] } }
-        ] }
-      ],
-      "fallback": "narrow_split"
-    },
-    "narrow_split": {
-      "type": "div",
-      "size": { "width": "100%", "height": "100%" },
-      "direction": "column",
-      "children": [
-        { "component": "chat_output", "size": { "width": "100%", "height": "50%" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27] } },
-        { "component": "status_separator", "size": { "width": "100%", "height": 1 } },
-        { "component": "editor", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 1, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [32, 30, 40], "foreground": [232, 229, 241] } }
-      ]
-    },
-    "narrow_chat": {
-      "type": "div",
-      "size": { "width": "100%", "height": "100%" },
-      "direction": "column",
-      "align_items": "center",
-      "children": [
-        { "component": "sessions_horizontal", "size": { "width": "100%", "height": 3 } },
-        { "component": "chat_output", "size": { "width": "100%", "height": "grow" }, "padding": { "top": 0, "right": 2, "bottom": 0, "left": 2 }, "style": { "background": [22, 20, 27] } },
-        { "component": "input_box", "size": { "width": "100%", "height": 9 }, "padding": { "top": 0, "right": 2, "bottom": 1, "left": 2 }, "style": { "background": [22, 20, 27], "foreground": [232, 229, 241] } }
-      ]
-    },
-    "fullscreen": { "component": "fullscreen_view" }
-  },
-  "overlays": {
-    "slash_command_dropdown": { "enabled_when": "!state.PopupOpen && len(state.SlashCommands()) > 0", "width": { "preferred": 44, "min": 20, "max": "state.width - 2" }, "style": { "background": [30, 27, 38], "foreground": [232, 229, 241], "muted": [145, 140, 160], "accent": [247, 184, 90] } },
-    "command_palette_popup": { "enabled_when": "state.PopupOpen && (state.EffectiveLayout() != \"split\" || state.width < MinSplitLayoutWidth)" }
-  }
-}`
