@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "menu": ["chat", "split", "zen", "fullscreen"],
   "layouts": {
     "chat": {
       "type": "div",
@@ -97,6 +98,30 @@
         }
       ],
       "fallback": "narrow_split"
+    },
+    "zen": {
+      "type": "div",
+      "size": { "width": "100%", "height": "100%" },
+      "direction": "column",
+      "align_items": "center",
+      "style": { "background": [24, 24, 27] },
+      "children": [
+        {
+          "component": "chat_output",
+          "size": { "width": "100%", "height": "grow" },
+          "padding": { "top": 2, "right": 6, "bottom": 1, "left": 6 },
+          "style": { "background": [24, 24, 27] }
+        },
+        {
+          "component": "input_box",
+          "size": { "width": "100%", "height": 7 },
+          "padding": { "top": 0, "right": 6, "bottom": 2, "left": 6 },
+          "style": {
+            "background": [24, 24, 27],
+            "foreground": [205, 205, 212]
+          }
+        }
+      ]
     },
     "narrow_split": {
       "type": "div",

@@ -15,30 +15,40 @@ const (
 )
 
 var (
-	fgCursor     = theme.ChatCursor.Fg() // streaming cursor colour
-	fgInlineCode = theme.ChatInlineCode.Fg()
-	fgCodeFence  = theme.ChatCodeFence.Fg()  // dim purple for code fences
-	fgListMarker = theme.ChatListMarker.Fg() // cool accent for bullets / numbers
-
-	fgToolCall      = theme.ToolCall.Fg()      // dim green for the tool name
-	fgToolArg       = theme.TextMuted.Fg()     // primary argument next to the tool name
-	fgToolOutput    = theme.TextFaint.Fg()     // output should recede behind prose
-	fgToolMarker    = theme.TextDim.Fg()       // the ⎿ connector under a tool call
-	fgToolIndicator = theme.ToolIndicator.Fg() // dim amber for the ● indicator
-
-	fgContent     = theme.TextSoft.Fg()               // near-white for message body
-	fgDimRule     = theme.TextDim.Fg()                // very dim, for the system rule
-	fgHeading     = theme.TextBright.Fg()             // brighter section headings
-	fgThinking    = theme.TextMuted.Fg()              // muted thinking / reasoning trace
-	fgUserAccent  = theme.Accent.Fg()                 // user message accent
-	fgSystemRole  = decorBold + theme.AccentBold.Fg() // bold amber – system / error
-	fgSystemBody  = theme.AccentSoft.Fg()             // dim amber for system body
-	bgUserMessage = theme.BgRaised.Bg()               // lighter panel for user prompts
+	fgCursor, fgInlineCode, fgCodeFence, fgListMarker                  string
+	fgToolCall, fgToolArg, fgToolOutput, fgToolMarker, fgToolIndicator string
+	fgContent, fgDimRule, fgHeading, fgThinking                        string
+	fgUserAccent, fgSystemRole, fgSystemBody                           string
 
 	// selection highlight colours, shared with the editor and input box
+	selFg, selBg string
+)
+
+func init() { registerColorRefresher(refreshChatLogColors) }
+
+func refreshChatLogColors() {
+	fgCursor = theme.ChatCursor.Fg() // streaming cursor colour
+	fgInlineCode = theme.ChatInlineCode.Fg()
+	fgCodeFence = theme.ChatCodeFence.Fg()   // dim fence colour for code fences
+	fgListMarker = theme.ChatListMarker.Fg() // cool accent for bullets / numbers
+
+	fgToolCall = theme.ToolCall.Fg()           // dim green for the tool name
+	fgToolArg = theme.TextMuted.Fg()           // primary argument next to the tool name
+	fgToolOutput = theme.TextFaint.Fg()        // output should recede behind prose
+	fgToolMarker = theme.TextDim.Fg()          // the ⎿ connector under a tool call
+	fgToolIndicator = theme.ToolIndicator.Fg() // dim amber for the ● indicator
+
+	fgContent = theme.TextSoft.Fg()                  // near-white for message body
+	fgDimRule = theme.TextDim.Fg()                   // very dim, for the system rule
+	fgHeading = theme.TextBright.Fg()                // brighter section headings
+	fgThinking = theme.TextMuted.Fg()                // muted thinking / reasoning trace
+	fgUserAccent = theme.Accent.Fg()                 // user message accent
+	fgSystemRole = decorBold + theme.AccentBold.Fg() // bold amber – system / error
+	fgSystemBody = theme.AccentSoft.Fg()             // dim amber for system body
+
 	selFg = theme.SelectionFg.Fg()
 	selBg = theme.SelectionBg.Bg()
-)
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

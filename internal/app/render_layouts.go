@@ -380,6 +380,50 @@ func CreateSessionsLayout(state *State) *components.Div {
 	return root
 }
 
+// CreateZenLayout is the Go fallback for the minimalistic "zen" layout: a
+// single neutral-grey column with the chat output above a roomy input box and
+// no sidebar, separators, or tabs.
+func CreateZenLayout(state *State) *components.Div {
+	chatDiv := components.NewDiv()
+	chatDiv.SetSize(
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitGrow, Value: 1},
+	)
+	chatDiv.SetStyle(themedBg(theme.ZenBg))
+	chatDiv.SetPadding(layout.Padding{
+		Left:   layout.Unit{Type: layout.UnitPx, Value: 6},
+		Right:  layout.Unit{Type: layout.UnitPx, Value: 6},
+		Top:    layout.Unit{Type: layout.UnitPx, Value: 2},
+		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
+	})
+	chatDiv.AppendChild(newChatLog(state))
+
+	inputDiv := newInputBoxDiv(
+		state.Editor,
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPx, Value: 7},
+		chatStatusSegments(state),
+	)
+	inputDiv.SetStyle(themedStyle(theme.ZenBg, theme.ZenText))
+	inputDiv.SetPadding(layout.Padding{
+		Left:   layout.Unit{Type: layout.UnitPx, Value: 6},
+		Right:  layout.Unit{Type: layout.UnitPx, Value: 6},
+		Top:    layout.Unit{Type: layout.UnitPx, Value: 0},
+		Bottom: layout.Unit{Type: layout.UnitPx, Value: 2},
+	})
+
+	root := components.NewDiv()
+	root.SetSize(
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+		layout.Unit{Type: layout.UnitPercent, Value: 100},
+	)
+	root.SetStyle(themedBg(theme.ZenBg))
+	root.AlignItems(layout.ACenter)
+	root.AppendChild(chatDiv)
+	root.AppendChild(inputDiv)
+	return root
+}
+
 func CreateNarrowSplitLayout(state *State) *components.Div {
 	outputDiv := newOutput()
 	outputDiv.SetSize(

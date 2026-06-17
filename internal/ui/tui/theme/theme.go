@@ -81,6 +81,13 @@ var (
 	DiffRemoveBg = Color{42, 24, 30}
 )
 
+// Zen greys — neutral palette for the minimalistic "zen" layout. Kept in sync
+// with the RGB literals in defaults/layout.json's "zen" node.
+var (
+	ZenBg   = Color{24, 24, 27} // unified background for chat output and input
+	ZenText = Color{205, 205, 212}
+)
+
 // Unset is the zero colour produced by an empty layout.Style; components
 // compare against Unset.Bg() to detect "no background set" and inherit.
 var Unset = Color{}

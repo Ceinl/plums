@@ -10,11 +10,20 @@ import (
 )
 
 var (
-	statusFgDefault  = theme.TextFaint.Fg()
-	statusFgReady    = theme.StatusReady.Fg()
+	statusFgDefault  string
+	statusFgReady    string
+	statusFgStarting string
+	statusFgThinking string
+)
+
+func init() { registerColorRefresher(refreshStatusBarColors) }
+
+func refreshStatusBarColors() {
+	statusFgDefault = theme.TextFaint.Fg()
+	statusFgReady = theme.StatusReady.Fg()
 	statusFgStarting = theme.StatusStarting.Fg()
 	statusFgThinking = theme.StatusThinking.Fg()
-)
+}
 
 type StatusBar struct {
 	isDirty        bool
