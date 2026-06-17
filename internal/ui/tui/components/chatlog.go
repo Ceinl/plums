@@ -86,6 +86,14 @@ const (
 	ThinkingVisibilityHidden
 )
 
+type ToolCallVisibility int
+
+const (
+	ToolCallVisibilityFull ToolCallVisibility = iota
+	ToolCallVisibilityCollapse
+	ToolCallVisibilityHidden
+)
+
 // ── ChatLog component ─────────────────────────────────────────────────────────
 
 type ChatLog struct {
@@ -95,14 +103,11 @@ type ChatLog struct {
 	isStreaming  bool
 	scrollOffset int
 	onMaxScroll  func(int)
-	// Committed messages are highlighted once and cached; only the in-progress
-	// streaming output is rebuilt each frame. Without this, every streamed token
-	// re-highlights the entire conversation (O(history) per token), stalling the
-	// event loop on long sessions.
-	msgLinesCached bool
-	msgCachedWidth int
-	cachedMsgLines []renderLine
-	thinkingMode   ThinkingVisibility
+	linesCached  bool
+	cachedWidth  int
+	cachedLines  []renderLine
+	thinkingMode ThinkingVisibility
+	toolCallMode ToolCallVisibility
 
 	style  layout.Style
 	parent layout.Component
@@ -154,6 +159,16 @@ func (cl *ChatLog) SetThinkingVisibility(v ThinkingVisibility) {
 	}
 	cl.thinkingMode = v
 	cl.invalidateMessageLines()
+	cl.ClearSelection()
+	cl.isDirty = true
+}
+
+func (cl *ChatLog) SetToolCallVisibility(v ToolCallVisibility) {
+	if cl.toolCallMode == v {
+		return
+	}
+	cl.toolCallMode = v
+	cl.invalidateLines()
 	cl.ClearSelection()
 	cl.isDirty = true
 }

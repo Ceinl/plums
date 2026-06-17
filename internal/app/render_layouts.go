@@ -48,6 +48,7 @@ func newChatLog(state *State) *components.ChatLog {
 	chatLog.SetAiOutput(state.aioutput)
 	chatLog.SetStreaming(state.IsStreaming())
 	chatLog.SetThinkingVisibility(state.ThinkingMode)
+	chatLog.SetToolCallVisibility(state.ToolCallMode)
 	chatLog.SetScrollOffset(state.OutputScroll())
 	return chatLog
 }

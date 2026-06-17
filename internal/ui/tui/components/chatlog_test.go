@@ -234,6 +234,42 @@ func TestChatLogRendersPlainToolCallTranscriptAsSingleLine(t *testing.T) {
 	}
 }
 
+func TestChatLogCollapsesConsecutiveToolCalls(t *testing.T) {
+	cl := NewChatLog()
+	cl.Layout(0, 0, 80, 10)
+	cl.SetToolCallVisibility(ToolCallVisibilityCollapse)
+	cl.SetAiOutput("text\n" +
+		`<tool_call name="read">{"file_path":"/a.go"}</tool_call>` + "\n" +
+		"<tool_output>contents of a</tool_output>\n" +
+		`<tool_call name="grep">{"pattern":"foo"}</tool_call>` + "\n" +
+		"<tool_output>1 match</tool_output>\n")
+
+	lines := cl.lines()
+	var collapsed string
+	for _, l := range lines {
+		if got := spanText(l.spans); strings.Contains(got, "tool calls") {
+			collapsed = got
+		}
+	}
+	if collapsed != "● 2 tool calls read, grep" {
+		t.Fatalf("expected collapsed summary, got %q", collapsed)
+	}
+}
+
+func TestChatLogHidesToolCalls(t *testing.T) {
+	cl := NewChatLog()
+	cl.Layout(0, 0, 80, 10)
+	cl.SetToolCallVisibility(ToolCallVisibilityHidden)
+	cl.SetAiOutput(`<tool_call name="read">{"file_path":"/a.go"}</tool_call>` + "\n" +
+		"<tool_output>contents</tool_output>\n")
+
+	for _, l := range cl.lines() {
+		if got := spanText(l.spans); strings.Contains(got, "read") {
+			t.Fatalf("expected tool call hidden, got line %q", got)
+		}
+	}
+}
+
 func TestChatLogSelectionSurvivesUnchangedSetters(t *testing.T) {
 	cl := NewChatLog()
 	cl.Layout(0, 0, 80, 10)

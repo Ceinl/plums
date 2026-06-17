@@ -75,6 +75,7 @@ const defaultCommandsJSON = `{
       { "title": "Layouts", "detail": "Select layout - current: {layout}", "action": "switch_layout" },
       { "title": "Chat layout", "detail": "Switch to chat layout", "action": "chat_layout" },
       { "title": "Thinking visibility", "detail": "Current: {thinking_visibility} (cycles full/title/hidden)", "action": "cycle_thinking_visibility" },
+      { "title": "Tool call visibility", "detail": "Current: {toolcall_visibility} (cycles full/collapse/hidden)", "action": "cycle_toolcall_visibility" },
       { "title": "Output percentage", "detail": "Left/Right adjust - current: {output_percent}%", "action": "adjust_output_percentage" },
       { "title": "Skills list", "detail": "Load an opencode skill for the next prompt", "action": "skills_list" },
       { "title": "Sessions list", "detail": "Open existing opencode sessions", "action": "sessions_list" }
@@ -89,6 +90,7 @@ const defaultCommandsJSON = `{
     "switch_layout": { "kind": "builtin" },
     "chat_layout": { "kind": "builtin" },
     "cycle_thinking_visibility": { "kind": "builtin" },
+    "cycle_toolcall_visibility": { "kind": "builtin" },
     "adjust_output_percentage": { "kind": "builtin", "adjustment": { "min": 25, "max": 75, "step": 5 } },
     "skills_list": { "kind": "builtin" },
     "sessions_list": { "kind": "builtin" }
@@ -186,6 +188,8 @@ func builtinAction(name string) PaletteAction {
 		return PaletteActionChatLayout
 	case "cycle_thinking_visibility":
 		return PaletteActionCycleThinkingVisibility
+	case "cycle_toolcall_visibility":
+		return PaletteActionCycleToolCallVisibility
 	case "sessions_list":
 		return PaletteActionSessionsList
 	case "skills_list":
@@ -230,6 +234,7 @@ func (item PaletteItemConfig) effectiveTitle(state *State) string {
 func (s *State) expandCommandTemplate(value string) string {
 	value = strings.ReplaceAll(value, "{mode}", s.Mode)
 	value = strings.ReplaceAll(value, "{thinking_visibility}", s.ThinkingVisibilityLabel())
+	value = strings.ReplaceAll(value, "{toolcall_visibility}", s.ToolCallVisibilityLabel())
 	value = strings.ReplaceAll(value, "{layout}", s.LayoutLabel())
 	value = strings.ReplaceAll(value, "{output_percent}", strconv.Itoa(s.SplitOutputPercent()))
 	value = strings.ReplaceAll(value, "{backend_provider}", s.BackendProvider)

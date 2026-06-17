@@ -83,6 +83,8 @@ func handlePaletteAction(ctx context.Context, state *State, client adapter.Backe
 		state.ToggleMode()
 	case PaletteActionCycleThinkingVisibility:
 		state.CycleThinkingVisibility()
+	case PaletteActionCycleToolCallVisibility:
+		state.CycleToolCallVisibility()
 	case PaletteActionLayoutsList:
 		state.SetLayoutItems()
 	case PaletteActionChatLayout:
