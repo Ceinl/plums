@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -83,6 +84,8 @@ type Deps struct {
 	Components   map[string]ComponentFactory
 	Hooks        Hooks
 	Registry     *core.AgentRegistry
+	Skills       capabilities.SkillProvider
+	GitDiff      capabilities.GitDiffProvider
 	// CompletionSources are the completion sources plugins contributed at Init via
 	// Host.Services().Completion(). Core prepends its built-in @file/slash sources
 	// when building the runtime completion registry.
@@ -132,10 +135,12 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 	backend := runtime.Backend
 	state.SetBackendProvider(runtime.ID)
 	state.SetAvailableBackends(backendItemsFromRuntimes(runtimes, runtime.ID))
-	if skills, err := DiscoverSkills(""); err == nil {
-		state.SetAvailableSkills(skills)
-	} else {
-		debuglog.Printf("skills: discovery failed: %v", err)
+	if deps.Skills != nil {
+		if skills, err := deps.Skills.Skills(ctx, cfg.WorkingDirectory); err == nil {
+			state.SetAvailableSkills(skills)
+		} else {
+			debuglog.Printf("skills: discovery failed: %v", err)
+		}
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -194,6 +199,38 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 		rt := newRuntimeCtx(state, cfg, mutations, promptRequests)
 		rt.completion = completion
 		return rt
+	}
+	expandSubmittedInput := func(input string) string {
+		if deps.Skills == nil {
+			return input
+		}
+		return deps.Skills.Expand(input, state.SkillItems)
+	}
+	refreshGitDiffIfNeeded := func() {
+		if !state.ConsumeGitDiffDirty() {
+			return
+		}
+		if deps.GitDiff == nil {
+			state.SetGitDiff("git diff unavailable: no git-diff plugin configured")
+			return
+		}
+		diffCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		diff, err := deps.GitDiff.GitDiff(diffCtx, cfg.WorkingDirectory)
+		if err != nil {
+			text := strings.TrimSpace(diff)
+			if text != "" {
+				text += "\n"
+			}
+			if diffCtx.Err() == context.DeadlineExceeded {
+				text += "git diff timed out"
+			} else {
+				text += err.Error()
+			}
+			state.SetGitDiff(text)
+			return
+		}
+		state.SetGitDiff(diff)
 	}
 	emitMessageHook := func(role, text string) {
 		if text == "" {
@@ -331,7 +368,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 			return
 		}
 		raw := state.ConsumeSubmittedMessage()
-		expanded := state.ConsumeSubmittedInput()
+		expanded := expandSubmittedInput(state.ConsumeSubmittedInput())
 		emitMessageHook("user", raw)
 		submitConsumedPrompt(expanded)
 	}
@@ -395,7 +432,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 				startBackend(selected)
 			}
 		default:
-			handlePaletteAction(ctx, state, backend, action, cfg)
+			handlePaletteAction(ctx, state, backend, action, cfg, deps.Skills)
 		}
 	}
 
@@ -436,11 +473,12 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 					isSubmit := (!ev.Shift && state.EffectiveLayout() != LayoutSplit) || (ev.Shift && state.EffectiveLayout() == LayoutSplit)
 					if isSubmit {
 						raw := state.ConsumeSubmittedMessage()
-						expanded := state.ConsumeSubmittedInput()
+						expanded := expandSubmittedInput(state.ConsumeSubmittedInput())
 						emitMessageHook("user", raw)
 						submitConsumedPrompt(expanded)
 					}
 				}
+				refreshGitDiffIfNeeded()
 				Render(state, deps.RenderConfig)
 				saveConfigIfChanged()
 			}
@@ -511,6 +549,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 				// Command verbs enqueue effects by setting PendingAction inside a
 				// mutation; drain it here so the effect runs with the live backend.
 				dispatchPendingAction()
+				refreshGitDiffIfNeeded()
 				Render(state, deps.RenderConfig)
 				saveConfigIfChanged()
 			}

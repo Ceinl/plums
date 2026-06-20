@@ -75,7 +75,7 @@ func (s *State) CycleInfoView() {
 	s.ChatLog().ClearSelection()
 	s.DiffLog().ClearSelection()
 	if s.InfoView == InfoViewGitDiff {
-		s.RefreshGitDiff()
+		s.MarkGitDiffDirty()
 	}
 }
 

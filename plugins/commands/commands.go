@@ -1,8 +1,8 @@
 // Package commands is the built-in command plugin. It ships the standard plums
-// command set — the slash commands (/new /command /backend /skills /sessions
-// /model) and the command-palette actions (change model, switch backend, new
+// command set — core slash commands (/new /command /backend /sessions /model)
+// and the command-palette actions (change model, switch backend, new
 // session, switch mode, layouts, thinking/tool-call visibility, output percent,
-// skills, sessions) — as a public, forkable CommandProvider plugin wired by the
+// sessions) — as a public, forkable CommandProvider plugin wired by the
 // Default Config. Core itself ships no commands; this package defines them all,
 // exactly like a user's own command plugin would.
 //
@@ -58,10 +58,6 @@ func (*Plugin) Commands() []capabilities.Command {
 		}),
 		slash("/backend", "Switch backend provider", func(_ context.Context, ctx capabilities.Ctx) error {
 			ctx.SwitchBackend()
-			return nil
-		}),
-		slash("/skills", "Load an opencode skill", func(_ context.Context, ctx capabilities.Ctx) error {
-			ctx.OpenSkills()
 			return nil
 		}),
 		slash("/sessions", "Open existing opencode sessions", func(_ context.Context, ctx capabilities.Ctx) error {
@@ -143,11 +139,6 @@ func (*Plugin) Commands() []capabilities.Command {
 					Step:   outputStep,
 				}
 			},
-		},
-		{
-			Name:   "Skills list",
-			Detail: "Load an opencode skill for the next prompt",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.OpenSkills(); return nil },
 		},
 		{
 			Name:   "Sessions list",

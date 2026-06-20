@@ -1,25 +1,61 @@
-package app
+// Package skills is the default skills plugin. It discovers opencode/Claude/
+// agent-style skills and expands /skill directives before prompts are sent.
+package skills
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/Ceinl/plums/capabilities"
 )
 
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 var skillDirectivePattern = regexp.MustCompile(`(?m)^\s*/skill\s+([a-z0-9]+(?:-[a-z0-9]+)*)\s*$`)
 
-type SkillListItem struct {
-	Name        string
-	Description string
-	Path        string
-	Content     string
+type Plugin struct{}
+
+func (*Plugin) Name() string                      { return "skills" }
+func (*Plugin) Init(capabilities.Host, any) error { return nil }
+
+func (*Plugin) Commands() []capabilities.Command {
+	return []capabilities.Command{
+		slash("/skills", "Load an opencode skill", func(_ context.Context, ctx capabilities.Ctx) error {
+			ctx.OpenSkills()
+			return nil
+		}),
+		{
+			Name:   "Skills list",
+			Detail: "Load an opencode skill for the next prompt",
+			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.OpenSkills(); return nil },
+		},
+	}
 }
 
-func DiscoverSkills(cwd string) ([]SkillListItem, error) {
+func (*Plugin) Skills(_ context.Context, cwd string) ([]capabilities.Skill, error) {
+	return discover(cwd)
+}
+
+func (*Plugin) Expand(input string, items []capabilities.Skill) string {
+	return expand(input, items)
+}
+
+func slash(name, detail string, do func(context.Context, capabilities.Ctx) error) capabilities.Command {
+	return capabilities.Command{
+		Name:   name,
+		Detail: detail,
+		Do:     do,
+		Title: func(capabilities.CommandState) capabilities.PaletteLabel {
+			return capabilities.PaletteLabel{Title: name, Detail: detail, Disabled: true}
+		},
+	}
+}
+
+func discover(cwd string) ([]capabilities.Skill, error) {
 	if cwd == "" {
 		var err error
 		cwd, err = os.Getwd()
@@ -33,7 +69,7 @@ func DiscoverSkills(cwd string) ([]SkillListItem, error) {
 	}
 
 	seen := map[string]bool{}
-	items := []SkillListItem{}
+	items := []capabilities.Skill{}
 	for _, dir := range projectSkillDirs(abs) {
 		discovered, err := readSkillsDir(dir, seen)
 		if err != nil {
@@ -77,7 +113,7 @@ func hasGitDir(dir string) bool {
 	return err == nil
 }
 
-func readSkillsDir(dir string, seen map[string]bool) ([]SkillListItem, error) {
+func readSkillsDir(dir string, seen map[string]bool) ([]capabilities.Skill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -87,7 +123,7 @@ func readSkillsDir(dir string, seen map[string]bool) ([]SkillListItem, error) {
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 
-	items := []SkillListItem{}
+	items := []capabilities.Skill{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -106,25 +142,25 @@ func readSkillsDir(dir string, seen map[string]bool) ([]SkillListItem, error) {
 	return items, nil
 }
 
-func readSkillFile(path, dirName string) (SkillListItem, bool, error) {
+func readSkillFile(path, dirName string) (capabilities.Skill, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return SkillListItem{}, false, nil
+			return capabilities.Skill{}, false, nil
 		}
-		return SkillListItem{}, false, err
+		return capabilities.Skill{}, false, err
 	}
 	frontmatter, body, ok := splitFrontmatter(string(data))
 	if !ok {
-		return SkillListItem{}, false, nil
+		return capabilities.Skill{}, false, nil
 	}
 	fields := parseFrontmatterFields(frontmatter)
 	name := fields["name"]
 	description := fields["description"]
 	if !validSkillMetadata(name, description, dirName) {
-		return SkillListItem{}, false, nil
+		return capabilities.Skill{}, false, nil
 	}
-	return SkillListItem{Name: name, Description: description, Path: path, Content: strings.TrimSpace(body)}, true, nil
+	return capabilities.Skill{Name: name, Description: description, Path: path, Content: strings.TrimSpace(body)}, true, nil
 }
 
 func splitFrontmatter(content string) (frontmatter, body string, ok bool) {
@@ -162,18 +198,18 @@ func validSkillMetadata(name, description, dirName string) bool {
 	return name == dirName && len(name) >= 1 && len(name) <= 64 && skillNamePattern.MatchString(name) && len(description) >= 1 && len(description) <= 1024
 }
 
-func ExpandSkillMarkers(input string, skills []SkillListItem) string {
+func expand(input string, skills []capabilities.Skill) string {
 	matches := skillDirectivePattern.FindAllStringSubmatch(input, -1)
 	if len(matches) == 0 {
 		return input
 	}
 
-	byName := make(map[string]SkillListItem, len(skills))
+	byName := make(map[string]capabilities.Skill, len(skills))
 	for _, skill := range skills {
 		byName[skill.Name] = skill
 	}
 	seen := map[string]bool{}
-	expanded := []SkillListItem{}
+	expanded := []capabilities.Skill{}
 	for _, match := range matches {
 		name := match[1]
 		skill, ok := byName[name]

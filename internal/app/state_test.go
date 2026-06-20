@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -342,29 +340,22 @@ func TestCycleThinkingVisibilityUpdatesChatLog(t *testing.T) {
 	}
 }
 
-func TestSkillMarkerExpandsSubmittedPrompt(t *testing.T) {
+func TestSkillMarkerSubmitsRawPromptForRuntimeExpansion(t *testing.T) {
 	state := NewState(80, 24)
-	state.SetSkillItems([]SkillListItem{{Name: "demo-skill", Content: "## Instructions\nUse demo behavior."}})
+	state.SetSkillItems([]capabilities.Skill{{Name: "demo-skill", Content: "## Instructions\nUse demo behavior."}})
 	state.ClosePalette()
 	state.Editor.SetContent("/skill demo-skill\ndo the work")
 	state.SubmitInput()
 
 	got := state.ConsumeSubmittedInput()
-	for _, want := range []string{
-		"Use the `demo-skill` skill",
-		"<skill_content name=\"demo-skill\">",
-		"Use demo behavior.",
-		"User request:\ndo the work",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("expected submitted input to contain %q, got %q", want, got)
-		}
+	if got != "/skill demo-skill\ndo the work" {
+		t.Fatalf("submitted input = %q, want raw prompt", got)
 	}
 }
 
 func TestSubmitPromptUsesSameSubmissionStateAsEditorInput(t *testing.T) {
 	state := NewState(80, 24)
-	state.SetSkillItems([]SkillListItem{{Name: "demo-skill", Content: "Use demo behavior."}})
+	state.SetSkillItems([]capabilities.Skill{{Name: "demo-skill", Content: "Use demo behavior."}})
 	state.Editor.SetContent("draft")
 
 	state.SubmitPrompt("/skill demo-skill\ndo the work")
@@ -376,8 +367,8 @@ func TestSubmitPromptUsesSameSubmissionStateAsEditorInput(t *testing.T) {
 	if got := state.Editor.GetContent(); got != "" {
 		t.Fatalf("editor content = %q, want cleared", got)
 	}
-	if got := state.ConsumeSubmittedInput(); !strings.Contains(got, "Use demo behavior.") {
-		t.Fatalf("submitted input = %q, want expanded skill content", got)
+	if got := state.ConsumeSubmittedInput(); got != "/skill demo-skill\ndo the work" {
+		t.Fatalf("submitted input = %q, want raw prompt", got)
 	}
 	if got := state.ConsumeSubmittedMessage(); got != "/skill demo-skill\ndo the work" {
 		t.Fatalf("submitted message = %q, want raw prompt", got)
@@ -404,7 +395,7 @@ func TestInsertSkillMarkerLeavesEditorEditable(t *testing.T) {
 	state := NewState(80, 24)
 	state.Editor.SetContent("do the work")
 	state.Editor.MoveCursorHome()
-	state.InsertSkillMarker(SkillListItem{Name: "demo-skill"})
+	state.InsertSkillMarker(capabilities.Skill{Name: "demo-skill"})
 
 	if got := state.Editor.GetContent(); got != "/skill demo-skill\ndo the work" {
 		t.Fatalf("expected skill marker in editor, got %q", got)
@@ -416,7 +407,7 @@ func TestInsertSkillMarkerLeavesEditorEditable(t *testing.T) {
 
 func TestSkillSuggestionsAfterSkillDirective(t *testing.T) {
 	state := NewState(80, 24)
-	state.SetAvailableSkills([]SkillListItem{
+	state.SetAvailableSkills([]capabilities.Skill{
 		{Name: "frontend-design", Description: "Create polished UI"},
 		{Name: "diagnose", Description: "Debug failures"},
 	})
@@ -447,38 +438,6 @@ func TestFileCommandSuggestionsAtFirstCharOrAfterWhitespace(t *testing.T) {
 	state.Editor.SetContent("email@example")
 	if suggestions := state.FileCommandSuggestions(); len(suggestions) != 0 {
 		t.Fatalf("expected @ without leading whitespace ignored, got %#v", suggestions)
-	}
-}
-
-func TestDiscoverSkillsFindsOpenCodeCompatibleSkill(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", filepath.Join(dir, "home"))
-	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
-		t.Fatalf("create .git: %v", err)
-	}
-	cwd := filepath.Join(dir, "nested", "pkg")
-	skillDir := filepath.Join(dir, ".agents", "skills", "demo-skill")
-	if err := os.MkdirAll(cwd, 0o755); err != nil {
-		t.Fatalf("create cwd: %v", err)
-	}
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatalf("create skill dir: %v", err)
-	}
-	path := filepath.Join(skillDir, "SKILL.md")
-	content := "---\nname: demo-skill\ndescription: Demonstrate skill loading\n---\n## Body\nFollow these instructions.\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write skill: %v", err)
-	}
-
-	skills, err := DiscoverSkills(cwd)
-	if err != nil {
-		t.Fatalf("discover skills: %v", err)
-	}
-	if len(skills) != 1 {
-		t.Fatalf("expected 1 skill, got %#v", skills)
-	}
-	if skills[0].Name != "demo-skill" || skills[0].Description != "Demonstrate skill loading" || !strings.Contains(skills[0].Content, "Follow these instructions") {
-		t.Fatalf("unexpected skill: %#v", skills[0])
 	}
 }
 

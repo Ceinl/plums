@@ -13,7 +13,9 @@ import (
 	cfgpkg "github.com/Ceinl/plums/config"
 	"github.com/Ceinl/plums/internal/kernel/builtin"
 	"github.com/Ceinl/plums/plugins/commands"
+	"github.com/Ceinl/plums/plugins/gitdiff"
 	"github.com/Ceinl/plums/plugins/layouts"
+	"github.com/Ceinl/plums/plugins/skills"
 )
 
 // RuntimeParams carries the launch-time values the bundled backend plugins need
@@ -71,6 +73,8 @@ func Config(params RuntimeParams) cfgpkg.Config {
 	plugins = append(plugins,
 		cfgpkg.Plugin{Self: &layouts.Plugin{}},
 		cfgpkg.Plugin{Self: &commands.Plugin{}},
+		cfgpkg.Plugin{Self: &skills.Plugin{}},
+		cfgpkg.Plugin{Self: &gitdiff.Plugin{}},
 	)
 	return cfgpkg.Config{
 		Opts:    Opts(),

@@ -264,7 +264,7 @@ func (s *State) SkillSuggestions() []SkillSuggestion {
 	return items
 }
 
-func (s *State) InsertSkillMarker(skill SkillListItem) {
+func (s *State) InsertSkillMarker(skill capabilities.Skill) {
 	marker := "/skill " + skill.Name
 	content := s.Editor.GetContent()
 	if strings.TrimSpace(content) != "" {

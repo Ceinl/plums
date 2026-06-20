@@ -5,12 +5,15 @@ import (
 
 	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/plugins/commands"
+	"github.com/Ceinl/plums/plugins/skills"
 )
 
 // builtinCommands returns the bundled command set exactly as the Default Config
 // wires it, so app tests exercise the real command plugin rather than a stub.
 func builtinCommands() []capabilities.Command {
-	return (&commands.Plugin{}).Commands()
+	out := (&commands.Plugin{}).Commands()
+	out = append(out, (&skills.Plugin{}).Commands()...)
+	return out
 }
 
 // stateWithBuiltinCommands builds a State seeded with the bundled commands, the

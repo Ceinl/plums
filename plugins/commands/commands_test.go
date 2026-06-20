@@ -24,10 +24,10 @@ func TestCommandsIncludeSlashAndPaletteActions(t *testing.T) {
 	}
 	want := []string{
 		"palette.open", "prompt.submit",
-		"/new", "/command", "/backend", "/skills", "/sessions", "/model",
+		"/new", "/command", "/backend", "/sessions", "/model",
 		"Change model", "Backend provider", "Start new session", "Switch mode",
 		"Layouts", "Thinking visibility", "Tool call visibility", "Output percentage",
-		"Skills list", "Sessions list",
+		"Sessions list",
 	}
 	if len(names) != len(want) {
 		t.Fatalf("command names = %v, want %v", names, want)

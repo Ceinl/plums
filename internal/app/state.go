@@ -1,10 +1,7 @@
 package app
 
 import (
-	"context"
-	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/internal/ui/tui/components"
@@ -68,7 +65,7 @@ type State struct {
 	PendingAction      PaletteAction
 	ModelItems         []ModelListItem
 	SessionItems       []SessionListItem
-	SkillItems         []SkillListItem
+	SkillItems         []capabilities.Skill
 	QuestionTitle      string
 	QuestionItems      []QuestionOptionItem
 	BackendItems       []BackendListItem
@@ -84,6 +81,7 @@ type State struct {
 	ModelID            string
 	InfoView           InfoView
 	GitDiff            string
+	gitDiffDirty       bool
 	OutputPercent      int
 	submittedInput     string
 	submittedMessage   string
@@ -153,7 +151,7 @@ func (s *State) SubmitPrompt(input string) string {
 	if input != "" {
 		s.messages = append(s.messages, Message{Role: "user", Content: input})
 		s.Editor.SetContent("")
-		s.submittedInput = ExpandSkillMarkers(input, s.SkillItems)
+		s.submittedInput = input
 		s.submittedMessage = input
 		s.invalidateOutputMax()
 	}
@@ -239,25 +237,18 @@ func (s *State) TickSpinner() {
 	s.spinnerFrame = (s.spinnerFrame + 1) % 10
 }
 
-func (s *State) RefreshGitDiff() {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "diff", "--", ".").CombinedOutput()
-	if err != nil {
-		s.GitDiff = strings.TrimSpace(string(out))
-		if s.GitDiff != "" {
-			s.GitDiff += "\n"
-		}
-		if ctx.Err() == context.DeadlineExceeded {
-			s.GitDiff += "git diff timed out"
-			s.invalidateOutputMax()
-			return
-		}
-		s.GitDiff += err.Error()
-		s.invalidateOutputMax()
-		return
-	}
-	s.GitDiff = string(out)
+func (s *State) MarkGitDiffDirty() {
+	s.gitDiffDirty = true
+}
+
+func (s *State) ConsumeGitDiffDirty() bool {
+	dirty := s.gitDiffDirty
+	s.gitDiffDirty = false
+	return dirty
+}
+
+func (s *State) SetGitDiff(diff string) {
+	s.GitDiff = diff
 	s.invalidateOutputMax()
 }
 

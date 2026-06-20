@@ -154,6 +154,15 @@ type OnToolCall interface {
 	OnToolCall(Ctx, ToolCall)
 }
 
+type SkillProvider interface {
+	Skills(ctx context.Context, cwd string) ([]Skill, error)
+	Expand(input string, skills []Skill) string
+}
+
+type GitDiffProvider interface {
+	GitDiff(ctx context.Context, cwd string) (string, error)
+}
+
 // --- Commands & runtime context ---
 
 type Command struct {
@@ -238,6 +247,13 @@ type ListItem struct {
 	Label   string
 	Detail  string
 	Payload any
+}
+
+type Skill struct {
+	Name        string
+	Description string
+	Path        string
+	Content     string
 }
 
 // --- Components, layouts, rendering ---

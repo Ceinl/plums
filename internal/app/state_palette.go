@@ -449,7 +449,7 @@ func (s *State) SetModelItems(items []ModelListItem) {
 	s.PopupOpen = true
 }
 
-func (s *State) SetSkillItems(items []SkillListItem) {
+func (s *State) SetSkillItems(items []capabilities.Skill) {
 	s.SkillItems = items
 	s.PaletteView = PaletteViewSkills
 	s.PaletteQuery = ""
@@ -516,7 +516,7 @@ func (s *State) SetAvailableBackends(items []BackendListItem) {
 	s.BackendItems = items
 }
 
-func (s *State) SetAvailableSkills(items []SkillListItem) {
+func (s *State) SetAvailableSkills(items []capabilities.Skill) {
 	s.SkillItems = items
 }
 
@@ -537,10 +537,10 @@ func (s *State) SelectedSessionID() string {
 	return sessions[s.PaletteIndex].ID
 }
 
-func (s *State) SelectedSkill() (SkillListItem, bool) {
+func (s *State) SelectedSkill() (capabilities.Skill, bool) {
 	skills := s.visibleSkillItems()
 	if s.PaletteView != PaletteViewSkills || s.PaletteIndex < 0 || s.PaletteIndex >= len(skills) {
-		return SkillListItem{}, false
+		return capabilities.Skill{}, false
 	}
 	return skills[s.PaletteIndex], true
 }
@@ -673,12 +673,12 @@ func (s *State) visibleSessionItems() []SessionListItem {
 	return items
 }
 
-func (s *State) visibleSkillItems() []SkillListItem {
+func (s *State) visibleSkillItems() []capabilities.Skill {
 	query := normalizedQuery(s.PaletteQuery)
 	if query == "" {
 		return s.SkillItems
 	}
-	items := make([]SkillListItem, 0, len(s.SkillItems))
+	items := make([]capabilities.Skill, 0, len(s.SkillItems))
 	for _, skill := range s.SkillItems {
 		if paletteMatches(query, skill.Name, skill.Description) {
 			items = append(items, skill)

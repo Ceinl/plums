@@ -42,7 +42,7 @@ func listSessionItems(ctx context.Context, state *State, client capabilities.Bac
 	return items, nil
 }
 
-func handlePaletteAction(ctx context.Context, state *State, client capabilities.Backend, action PaletteAction, cfg RunConfig) {
+func handlePaletteAction(ctx context.Context, state *State, client capabilities.Backend, action PaletteAction, cfg RunConfig, skills capabilities.SkillProvider) {
 	switch action {
 	case PaletteActionOpenPalette:
 		state.OpenPalette()
@@ -122,12 +122,16 @@ func handlePaletteAction(ctx context.Context, state *State, client capabilities.
 		}
 		state.SetSessionItems(items)
 	case PaletteActionSkillsList:
-		skills, err := DiscoverSkills("")
+		if skills == nil {
+			state.AddMessage("system", "no skills plugin configured")
+			return
+		}
+		discovered, err := skills.Skills(ctx, cfg.WorkingDirectory)
 		if err != nil {
 			state.AddMessage("system", fmt.Sprintf("failed to list skills: %v", err))
 			return
 		}
-		state.SetSkillItems(skills)
+		state.SetSkillItems(discovered)
 	case PaletteActionSelectSession:
 		sessionsBackend, err := backendSessions(client)
 		if err != nil {
