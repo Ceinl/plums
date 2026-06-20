@@ -8,6 +8,7 @@ import (
 
 	"github.com/Ceinl/plums/internal/ui/tui/components"
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
 type RenderConfig struct {
@@ -55,10 +56,14 @@ type PaddingNode struct {
 }
 
 type StyleNode struct {
-	Background []uint8 `json:"background"`
-	Foreground []uint8 `json:"foreground"`
-	Muted      []uint8 `json:"muted"`
-	Accent     []uint8 `json:"accent"`
+	Background      []uint8 `json:"background"`
+	Foreground      []uint8 `json:"foreground"`
+	Muted           []uint8 `json:"muted"`
+	Accent          []uint8 `json:"accent"`
+	BackgroundToken string  `json:"background_token"`
+	ForegroundToken string  `json:"foreground_token"`
+	MutedToken      string  `json:"muted_token"`
+	AccentToken     string  `json:"accent_token"`
 }
 
 type OverlayNode struct {
@@ -97,10 +102,10 @@ func defaultOverlays() map[string]OverlayNode {
 				Max:       json.RawMessage(`"state.width - 2"`),
 			},
 			Style: StyleNode{
-				Background: []uint8{30, 27, 38},
-				Foreground: []uint8{232, 229, 241},
-				Muted:      []uint8{145, 140, 160},
-				Accent:     []uint8{247, 184, 90},
+				BackgroundToken: "bg_surface",
+				ForegroundToken: "text",
+				MutedToken:      "text_muted",
+				AccentToken:     "accent",
 			},
 		},
 		"command_palette_popup": {
@@ -308,11 +313,60 @@ func resolveStyle(node StyleNode) layout.Style {
 	style := layout.Style{}
 	if len(node.Background) == 3 {
 		style.SetBackground(node.Background[0], node.Background[1], node.Background[2])
+	} else if color, ok := themeColor(node.BackgroundToken); ok {
+		style.SetBackground(color.R, color.G, color.B)
 	}
 	if len(node.Foreground) == 3 {
 		style.SetForeground(node.Foreground[0], node.Foreground[1], node.Foreground[2])
+	} else if color, ok := themeColor(node.ForegroundToken); ok {
+		style.SetForeground(color.R, color.G, color.B)
 	}
 	return style
+}
+
+func themeColor(name string) (theme.Color, bool) {
+	switch name {
+	case "bg_backdrop":
+		return theme.BgBackdrop, true
+	case "bg_input":
+		return theme.BgInput, true
+	case "bg_base":
+		return theme.BgBase, true
+	case "bg_surface":
+		return theme.BgSurface, true
+	case "bg_panel":
+		return theme.BgPanel, true
+	case "bg_raised":
+		return theme.BgRaised, true
+	case "bg_highlight":
+		return theme.BgHighlight, true
+	case "bg_selected":
+		return theme.BgSelected, true
+	case "text_bright":
+		return theme.TextBright, true
+	case "text":
+		return theme.Text, true
+	case "text_soft":
+		return theme.TextSoft, true
+	case "text_muted":
+		return theme.TextMuted, true
+	case "text_faint":
+		return theme.TextFaint, true
+	case "text_dim":
+		return theme.TextDim, true
+	case "accent":
+		return theme.Accent, true
+	case "accent_bold":
+		return theme.AccentBold, true
+	case "accent_soft":
+		return theme.AccentSoft, true
+	case "border_accent":
+		return theme.BorderAccent, true
+	case "border":
+		return theme.Border, true
+	default:
+		return theme.Color{}, false
+	}
 }
 
 func hasContainerProperties(node LayoutNode) bool {
@@ -324,5 +378,12 @@ func isEmptyPadding(node PaddingNode) bool {
 }
 
 func isEmptyStyle(node StyleNode) bool {
-	return len(node.Background) == 0 && len(node.Foreground) == 0 && len(node.Muted) == 0 && len(node.Accent) == 0
+	return len(node.Background) == 0 &&
+		len(node.Foreground) == 0 &&
+		len(node.Muted) == 0 &&
+		len(node.Accent) == 0 &&
+		node.BackgroundToken == "" &&
+		node.ForegroundToken == "" &&
+		node.MutedToken == "" &&
+		node.AccentToken == ""
 }

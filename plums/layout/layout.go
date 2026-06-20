@@ -64,10 +64,46 @@ type Padding struct {
 }
 
 type Style struct {
-	Background []uint8
-	Foreground []uint8
-	Muted      []uint8
-	Accent     []uint8
+	Background      []uint8
+	Foreground      []uint8
+	Muted           []uint8
+	Accent          []uint8
+	BackgroundToken string
+	ForegroundToken string
+	MutedToken      string
+	AccentToken     string
+}
+
+const (
+	ColorBgBackdrop  = "bg_backdrop"
+	ColorBgInput     = "bg_input"
+	ColorBgBase      = "bg_base"
+	ColorBgSurface   = "bg_surface"
+	ColorBgPanel     = "bg_panel"
+	ColorBgRaised    = "bg_raised"
+	ColorBgHighlight = "bg_highlight"
+	ColorBgSelected  = "bg_selected"
+
+	ColorTextBright = "text_bright"
+	ColorText       = "text"
+	ColorTextSoft   = "text_soft"
+	ColorTextMuted  = "text_muted"
+	ColorTextFaint  = "text_faint"
+	ColorTextDim    = "text_dim"
+
+	ColorAccent       = "accent"
+	ColorAccentBold   = "accent_bold"
+	ColorAccentSoft   = "accent_soft"
+	ColorBorderAccent = "border_accent"
+	ColorBorder       = "border"
+)
+
+func ThemeBg(background string) Style {
+	return Style{BackgroundToken: background}
+}
+
+func ThemeStyle(background, foreground string) Style {
+	return Style{BackgroundToken: background, ForegroundToken: foreground}
 }
 
 func Row(children ...capabilities.Node) *Node {
@@ -231,10 +267,14 @@ type jsonPadding struct {
 }
 
 type jsonStyle struct {
-	Background []uint8 `json:"background"`
-	Foreground []uint8 `json:"foreground"`
-	Muted      []uint8 `json:"muted"`
-	Accent     []uint8 `json:"accent"`
+	Background      []uint8 `json:"background"`
+	Foreground      []uint8 `json:"foreground"`
+	Muted           []uint8 `json:"muted"`
+	Accent          []uint8 `json:"accent"`
+	BackgroundToken string  `json:"background_token"`
+	ForegroundToken string  `json:"foreground_token"`
+	MutedToken      string  `json:"muted_token"`
+	AccentToken     string  `json:"accent_token"`
 }
 
 func (n jsonNode) toPublic() *Node {
@@ -254,10 +294,14 @@ func (n jsonNode) toPublic() *Node {
 			Left:   n.Padding.Left,
 		},
 		StyleValue: Style{
-			Background: cloneBytes(n.Style.Background),
-			Foreground: cloneBytes(n.Style.Foreground),
-			Muted:      cloneBytes(n.Style.Muted),
-			Accent:     cloneBytes(n.Style.Accent),
+			Background:      cloneBytes(n.Style.Background),
+			Foreground:      cloneBytes(n.Style.Foreground),
+			Muted:           cloneBytes(n.Style.Muted),
+			Accent:          cloneBytes(n.Style.Accent),
+			BackgroundToken: n.Style.BackgroundToken,
+			ForegroundToken: n.Style.ForegroundToken,
+			MutedToken:      n.Style.MutedToken,
+			AccentToken:     n.Style.AccentToken,
 		},
 		VariantsMap: cloneVariants(n.Variants),
 	}

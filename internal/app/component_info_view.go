@@ -41,6 +41,7 @@ func (c *infoViewComponent) Render(rctx capabilities.RenderCtx, surface capabili
 		diff := state.DiffLog()
 		diff.SetContent(rctx.GitDiff())
 		diff.SetScrollOffset(state.OutputScroll())
+		diff.SetStyle(bgStyle(rctx.Background()))
 		diff.Layout(c.rect.X, c.rect.Y, c.rect.W, c.rect.H)
 		diff.Render(scr)
 		return
@@ -92,6 +93,7 @@ func renderStateChatLog(rctx capabilities.RenderCtx, state *State, rect capabili
 	log.SetThinkingVisibility(components.ThinkingVisibility(rctx.ThinkingVisibility()))
 	log.SetToolCallVisibility(components.ToolCallVisibility(rctx.ToolCallVisibility()))
 	log.SetScrollOffset(state.OutputScroll())
+	log.SetBackground(rctx.Background())
 	log.Layout(rect.X, rect.Y, rect.W, rect.H)
 	log.RenderSurface(scr)
 }

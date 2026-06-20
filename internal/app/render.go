@@ -115,18 +115,25 @@ func drawOverlayFill(x, y, w int, bg string) {
 	}
 }
 
-// ansiFgColor and ansiBgColor resolve a user-configured RGB triple, falling
-// back to the given theme colour when the config does not override it.
-func ansiFgColor(c []uint8, fallback theme.Color) string {
+// ansiFgColor and ansiBgColor resolve a user-configured RGB triple or theme
+// token, falling back to the given theme colour when the config does not
+// override it.
+func ansiFgColor(c []uint8, token string, fallback theme.Color) string {
 	if len(c) == 3 {
 		return theme.Color{R: c[0], G: c[1], B: c[2]}.Fg()
+	}
+	if color, ok := themeColor(token); ok {
+		return color.Fg()
 	}
 	return fallback.Fg()
 }
 
-func ansiBgColor(c []uint8, fallback theme.Color) string {
+func ansiBgColor(c []uint8, token string, fallback theme.Color) string {
 	if len(c) == 3 {
 		return theme.Color{R: c[0], G: c[1], B: c[2]}.Bg()
+	}
+	if color, ok := themeColor(token); ok {
+		return color.Bg()
 	}
 	return fallback.Bg()
 }

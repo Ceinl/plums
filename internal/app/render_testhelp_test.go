@@ -36,39 +36,33 @@ func testSplitTree() capabilities.Node {
 			Width("state.SplitLeftPercent%").
 			Height("100%").
 			Padding(testPad(1, 2, 1, 2)).
-			Style(testBgFg(32, 30, 40, 232, 229, 241)).
+			Style(layout.ThemeStyle(layout.ColorBgPanel, layout.ColorText)).
 			WhenPopupOpen(
 				layout.Component("command_palette_panel").Padding(testPad(1, 2, 1, 2)),
 			),
 		layout.VerticalSeparator().Width(1).Height("100%"),
 		layout.Column(
-			layout.Tabs().Width("100%").Height(1).Style(testBg(22, 20, 27)),
+			layout.Tabs().Width("100%").Height(1).Style(layout.ThemeBg(layout.ColorBgBase)),
 			layout.InfoView().Variants(map[string]string{
 				"ai":       "chat_log",
 				"git_diff": "git_diff_log",
 			}),
-			layout.SplitStatusBar().Width("100%").Height(1).Style(testBgFg(22, 20, 27, 100, 98, 112)),
+			layout.SplitStatusBar().Width("100%").Height(1).Style(layout.ThemeStyle(layout.ColorBgBase, layout.ColorTextFaint)),
 		).
-			Width("grow").Height("100%").Padding(testPad(1, 2, 1, 2)).Style(testBg(22, 20, 27)),
+			Width("grow").Height("100%").Padding(testPad(1, 2, 1, 2)).Style(layout.ThemeBg(layout.ColorBgBase)),
 	).
 		Width("100%").Height("100%").MinWidth("MinSplitLayoutWidth").Fallback("narrow_split")
 }
 
 func testNarrowSplitTree() capabilities.Node {
 	return layout.Column(
-		layout.Chat().Width("100%").Height("50%").Padding(testPad(1, 2, 1, 2)).Style(testBg(22, 20, 27)),
+		layout.Chat().Width("100%").Height("50%").Padding(testPad(1, 2, 1, 2)).Style(layout.ThemeBg(layout.ColorBgBase)),
 		layout.Separator().Width("100%").Height(1),
-		layout.Editor().Width("100%").Height("grow").Padding(testPad(1, 2, 1, 2)).Style(testBgFg(32, 30, 40, 232, 229, 241)),
+		layout.Editor().Width("100%").Height("grow").Padding(testPad(1, 2, 1, 2)).Style(layout.ThemeStyle(layout.ColorBgPanel, layout.ColorText)),
 	).
 		Width("100%").Height("100%")
 }
 
 func testPad(top, right, bottom, left float64) layout.Padding {
 	return layout.Padding{Top: &top, Right: &right, Bottom: &bottom, Left: &left}
-}
-
-func testBg(r, g, b uint8) layout.Style { return layout.Style{Background: []uint8{r, g, b}} }
-
-func testBgFg(br, bgc, bb, fr, fg, fb uint8) layout.Style {
-	return layout.Style{Background: []uint8{br, bgc, bb}, Foreground: []uint8{fr, fg, fb}}
 }

@@ -36,18 +36,18 @@ func chatLayout() capabilities.Node {
 				Width("100%").
 				Height("grow").
 				Padding(padding(0, 2, 0, 2)).
-				Style(styleBg(22, 20, 27)),
+				Style(layout.ThemeBg(layout.ColorBgBase)),
 			layout.InputBox().
 				Width("100%").
 				Height(9).
 				Padding(padding(0, 2, 1, 2)).
-				Style(styleBgFg(22, 20, 27, 232, 229, 241)),
+				Style(layout.ThemeStyle(layout.ColorBgBase, layout.ColorText)),
 		).
 			Width("grow").
 			Height("100%").
 			AlignItems("center").
 			Padding(padding(0, 0, 0, 0)).
-			Style(styleBg(22, 20, 27)),
+			Style(layout.ThemeBg(layout.ColorBgBase)),
 	).
 		Width("100%").
 		Height("100%").
@@ -61,17 +61,17 @@ func zenLayout() capabilities.Node {
 			Width("100%").
 			Height("grow").
 			Padding(padding(2, 6, 1, 6)).
-			Style(styleBg(24, 24, 27)),
+			Style(layout.ThemeBg(layout.ColorBgBase)),
 		layout.InputBox().
 			Width("100%").
 			Height(7).
 			Padding(padding(0, 6, 2, 6)).
-			Style(styleBgFg(24, 24, 27, 205, 205, 212)),
+			Style(layout.ThemeStyle(layout.ColorBgBase, layout.ColorText)),
 	).
 		Width("100%").
 		Height("100%").
 		AlignItems("center").
-		Style(styleBg(24, 24, 27))
+		Style(layout.ThemeBg(layout.ColorBgBase))
 }
 
 func narrowChatLayout() capabilities.Node {
@@ -81,12 +81,12 @@ func narrowChatLayout() capabilities.Node {
 			Width("100%").
 			Height("grow").
 			Padding(padding(0, 2, 0, 2)).
-			Style(styleBg(22, 20, 27)),
+			Style(layout.ThemeBg(layout.ColorBgBase)),
 		layout.InputBox().
 			Width("100%").
 			Height(9).
 			Padding(padding(0, 2, 1, 2)).
-			Style(styleBgFg(22, 20, 27, 232, 229, 241)),
+			Style(layout.ThemeStyle(layout.ColorBgBase, layout.ColorText)),
 	).
 		Width("100%").
 		Height("100%").
@@ -99,16 +99,5 @@ func padding(top, right, bottom, left float64) layout.Padding {
 		Right:  &right,
 		Bottom: &bottom,
 		Left:   &left,
-	}
-}
-
-func styleBg(r, g, b uint8) layout.Style {
-	return layout.Style{Background: []uint8{r, g, b}}
-}
-
-func styleBgFg(br, bg, bb, fr, fg, fb uint8) layout.Style {
-	return layout.Style{
-		Background: []uint8{br, bg, bb},
-		Foreground: []uint8{fr, fg, fb},
 	}
 }

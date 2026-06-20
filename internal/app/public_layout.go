@@ -78,10 +78,14 @@ func layoutNodeFromPublicNode(node *publiclayout.Node) (LayoutNode, error) {
 			Left:   node.PaddingValue.Left,
 		},
 		Style: StyleNode{
-			Background: cloneUint8s(node.StyleValue.Background),
-			Foreground: cloneUint8s(node.StyleValue.Foreground),
-			Muted:      cloneUint8s(node.StyleValue.Muted),
-			Accent:     cloneUint8s(node.StyleValue.Accent),
+			Background:      cloneUint8s(node.StyleValue.Background),
+			Foreground:      cloneUint8s(node.StyleValue.Foreground),
+			Muted:           cloneUint8s(node.StyleValue.Muted),
+			Accent:          cloneUint8s(node.StyleValue.Accent),
+			BackgroundToken: node.StyleValue.BackgroundToken,
+			ForegroundToken: node.StyleValue.ForegroundToken,
+			MutedToken:      node.StyleValue.MutedToken,
+			AccentToken:     node.StyleValue.AccentToken,
 		},
 		Variants: cloneStringMap(node.VariantsMap),
 	}
