@@ -7,12 +7,28 @@ import (
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
 )
 
+func handleKeyThroughInputComponent(t *testing.T, state *State, ev keyboard.Event) (handled bool, quit bool) {
+	t.Helper()
+	state.BeginPublicComponentFrame()
+	factory := ComponentFactoryForPublic(NewInputBoxComponent())
+	component, err := factory(state, LayoutNode{Component: "input_box", slotID: "/test/input"})
+	if err != nil {
+		t.Fatalf("component factory: %v", err)
+	}
+	component.Layout(0, 0, state.width, state.height)
+	component.Render(screen.NewScreen(state.width, state.height))
+	if HandlePublicComponentEvent(state, ev, &fakeCtx{}) {
+		return true, false
+	}
+	return HandleKey(state, ev, DefaultClipboardCommand())
+}
+
 func TestPlainEnterSubmitsInputInChat(t *testing.T) {
 	state := NewState(80, 24)
 	state.Layout = LayoutChat
 	state.Editor.SetContent("send me")
 
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter}, DefaultClipboardCommand())
+	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyEnter})
 	if !handled || quit {
 		t.Fatalf("expected handled submit without quit, handled=%v quit=%v", handled, quit)
 	}
@@ -26,7 +42,7 @@ func TestShiftEnterInsertsNewlineInChat(t *testing.T) {
 	state.Layout = LayoutChat
 	state.Editor.SetContent("line")
 
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter, Shift: true}, DefaultClipboardCommand())
+	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyEnter, Shift: true})
 	if !handled || quit {
 		t.Fatalf("expected handled newline without quit, handled=%v quit=%v", handled, quit)
 	}
@@ -40,7 +56,7 @@ func TestShiftEnterSubmitsInputInSplit(t *testing.T) {
 	state.Layout = LayoutSplit
 	state.Editor.SetContent("send me")
 
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter, Shift: true}, DefaultClipboardCommand())
+	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyEnter, Shift: true})
 	if !handled || quit {
 		t.Fatalf("expected handled submit without quit, handled=%v quit=%v", handled, quit)
 	}
@@ -54,7 +70,7 @@ func TestPlainEnterInsertsNewlineInSplit(t *testing.T) {
 	state.Layout = LayoutSplit
 	state.Editor.SetContent("line")
 
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter}, DefaultClipboardCommand())
+	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyEnter})
 	if !handled || quit {
 		t.Fatalf("expected handled newline without quit, handled=%v quit=%v", handled, quit)
 	}
@@ -100,7 +116,7 @@ func TestCtrlZUndoesEditorChange(t *testing.T) {
 	state.Editor.SetContent("a")
 	state.Editor.InsertRune('b')
 
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyRune, Ch: 'z', Ctrl: true}, DefaultClipboardCommand())
+	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyRune, Ch: 'z', Ctrl: true})
 	if !handled || quit {
 		t.Fatalf("expected Ctrl+Z undo without quit, handled=%v quit=%v", handled, quit)
 	}
@@ -121,7 +137,7 @@ func TestCtrlZUndoesPastedTextAsOneChange(t *testing.T) {
 		t.Fatalf("expected pasted text inserted, got %q", got)
 	}
 
-	handled, quit = HandleKey(state, keyboard.Event{Type: keyboard.KeyRune, Ch: 'z', Ctrl: true}, DefaultClipboardCommand())
+	handled, quit = handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyRune, Ch: 'z', Ctrl: true})
 	if !handled || quit {
 		t.Fatalf("expected Ctrl+Z undo without quit, handled=%v quit=%v", handled, quit)
 	}
@@ -134,7 +150,7 @@ func TestTabCyclesOutputPanelsNotLayout(t *testing.T) {
 	state := NewState(120, 40)
 	state.Layout = LayoutSplit
 
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyTab}, DefaultClipboardCommand())
+	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyTab})
 	if !handled || quit {
 		t.Fatalf("expected Tab handled without quit, handled=%v quit=%v", handled, quit)
 	}
@@ -158,11 +174,60 @@ func TestCtrlTDoesNotCycleOutputPanels(t *testing.T) {
 	}
 }
 
+func TestCtrlPIsNotHardcodedWithoutKeybind(t *testing.T) {
+	state := NewState(120, 40)
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyRune, Ch: 'p', Ctrl: true}, DefaultClipboardCommand())
+	if handled || quit {
+		t.Fatalf("expected Ctrl+P unhandled without keybind, handled=%v quit=%v", handled, quit)
+	}
+	if state.PopupOpen {
+		t.Fatal("expected Ctrl+P not to open palette without keybind")
+	}
+}
+
+func TestCtrlSIsNotHardcodedWithoutKeybind(t *testing.T) {
+	state := NewState(120, 40)
+	state.Editor.SetContent("send me")
+
+	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyRune, Ch: 's', Ctrl: true}, DefaultClipboardCommand())
+	if handled || quit {
+		t.Fatalf("expected Ctrl+S unhandled without keybind, handled=%v quit=%v", handled, quit)
+	}
+	if got := state.ConsumeSubmittedInput(); got != "" {
+		t.Fatalf("expected no submitted input without keybind, got %q", got)
+	}
+	if got := state.Editor.GetContent(); got != "send me" {
+		t.Fatalf("expected editor unchanged, got %q", got)
+	}
+}
+
+func TestPaletteKeysRouteThroughInputComponent(t *testing.T) {
+	state := stateWithBuiltinCommands(80, 24)
+	state.OpenPalette()
+
+	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyRune, Ch: 'm'})
+	if !handled || quit {
+		t.Fatalf("expected palette rune handled, handled=%v quit=%v", handled, quit)
+	}
+	if got := state.PaletteSearch(); got != "m" {
+		t.Fatalf("palette query = %q, want m", got)
+	}
+
+	handled, quit = handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyEscape})
+	if !handled || quit {
+		t.Fatalf("expected palette escape handled, handled=%v quit=%v", handled, quit)
+	}
+	if state.PopupOpen {
+		t.Fatal("expected escape to close palette")
+	}
+}
+
 func TestArrowKeysNavigateEditorDropdown(t *testing.T) {
 	state := stateWithBuiltinCommands(80, 24)
 	state.Editor.SetContent("/")
 
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyArrowDown}, DefaultClipboardCommand())
+	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyArrowDown})
 	if !handled || quit {
 		t.Fatalf("expected dropdown arrow down handled, handled=%v quit=%v", handled, quit)
 	}
@@ -176,7 +241,7 @@ func TestArrowKeysNavigateEditorDropdown(t *testing.T) {
 		t.Fatalf("expected cursor not to move, got col %d", got)
 	}
 
-	handled, quit = HandleKey(state, keyboard.Event{Type: keyboard.KeyArrowUp}, DefaultClipboardCommand())
+	handled, quit = handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyArrowUp})
 	if !handled || quit {
 		t.Fatalf("expected dropdown arrow up handled, handled=%v quit=%v", handled, quit)
 	}
@@ -190,7 +255,7 @@ func TestEnterSelectsEditorDropdownItem(t *testing.T) {
 	state.Editor.SetContent("/")
 	state.MoveEditorDropdown(1)
 
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter}, DefaultClipboardCommand())
+	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyEnter})
 	if !handled || quit {
 		t.Fatalf("expected dropdown enter handled, handled=%v quit=%v", handled, quit)
 	}
@@ -207,7 +272,7 @@ func TestEnterSubmitsExactSlashCommandWhenDropdownOpen(t *testing.T) {
 	state.Layout = LayoutChat
 	state.Editor.SetContent("/new")
 
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyEnter}, DefaultClipboardCommand())
+	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyEnter})
 	if !handled || quit {
 		t.Fatalf("expected exact slash command handled without quit, handled=%v quit=%v", handled, quit)
 	}

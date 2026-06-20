@@ -13,6 +13,7 @@ import (
 type palettePanelComponent struct {
 	popup *components.Popup
 	rect  capabilities.Rect
+	state *State
 }
 
 func NewCommandPalettePanelComponent() capabilities.Component {
@@ -45,6 +46,9 @@ func (c *palettePanelComponent) Render(rctx capabilities.RenderCtx, surface capa
 	if !ok {
 		return
 	}
+	if provider, ok := rctx.(appStateProvider); ok {
+		c.state = provider.appState()
+	}
 	popup := c.widget()
 	popup.SetTitle(rctx.PaletteTitle())
 	popup.SetQuery(rctx.PaletteQuery())
@@ -56,4 +60,8 @@ func (c *palettePanelComponent) Render(rctx capabilities.RenderCtx, surface capa
 	popup.SetItems(popupItems, rctx.PaletteIndex())
 	popup.Layout(c.rect.X, c.rect.Y, c.rect.W, c.rect.H)
 	popup.Render(scr)
+}
+
+func (c *palettePanelComponent) HandleKey(_ capabilities.Ctx, ev capabilities.KeyEvent) bool {
+	return handlePaletteKey(c.state, ev)
 }

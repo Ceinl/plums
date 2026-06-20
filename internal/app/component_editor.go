@@ -9,11 +9,11 @@ import (
 )
 
 // editorComponent is the public editor pane. It renders the State-owned editor
-// widget (state.Editor) so the central key/mouse/selection routing in
-// keyboard.go keeps targeting the same buffer instance; only the render surface
-// is ported here. The full keymap rework lands in Phase 5.
+// widget (state.Editor) and owns the editor-local key handling while paste and
+// mouse events still route through the app fallback.
 type editorComponent struct {
-	rect capabilities.Rect
+	rect  capabilities.Rect
+	state *State
 }
 
 func NewEditorComponent() capabilities.Component {
@@ -37,7 +37,15 @@ func (c *editorComponent) Render(rctx capabilities.RenderCtx, surface capabiliti
 	if state == nil || state.Editor == nil {
 		return
 	}
+	c.state = state
 	renderStateEditor(state.Editor, c.rect, scr)
+}
+
+func (c *editorComponent) HandleKey(ctx capabilities.Ctx, ev capabilities.KeyEvent) bool {
+	if c.state != nil && c.state.PopupOpen {
+		return handlePaletteKey(c.state, ev)
+	}
+	return handleEditorKey(c.state, ctx, ev)
 }
 
 // renderStateEditor draws the State-owned editor widget with the editor pane's

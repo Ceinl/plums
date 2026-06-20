@@ -9,12 +9,13 @@ import (
 
 // inputBoxComponent is the public input_box (a.k.a. text_box) pane: the floating
 // editor panel plus the coloured status line above it. It renders the
-// State-owned editor widget (state.Editor) through an InputBox wrapper so the
-// central key/mouse routing keeps targeting the same buffer instance.
+// State-owned editor widget (state.Editor) through an InputBox wrapper and owns
+// editor-local key handling for chat/zen-style layouts.
 type inputBoxComponent struct {
-	name string
-	box  *components.InputBox
-	rect capabilities.Rect
+	name  string
+	box   *components.InputBox
+	rect  capabilities.Rect
+	state *State
 }
 
 func NewInputBoxComponent() capabilities.Component {
@@ -46,6 +47,7 @@ func (c *inputBoxComponent) Render(rctx capabilities.RenderCtx, surface capabili
 	if state == nil || state.Editor == nil {
 		return
 	}
+	c.state = state
 
 	if c.box == nil {
 		c.box = components.NewInputBox(state.Editor)
@@ -54,4 +56,11 @@ func (c *inputBoxComponent) Render(rctx capabilities.RenderCtx, surface capabili
 	c.box.SetStatusSegments(chatStatusSegments(state))
 	c.box.Layout(c.rect.X, c.rect.Y, c.rect.W, c.rect.H)
 	c.box.Render(scr)
+}
+
+func (c *inputBoxComponent) HandleKey(ctx capabilities.Ctx, ev capabilities.KeyEvent) bool {
+	if c.state != nil && c.state.PopupOpen {
+		return handlePaletteKey(c.state, ev)
+	}
+	return handleEditorKey(c.state, ctx, ev)
 }

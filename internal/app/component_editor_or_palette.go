@@ -12,6 +12,7 @@ type editorOrPaletteComponent struct {
 	editor  capabilities.Component
 	palette capabilities.Component
 	rect    capabilities.Rect
+	state   *State
 }
 
 func NewEditorOrPaletteComponent() capabilities.Component {
@@ -36,10 +37,18 @@ func (c *editorOrPaletteComponent) Arrange(rect capabilities.Rect) {
 func (c *editorOrPaletteComponent) Render(rctx capabilities.RenderCtx, surface capabilities.Surface) {
 	provider, ok := rctx.(appStateProvider)
 	if ok {
-		if state := provider.appState(); state != nil && state.PopupOpen {
+		c.state = provider.appState()
+		if c.state != nil && c.state.PopupOpen {
 			c.palette.Render(rctx, surface)
 			return
 		}
 	}
 	c.editor.Render(rctx, surface)
+}
+
+func (c *editorOrPaletteComponent) HandleKey(ctx capabilities.Ctx, ev capabilities.KeyEvent) bool {
+	if c.state != nil && c.state.PopupOpen {
+		return handlePaletteKey(c.state, ev)
+	}
+	return handleEditorKey(c.state, ctx, ev)
 }
