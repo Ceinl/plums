@@ -435,13 +435,34 @@ type RegistryKey struct {
 
 type Backend interface {
 	Health(ctx context.Context) error
+	SendMessageEvents(ctx context.Context, id, text, providerID, modelID, agent string) <-chan StreamEvent
+}
+
+type BackendSessions interface {
 	CreateSession(ctx context.Context, dir string) (*Session, error)
 	ListSessions(ctx context.Context) ([]Session, error)
 	GetSession(ctx context.Context, id string) (*Session, error)
 	ListMessages(ctx context.Context, id string) ([]MessageResponse, error)
+}
+
+type BackendModels interface {
 	ListProviders(ctx context.Context) ([]Provider, []string, error)
-	SendMessageEvents(ctx context.Context, id, text, providerID, modelID, agent string) <-chan StreamEvent
+}
+
+type BackendQuestions interface {
 	ReplyQuestion(ctx context.Context, requestID string, answers [][]string) error
+}
+
+type BackendSessionResetter interface {
+	ResetSession(ctx context.Context, dir string) (*Session, error)
+}
+
+type BackendSessionAborter interface {
+	AbortSession(ctx context.Context, sessionID string) error
+}
+
+type BackendServerProcess interface {
+	ServerProcess() ServerProcess
 }
 
 type BackendRegistration struct {

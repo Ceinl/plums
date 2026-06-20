@@ -24,9 +24,14 @@ func applyRecentModel(ctx context.Context, state *State, client capabilities.Bac
 	if state.ModelID != "" {
 		return
 	}
+	sessionsBackend, err := backendSessions(client)
+	if err != nil {
+		debuglog.Printf("session: recent model unsupported: %v", err)
+		return
+	}
 	lookupCtx, cancel := context.WithTimeout(ctx, cfg.RecentModelTimeout)
 	defer cancel()
-	sessions, err := client.ListSessions(lookupCtx)
+	sessions, err := sessionsBackend.ListSessions(lookupCtx)
 	if err != nil {
 		debuglog.Printf("session: recent model lookup failed: %v", err)
 		return
@@ -83,9 +88,14 @@ func refreshSessionModel(ctx context.Context, state *State, client capabilities.
 	if state.SessionID == "" {
 		return
 	}
+	sessionsBackend, err := backendSessions(client)
+	if err != nil {
+		debuglog.Printf("session: refresh model unsupported: %v", err)
+		return
+	}
 	refreshCtx, cancel := context.WithTimeout(ctx, cfg.RecentModelTimeout)
 	defer cancel()
-	session, err := client.GetSession(refreshCtx, state.SessionID)
+	session, err := sessionsBackend.GetSession(refreshCtx, state.SessionID)
 	if err != nil {
 		debuglog.Printf("session: refresh model failed: %v", err)
 		return
@@ -96,6 +106,10 @@ func refreshSessionModel(ctx context.Context, state *State, client capabilities.
 func ensureSession(ctx context.Context, state *State, client capabilities.Backend, cfg RunConfig) error {
 	if state.SessionID != "" {
 		return nil
+	}
+	sessionsBackend, err := backendSessions(client)
+	if err != nil {
+		return err
 	}
 	wd := cfg.WorkingDirectory
 	if wd == "" {
@@ -109,7 +123,7 @@ func ensureSession(ctx context.Context, state *State, client capabilities.Backen
 	// is created below instead.
 	if !cfg.ClearHistory {
 		listCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
-		sessions, err := client.ListSessions(listCtx)
+		sessions, err := sessionsBackend.ListSessions(listCtx)
 		cancel()
 		if err == nil {
 			if session := latestSessionForDirectory(sessions, wd); session != nil {
@@ -126,7 +140,7 @@ func ensureSession(ctx context.Context, state *State, client capabilities.Backen
 
 	sessionCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
 	defer cancel()
-	session, err := client.CreateSession(sessionCtx, wd)
+	session, err := sessionsBackend.CreateSession(sessionCtx, wd)
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}

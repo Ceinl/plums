@@ -11,8 +11,13 @@ import (
 )
 
 func replyQuestion(ctx context.Context, state *State, client capabilities.Backend, requestID string, answers [][]string, timeout time.Duration) bool {
+	questions, err := backendQuestions(client)
+	if err != nil {
+		state.AddMessage("system", err.Error())
+		return false
+	}
 	replyCtx, cancelReply := context.WithTimeout(ctx, timeout)
-	err := client.ReplyQuestion(replyCtx, requestID, answers)
+	err = questions.ReplyQuestion(replyCtx, requestID, answers)
 	cancelReply()
 	if err != nil {
 		debuglog.Printf("question: reply failed: %v", err)

@@ -102,9 +102,7 @@ func (b backend) ServerProcess() capabilities.ServerProcess {
 func startup() func(context.Context, capabilities.Backend) (*capabilities.StartupResult, error) {
 	return func(_ context.Context, b capabilities.Backend) (*capabilities.StartupResult, error) {
 		debuglog.Printf("startup: codex ready (session deferred)")
-		client, ok := b.(interface {
-			ServerProcess() capabilities.ServerProcess
-		})
+		client, ok := b.(capabilities.BackendServerProcess)
 		if !ok {
 			return nil, fmt.Errorf("codex backend does not expose ServerProcess")
 		}

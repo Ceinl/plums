@@ -9,17 +9,14 @@ import (
 	"github.com/Ceinl/plums/capabilities"
 )
 
-// sessionResetter is implemented by backends whose "new session" cannot create
-// anything (e.g. claude-mirror, which attaches to a running window) and instead
-// starts a fresh conversation in place.
-type sessionResetter interface {
-	ResetSession(ctx context.Context, directory string) (*capabilities.Session, error)
-}
-
 func listSessionItems(ctx context.Context, state *State, client capabilities.Backend, cfg RunConfig) ([]SessionListItem, error) {
+	sessionsBackend, err := backendSessions(client)
+	if err != nil {
+		return nil, err
+	}
 	listCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
 	defer cancel()
-	sessions, err := client.ListSessions(listCtx)
+	sessions, err := sessionsBackend.ListSessions(listCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -50,9 +47,13 @@ func handlePaletteAction(ctx context.Context, state *State, client capabilities.
 	case PaletteActionOpenPalette:
 		state.OpenPalette()
 	case PaletteActionNewSession:
+		sessionsBackend, err := backendSessions(client)
+		if err != nil {
+			state.AddMessage("system", err.Error())
+			return
+		}
 		wd := cfg.WorkingDirectory
 		if wd == "" {
-			var err error
 			wd, err = os.Getwd()
 			if err != nil {
 				state.AddMessage("system", fmt.Sprintf("failed to get working directory: %v", err))
@@ -61,8 +62,8 @@ func handlePaletteAction(ctx context.Context, state *State, client capabilities.
 		}
 		// A backend that can't literally create a session (claude-mirror attaches
 		// to a live window) defines "new session" via ResetSession instead.
-		newSession := client.CreateSession
-		if resetter, ok := client.(sessionResetter); ok {
+		newSession := sessionsBackend.CreateSession
+		if resetter, ok := client.(capabilities.BackendSessionResetter); ok {
 			newSession = resetter.ResetSession
 		}
 		session, err := newSession(ctx, wd)
@@ -94,8 +95,13 @@ func handlePaletteAction(ctx context.Context, state *State, client capabilities.
 		}
 		state.SetLayout(layoutType)
 	case PaletteActionChangeModel:
+		modelsBackend, err := backendModels(client)
+		if err != nil {
+			state.AddMessage("system", err.Error())
+			return
+		}
 		providersCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
-		providers, connected, err := client.ListProviders(providersCtx)
+		providers, connected, err := modelsBackend.ListProviders(providersCtx)
 		cancel()
 		if err != nil {
 			state.AddMessage("system", fmt.Sprintf("failed to list models: %v", err))
@@ -123,12 +129,17 @@ func handlePaletteAction(ctx context.Context, state *State, client capabilities.
 		}
 		state.SetSkillItems(skills)
 	case PaletteActionSelectSession:
+		sessionsBackend, err := backendSessions(client)
+		if err != nil {
+			state.AddMessage("system", err.Error())
+			return
+		}
 		sessionID := state.SelectedSessionID()
 		if sessionID == "" {
 			return
 		}
 		sessionCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
-		session, err := client.GetSession(sessionCtx, sessionID)
+		session, err := sessionsBackend.GetSession(sessionCtx, sessionID)
 		cancel()
 		if err != nil {
 			state.AddMessage("system", fmt.Sprintf("failed to get session: %v", err))
@@ -136,7 +147,7 @@ func handlePaletteAction(ctx context.Context, state *State, client capabilities.
 		}
 		applySession(state, session)
 		messagesCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
-		messages, err := client.ListMessages(messagesCtx, sessionID)
+		messages, err := sessionsBackend.ListMessages(messagesCtx, sessionID)
 		cancel()
 		if err != nil {
 			state.ClearConversation()

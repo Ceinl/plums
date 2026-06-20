@@ -19,10 +19,6 @@ import (
 
 const doubleEscapeStopWindow = 750 * time.Millisecond
 
-type sessionAborter interface {
-	AbortSession(ctx context.Context, sessionID string) error
-}
-
 type doubleEscapeStopper struct {
 	lastEscape time.Time
 }
@@ -72,12 +68,6 @@ type RunConfig struct {
 	SplitLeftWidth int
 	// ClearHistory hides backend sessions that were not created in this run.
 	ClearHistory bool
-}
-
-// serverProcessExtractor lets run.go stop lazily-started processes (e.g. codex
-// app-server) even when they were not available during initial startup.
-type serverProcessExtractor interface {
-	ServerProcess() capabilities.ServerProcess
 }
 
 // Deps bundles all wired dependencies needed by the event loop.
@@ -260,7 +250,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 		if serverProc != nil {
 			return serverProc
 		}
-		if sp, ok := backend.(serverProcessExtractor); ok {
+		if sp, ok := backend.(capabilities.BackendServerProcess); ok {
 			if proc := sp.ServerProcess(); proc != nil {
 				return proc
 			}
@@ -268,7 +258,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 		return nil
 	}
 	stopActiveStream := func() {
-		if aborter, ok := backend.(sessionAborter); ok && state.SessionID != "" {
+		if aborter, ok := backend.(capabilities.BackendSessionAborter); ok && state.SessionID != "" {
 			sessionID := state.SessionID
 			timeout := cfg.ListTimeout
 			go func() {
@@ -394,7 +384,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 				if serverProc != nil {
 					serverProc.Stop()
 					serverProc = nil
-				} else if sp, ok := backend.(serverProcessExtractor); ok {
+				} else if sp, ok := backend.(capabilities.BackendServerProcess); ok {
 					if proc := sp.ServerProcess(); proc != nil {
 						proc.Stop()
 					}
