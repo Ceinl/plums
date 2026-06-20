@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/Ceinl/plums/capabilities"
@@ -180,6 +181,9 @@ func (s *State) allSlashCommands() []SlashCommand {
 		}
 		items = append(items, SlashCommand{Name: command.Name, Detail: command.Detail, Do: command.Do})
 	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Name < items[j].Name
+	})
 	return items
 }
 

@@ -12,9 +12,11 @@ import (
 
 	cfgpkg "github.com/Ceinl/plums/config"
 	"github.com/Ceinl/plums/internal/kernel/builtin"
+	backendcommands "github.com/Ceinl/plums/plugins/backend"
 	"github.com/Ceinl/plums/plugins/commands"
 	"github.com/Ceinl/plums/plugins/gitdiff"
 	"github.com/Ceinl/plums/plugins/layouts"
+	"github.com/Ceinl/plums/plugins/sessions"
 	"github.com/Ceinl/plums/plugins/skills"
 )
 
@@ -72,6 +74,8 @@ func Config(params RuntimeParams) cfgpkg.Config {
 	})
 	plugins = append(plugins,
 		cfgpkg.Plugin{Self: &layouts.Plugin{}},
+		cfgpkg.Plugin{Self: &backendcommands.Plugin{}},
+		cfgpkg.Plugin{Self: &sessions.Plugin{}},
 		cfgpkg.Plugin{Self: &commands.Plugin{}},
 		cfgpkg.Plugin{Self: &skills.Plugin{}},
 		cfgpkg.Plugin{Self: &gitdiff.Plugin{}},

@@ -4,14 +4,18 @@ import (
 	"context"
 
 	"github.com/Ceinl/plums/capabilities"
+	backendcommands "github.com/Ceinl/plums/plugins/backend"
 	"github.com/Ceinl/plums/plugins/commands"
+	"github.com/Ceinl/plums/plugins/sessions"
 	"github.com/Ceinl/plums/plugins/skills"
 )
 
 // builtinCommands returns the bundled command set exactly as the Default Config
 // wires it, so app tests exercise the real command plugin rather than a stub.
 func builtinCommands() []capabilities.Command {
-	out := (&commands.Plugin{}).Commands()
+	out := (&backendcommands.Plugin{}).Commands()
+	out = append(out, (&sessions.Plugin{}).Commands()...)
+	out = append(out, (&commands.Plugin{}).Commands()...)
 	out = append(out, (&skills.Plugin{}).Commands()...)
 	return out
 }

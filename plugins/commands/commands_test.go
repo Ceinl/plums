@@ -24,10 +24,9 @@ func TestCommandsIncludeSlashAndPaletteActions(t *testing.T) {
 	}
 	want := []string{
 		"palette.open", "prompt.submit",
-		"/new", "/command", "/backend", "/sessions", "/model",
-		"Change model", "Backend provider", "Start new session", "Switch mode",
+		"/command",
+		"Switch mode",
 		"Layouts", "Thinking visibility", "Tool call visibility", "Output percentage",
-		"Sessions list",
 	}
 	if len(names) != len(want) {
 		t.Fatalf("command names = %v, want %v", names, want)
@@ -48,12 +47,7 @@ type recordCtx struct {
 	sent      string
 }
 
-func (c *recordCtx) NewSession()                      { c.calls = append(c.calls, "NewSession") }
 func (c *recordCtx) OpenCommandPalette()              { c.calls = append(c.calls, "OpenCommandPalette") }
-func (c *recordCtx) SwitchBackend()                   { c.calls = append(c.calls, "SwitchBackend") }
-func (c *recordCtx) OpenSkills()                      { c.calls = append(c.calls, "OpenSkills") }
-func (c *recordCtx) OpenSessions()                    { c.calls = append(c.calls, "OpenSessions") }
-func (c *recordCtx) ChangeModel()                     { c.calls = append(c.calls, "ChangeModel") }
 func (c *recordCtx) SwitchMode()                      { c.calls = append(c.calls, "SwitchMode") }
 func (c *recordCtx) SwitchLayout()                    { c.calls = append(c.calls, "SwitchLayout") }
 func (c *recordCtx) CycleThinkingVisibility()         { c.calls = append(c.calls, "CycleThinkingVisibility") }
@@ -68,22 +62,6 @@ type recordEditor struct {
 
 func (e *recordEditor) Text() string     { return e.text }
 func (e *recordEditor) SetText(v string) { e.text = v }
-
-func TestSlashNewCallsNewSession(t *testing.T) {
-	var cmd capabilities.Command
-	for _, c := range (&Plugin{}).Commands() {
-		if c.Name == "/new" {
-			cmd = c
-		}
-	}
-	ctx := &recordCtx{}
-	if err := cmd.Do(context.Background(), ctx); err != nil {
-		t.Fatalf("Do: %v", err)
-	}
-	if len(ctx.calls) != 1 || ctx.calls[0] != "NewSession" {
-		t.Fatalf("calls = %v, want [NewSession]", ctx.calls)
-	}
-}
 
 func TestPaletteOpenCommandCallsOpenCommandPalette(t *testing.T) {
 	var cmd capabilities.Command
@@ -118,13 +96,11 @@ func TestPromptSubmitCommandSendsInputText(t *testing.T) {
 }
 
 func TestDynamicTitlesReflectState(t *testing.T) {
-	var switchMode, backend, layouts capabilities.Command
+	var switchMode, layouts capabilities.Command
 	for _, c := range (&Plugin{}).Commands() {
 		switch c.Name {
 		case "Switch mode":
 			switchMode = c
-		case "Backend provider":
-			backend = c
 		case "Layouts":
 			layouts = c
 		}
@@ -137,10 +113,6 @@ func TestDynamicTitlesReflectState(t *testing.T) {
 	if build.Title != "Switch to plan mode" {
 		t.Fatalf("build title = %+v", build)
 	}
-	b := backend.Title(capabilities.CommandState{BackendProvider: "opencode"})
-	if b.Detail != "Current backend: opencode" {
-		t.Fatalf("backend detail = %q", b.Detail)
-	}
 	l := layouts.Title(capabilities.CommandState{Layout: "split"})
 	if l.Detail != "Select layout - current: split" {
 		t.Fatalf("layouts detail = %q", l.Detail)
@@ -149,7 +121,7 @@ func TestDynamicTitlesReflectState(t *testing.T) {
 
 func TestNonPaletteCommandsAreHiddenFromPalette(t *testing.T) {
 	for _, c := range (&Plugin{}).Commands() {
-		if c.Name == "palette.open" || c.Name == "prompt.submit" || c.Name == "/new" || c.Name == "/model" {
+		if c.Name == "palette.open" || c.Name == "prompt.submit" || c.Name == "/command" {
 			if label := c.Title(capabilities.CommandState{}); !label.Disabled {
 				t.Fatalf("command %q should be palette-disabled", c.Name)
 			}

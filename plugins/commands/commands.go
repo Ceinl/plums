@@ -1,10 +1,9 @@
 // Package commands is the built-in command plugin. It ships the standard plums
-// command set — core slash commands (/new /command /backend /sessions /model)
-// and the command-palette actions (change model, switch backend, new
-// session, switch mode, layouts, thinking/tool-call visibility, output percent,
-// sessions) — as a public, forkable CommandProvider plugin wired by the
-// Default Config. Core itself ships no commands; this package defines them all,
-// exactly like a user's own command plugin would.
+// command set — keybind targets, /command, and palette actions for mode,
+// layouts, visibility, and output percent — as a public, forkable
+// CommandProvider plugin wired by the Default Config. Core itself ships no
+// commands; this package defines them exactly like a user's own command plugin
+// would.
 //
 // Every command drives the host through capabilities.Ctx verbs; dynamic palette
 // titles are produced by the optional Command.Title func from Ctx.State().
@@ -48,46 +47,12 @@ func (*Plugin) Commands() []capabilities.Command {
 		// Slash commands. These appear in the editor's "/" dropdown and run their
 		// Do when submitted. They are palette-hidden (Title returns disabled) so the
 		// richer palette rows below are the ones shown in the command palette.
-		slash("/new", "Create a fresh opencode session", func(_ context.Context, ctx capabilities.Ctx) error {
-			ctx.NewSession()
-			return nil
-		}),
 		slash("/command", "Open the command palette", func(_ context.Context, ctx capabilities.Ctx) error {
 			ctx.OpenCommandPalette()
 			return nil
 		}),
-		slash("/backend", "Switch backend provider", func(_ context.Context, ctx capabilities.Ctx) error {
-			ctx.SwitchBackend()
-			return nil
-		}),
-		slash("/sessions", "Open existing opencode sessions", func(_ context.Context, ctx capabilities.Ctx) error {
-			ctx.OpenSessions()
-			return nil
-		}),
-		slash("/model", "Change the active model", func(_ context.Context, ctx capabilities.Ctx) error {
-			ctx.ChangeModel()
-			return nil
-		}),
 
 		// Command-palette actions, in the legacy commands.json order.
-		{
-			Name:   "Change model",
-			Detail: "Select model for future prompts",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.ChangeModel(); return nil },
-		},
-		{
-			Name:   "Backend provider",
-			Detail: "Current backend: ",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.SwitchBackend(); return nil },
-			Title: func(s capabilities.CommandState) capabilities.PaletteLabel {
-				return capabilities.PaletteLabel{Title: "Backend provider", Detail: "Current backend: " + s.BackendProvider}
-			},
-		},
-		{
-			Name:   "Start new session",
-			Detail: "Create a fresh opencode session",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.NewSession(); return nil },
-		},
 		{
 			Name:   "Switch mode",
 			Detail: "Current mode: ",
@@ -139,11 +104,6 @@ func (*Plugin) Commands() []capabilities.Command {
 					Step:   outputStep,
 				}
 			},
-		},
-		{
-			Name:   "Sessions list",
-			Detail: "Open existing opencode sessions",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.OpenSessions(); return nil },
 		},
 	}
 }
