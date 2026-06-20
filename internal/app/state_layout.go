@@ -3,11 +3,9 @@ package app
 import "strings"
 
 // LayoutType is the identifier of a layout — the same string used as its key in
-// the render config's "layouts" map. New layouts are added purely in JSON (a
-// layouts entry plus a "menu" entry); no Go constant is required. The named
-// constants below exist only for the built-in layouts that carry special
-// interaction behaviour (split's two-pane submit); any other layout id is
-// treated as a simple chat-style layout.
+// the render config's "layouts" map. New layouts are added by registered layout
+// plugins; no Go constant is required. The named constants below exist only for
+// stock/runtime-recognised layouts that carry interaction behaviour.
 type LayoutType string
 
 type InfoView int
@@ -22,7 +20,6 @@ const (
 )
 
 const (
-	LayoutChat  LayoutType = "chat"
 	LayoutSplit LayoutType = "split"
 	// LayoutZen is the built-in minimalistic single-column layout in neutral
 	// greys. It needs no special Go behaviour — it's named only so the Go
@@ -30,7 +27,7 @@ const (
 	LayoutZen LayoutType = "zen"
 )
 
-const LayoutDefault = LayoutChat
+const LayoutDefault = LayoutZen
 
 const (
 	InfoViewAI InfoView = iota
@@ -38,7 +35,7 @@ const (
 )
 
 func defaultLayoutCycle() []LayoutType {
-	return []LayoutType{LayoutChat, LayoutSplit, LayoutZen}
+	return []LayoutType{LayoutZen}
 }
 
 func (s *State) SetAvailableLayouts(layouts []LayoutType) {
@@ -194,7 +191,7 @@ func LayoutTypeFromString(name string) LayoutType {
 }
 
 // layoutTitle is the human-facing title: the id with its first letter
-// upper-cased (chat → Chat, zen → Zen).
+// upper-cased (zen → Zen).
 func layoutTitle(layoutType LayoutType) string {
 	s := string(layoutType)
 	if s == "" {
@@ -205,8 +202,7 @@ func layoutTitle(layoutType LayoutType) string {
 
 // LayoutScrollsOutput reports whether vertical scroll keys (PageUp/Down and the
 // mouse wheel) should move the chat output rather than the editor. True for
-// simple single-column layouts — chat, zen, and any custom layout that is not
-// split.
+// simple single-column layouts — zen and any custom layout that is not split.
 func (s *State) LayoutScrollsOutput() bool {
 	switch s.EffectiveLayout() {
 	case LayoutSplit:

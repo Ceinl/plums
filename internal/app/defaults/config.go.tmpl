@@ -34,10 +34,10 @@ func Config() cfg.Config {
 	}
 }
 
-// SplitLayoutPlugin contributes the `split` layout and its narrow-screen
-// fallback as a user plugin. `split` is intentionally NOT a builtin: this proves
-// a user-defined layout registers and resolves exactly like the bundled ones.
-// Run `plums --doctor` and you'll see `split` owned by "split-layout".
+// SplitLayoutPlugin contributes the `split` layout as a user plugin. `split` is
+// intentionally NOT a builtin: this proves a user-defined layout registers and
+// resolves exactly like the bundled Zen layout. Run `plums --doctor` and you'll
+// see `split` owned by "split-layout".
 type SplitLayoutPlugin struct{}
 
 func (*SplitLayoutPlugin) Name() string                      { return "split-layout" }
@@ -46,7 +46,6 @@ func (*SplitLayoutPlugin) Init(capabilities.Host, any) error { return nil }
 func (*SplitLayoutPlugin) Layouts() []capabilities.Layout {
 	return []capabilities.Layout{
 		layout.Named("split", splitTree()),
-		layout.Hidden(layout.Named("narrow_split", narrowSplitTree())),
 	}
 }
 
@@ -70,15 +69,6 @@ func splitTree() capabilities.Node {
 			layout.SplitStatusBar().Width("100%").Height(1).Style(layout.ThemeStyle(layout.ColorBgBase, layout.ColorTextFaint)),
 		).
 			Width("grow").Height("100%").Padding(pad(1, 2, 1, 2)).Style(layout.ThemeBg(layout.ColorBgBase)),
-	).
-		Width("100%").Height("100%").MinWidth("MinSplitLayoutWidth").Fallback("narrow_split")
-}
-
-func narrowSplitTree() capabilities.Node {
-	return layout.Column(
-		layout.Chat().Width("100%").Height("50%").Padding(pad(1, 2, 1, 2)).Style(layout.ThemeBg(layout.ColorBgBase)),
-		layout.Separator().Width("100%").Height(1),
-		layout.Editor().Width("100%").Height("grow").Padding(pad(1, 2, 1, 2)).Style(layout.ThemeStyle(layout.ColorBgPanel, layout.ColorText)),
 	).
 		Width("100%").Height("100%")
 }

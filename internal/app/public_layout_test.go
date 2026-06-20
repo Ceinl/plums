@@ -34,7 +34,7 @@ func TestLayoutNodeFromPublic(t *testing.T) {
 func TestInstallPublicLayoutAddsLayoutAndMenu(t *testing.T) {
 	cfg := &RenderConfig{
 		Layouts: map[string]LayoutNode{},
-		Menu:    []string{"chat"},
+		Menu:    []string{"zen"},
 	}
 	layout := publiclayout.Named("work", publiclayout.Column(publiclayout.Chat()))
 
@@ -49,7 +49,7 @@ func TestInstallPublicLayoutAddsLayoutAndMenu(t *testing.T) {
 		t.Fatal("public layout not installed")
 	}
 	if len(cfg.Menu) != 2 || cfg.Menu[1] != "work" {
-		t.Fatalf("menu = %+v, want chat, work", cfg.Menu)
+		t.Fatalf("menu = %+v, want zen, work", cfg.Menu)
 	}
 }
 
@@ -58,7 +58,7 @@ func TestLayoutNodeFromPublicPreservesExtendedFields(t *testing.T) {
 	node, err := LayoutNodeFromPublic(
 		publiclayout.Row(publiclayout.Editor()).
 			MinWidth("MinSplitLayoutWidth").
-			Fallback("chat").
+			Fallback("zen").
 			AlignItems("center").
 			Padding(publiclayout.Padding{Left: &pad}).
 			Style(publiclayout.Style{Background: []uint8{1, 2, 3}, Foreground: []uint8{4, 5, 6}}).
@@ -68,7 +68,7 @@ func TestLayoutNodeFromPublicPreservesExtendedFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LayoutNodeFromPublic() error = %v", err)
 	}
-	if node.MinWidth != "MinSplitLayoutWidth" || node.Fallback != "chat" || node.AlignItems != "center" {
+	if node.MinWidth != "MinSplitLayoutWidth" || node.Fallback != "zen" || node.AlignItems != "center" {
 		t.Fatalf("node routing fields = %+v", node)
 	}
 	if node.Padding.Left == nil || *node.Padding.Left != 2 {

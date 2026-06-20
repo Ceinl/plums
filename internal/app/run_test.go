@@ -80,7 +80,7 @@ func TestCtrlPKeybindOpensCommandPaletteInRunLoop(t *testing.T) {
 			Terminal:     &ui.Terminal{W: 80, H: 24},
 			Keyboard:     keys,
 			RenderConfig: testRenderConfig(t),
-			Layouts:      []LayoutType{LayoutChat},
+			Layouts:      []LayoutType{LayoutZen},
 			Commands:     builtinCommands(),
 			Keybinds:     []capabilities.Keybind{{Key: "ctrl+p", Do: "palette.open"}},
 			Components:   defaultComponentFactories(),
@@ -91,7 +91,7 @@ func TestCtrlPKeybindOpensCommandPaletteInRunLoop(t *testing.T) {
 			}},
 		}, RunConfig{
 			BackendProvider: "test",
-			DefaultLayout:   "chat",
+			DefaultLayout:   "zen",
 		})
 		done <- err
 	}()

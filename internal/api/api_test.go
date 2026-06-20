@@ -137,7 +137,7 @@ func (testOnMessage) OnMessage(capabilities.Ctx, capabilities.Message) {}
 
 func TestLayoutsFromRegistry(t *testing.T) {
 	reg := kernel.NewRegistry(nil)
-	if err := reg.Register(capabilities.RegistryLayout, "chat", testLayout{name: "chat"}, "core"); err != nil {
+	if err := reg.Register(capabilities.RegistryLayout, "zen", testLayout{name: "zen"}, "core"); err != nil {
 		t.Fatalf("register layout: %v", err)
 	}
 	if err := reg.Register(capabilities.RegistryLayout, "split", testLayout{name: "split"}, "core"); err != nil {
@@ -148,7 +148,7 @@ func TestLayoutsFromRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("layoutsFromRegistry() error = %v", err)
 	}
-	if len(layouts) != 2 || layouts[0] != app.LayoutChat || layouts[1] != app.LayoutSplit {
+	if len(layouts) != 2 || layouts[0] != app.LayoutZen || layouts[1] != app.LayoutSplit {
 		t.Fatalf("layouts = %+v", layouts)
 	}
 }
@@ -173,7 +173,7 @@ func TestLayoutsFromRegistryInstallsLayoutTrees(t *testing.T) {
 	}, "plugin"); err != nil {
 		t.Fatalf("register layout: %v", err)
 	}
-	renderConfig := &app.RenderConfig{Layouts: map[string]app.LayoutNode{}, Menu: []string{"chat"}}
+	renderConfig := &app.RenderConfig{Layouts: map[string]app.LayoutNode{}, Menu: []string{"zen"}}
 
 	layouts, err := layoutsFromRegistry(reg, renderConfig)
 	if err != nil {
@@ -190,20 +190,20 @@ func TestLayoutsFromRegistryInstallsLayoutTrees(t *testing.T) {
 		t.Fatalf("installed node = %+v", node)
 	}
 	if len(renderConfig.Menu) != 2 || renderConfig.Menu[1] != "focus" {
-		t.Fatalf("menu = %+v, want chat, focus", renderConfig.Menu)
+		t.Fatalf("menu = %+v, want zen, focus", renderConfig.Menu)
 	}
 }
 
 func TestLayoutsFromRegistryInstallsHiddenLayoutsWithoutSelectingThem(t *testing.T) {
 	reg := kernel.NewRegistry(nil)
-	if err := reg.Register(capabilities.RegistryLayout, "chat", testLayout{
-		name: "chat",
+	if err := reg.Register(capabilities.RegistryLayout, "zen", testLayout{
+		name: "zen",
 		tree: publiclayout.Chat(),
 	}, "core"); err != nil {
-		t.Fatalf("register chat layout: %v", err)
+		t.Fatalf("register zen layout: %v", err)
 	}
-	if err := reg.Register(capabilities.RegistryLayout, "narrow_chat", publiclayout.Hidden(testLayout{
-		name: "narrow_chat",
+	if err := reg.Register(capabilities.RegistryLayout, "narrow_zen", publiclayout.Hidden(testLayout{
+		name: "narrow_zen",
 		tree: publiclayout.Chat(),
 	}), "core"); err != nil {
 		t.Fatalf("register hidden layout: %v", err)
@@ -214,21 +214,21 @@ func TestLayoutsFromRegistryInstallsHiddenLayoutsWithoutSelectingThem(t *testing
 	if err != nil {
 		t.Fatalf("layoutsFromRegistry() error = %v", err)
 	}
-	if len(layouts) != 1 || layouts[0] != app.LayoutChat {
-		t.Fatalf("selectable layouts = %+v, want chat only", layouts)
+	if len(layouts) != 1 || layouts[0] != app.LayoutZen {
+		t.Fatalf("selectable layouts = %+v, want zen only", layouts)
 	}
-	if _, ok := renderConfig.Layouts["narrow_chat"]; !ok {
+	if _, ok := renderConfig.Layouts["narrow_zen"]; !ok {
 		t.Fatal("hidden fallback layout was not installed")
 	}
 	for _, name := range renderConfig.Menu {
-		if name == "narrow_chat" {
+		if name == "narrow_zen" {
 			t.Fatalf("hidden layout leaked into menu: %+v", renderConfig.Menu)
 		}
 	}
 }
 
 func TestAppendLayoutIfMissing(t *testing.T) {
-	layouts := appendLayoutIfMissing([]app.LayoutType{app.LayoutChat}, app.LayoutSplit)
+	layouts := appendLayoutIfMissing([]app.LayoutType{app.LayoutZen}, app.LayoutSplit)
 	if len(layouts) != 2 || layouts[1] != app.LayoutSplit {
 		t.Fatalf("layouts = %+v, want appended split", layouts)
 	}
@@ -353,7 +353,7 @@ func TestFormatDoctor(t *testing.T) {
 	if err := reg.Register(capabilities.RegistryLayout, "split", testLayout{name: "split"}, "core"); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.Register(capabilities.RegistryLayout, "narrow_split", publiclayout.Hidden(testLayout{name: "narrow_split"}), "core"); err != nil {
+	if err := reg.Register(capabilities.RegistryLayout, "hidden_aux", publiclayout.Hidden(testLayout{name: "hidden_aux"}), "core"); err != nil {
 		t.Fatal(err)
 	}
 	loaded := &kernel.Loaded{
@@ -385,7 +385,7 @@ func TestFormatDoctor(t *testing.T) {
 		"opencode (core)",
 		"/new (core)",
 		"split (core)",
-		"narrow_split (core, hidden)",
+		"hidden_aux (core, hidden)",
 		"shadows:",
 	} {
 		if !strings.Contains(got, want) {

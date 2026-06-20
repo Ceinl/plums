@@ -47,7 +47,7 @@ func TestRenderAllLayoutsAndSizes(t *testing.T) {
 	silenceStdout(t)
 	cfg := testRenderConfig(t)
 
-	layouts := []LayoutType{LayoutChat, LayoutSplit, LayoutZen}
+	layouts := []LayoutType{LayoutSplit, LayoutZen}
 	sizes := [][2]int{{160, 48}, {120, 40}, {80, 24}, {40, 12}}
 	for _, lt := range layouts {
 		for _, size := range sizes {
@@ -65,12 +65,8 @@ func TestRenderAllLayoutsAndSizes(t *testing.T) {
 // JSON layout config cannot be loaded.
 func TestFallbackLayoutBuilders(t *testing.T) {
 	builders := map[string]func(*State) *components.Div{
-		"chat":            CreateChatLayout,
-		"split":           CreateSplitLayout,
-		"sessions":        CreateSessionsLayout,
-		"narrow_split":    CreateNarrowSplitLayout,
-		"narrow_sessions": CreateNarrowSessionsLayout,
-		"zen":             CreateZenLayout,
+		"default": CreateDefaultLayout,
+		"zen":     CreateZenLayout,
 	}
 	sizes := [][2]int{{120, 40}, {40, 12}}
 	for name, build := range builders {

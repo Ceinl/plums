@@ -48,7 +48,7 @@ func Defaults() cfgpkg.SettingsDefaults {
 func Opts() cfgpkg.Opts {
 	return cfgpkg.Opts{
 		Backend:          "opencode",
-		DefaultLayout:    "chat",
+		DefaultLayout:    "zen",
 		Theme:            cfgpkg.Theme{Name: "default"},
 		Keybinds:         DefaultKeybinds(),
 		ClipboardCommand: "pbcopy",

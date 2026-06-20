@@ -17,7 +17,7 @@ type RenderConfig struct {
 	// Menu is the ordered list of user-selectable layout ids (the ones the
 	// layout cycle and palette offer). It is the data-driven knob for adding a
 	// layout: define it under "layouts" and list its key here. When empty, the
-	// built-in chat/split/zen set is recognised for backwards compatibility.
+	// legacy split/zen keys are recognised for backwards compatibility.
 	Menu     []string               `json:"menu"`
 	Overlays map[string]OverlayNode `json:"overlays"`
 }
@@ -119,7 +119,7 @@ func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {
 		return nil
 	}
 	// Explicit menu wins: a fully data-driven, ordered selection. Each entry
-	// must resolve to a defined layout ("chat" also accepts a "default" node).
+	// must resolve to a defined layout.
 	if len(cfg.Menu) > 0 {
 		layouts := make([]LayoutType, 0, len(cfg.Menu))
 		for _, name := range cfg.Menu {
@@ -128,23 +128,14 @@ func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {
 			}
 			if _, ok := cfg.Layouts[name]; ok {
 				layouts = append(layouts, LayoutType(name))
-			} else if name == "chat" {
-				if _, ok := cfg.Layouts["default"]; ok {
-					layouts = append(layouts, LayoutChat)
-				}
 			}
 		}
 		return layouts
 	}
 
-	// Legacy fallback (no menu declared): recognise the built-in keys in their
-	// historical order.
-	layouts := make([]LayoutType, 0, 4)
-	if _, ok := cfg.Layouts["chat"]; ok {
-		layouts = append(layouts, LayoutChat)
-	} else if _, ok := cfg.Layouts["default"]; ok {
-		layouts = append(layouts, LayoutChat)
-	}
+	// Legacy fallback (no menu declared): recognise historical keys in their
+	// old order.
+	layouts := make([]LayoutType, 0, 2)
 	if _, ok := cfg.Layouts["split"]; ok {
 		layouts = append(layouts, LayoutSplit)
 	}
@@ -189,9 +180,6 @@ func resolveOverlayMax(state *State, raw json.RawMessage, fallback int) int {
 
 func buildLayout(state *State, cfg *RenderConfig, name string) (layout.Component, error) {
 	node, ok := cfg.Layouts[name]
-	if !ok && name == "chat" {
-		node, ok = cfg.Layouts["default"]
-	}
 	if !ok {
 		return nil, fmt.Errorf("layout %q not found", name)
 	}

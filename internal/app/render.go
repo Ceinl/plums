@@ -78,16 +78,10 @@ func paletteForLayout(l LayoutType) theme.Palette {
 }
 
 // fallbackLayout picks a Go layout builder when the JSON config cannot be
-// built, honouring the current layout type where a dedicated builder exists.
+// built. Keep this minimal: stock layout arrangement should come from registered
+// layout plugins, and the hard fallback only needs to keep the UI usable.
 func fallbackLayout(state *State) *components.Div {
-	switch state.EffectiveLayout() {
-	case LayoutSplit:
-		return CreateSplitLayout(state)
-	case LayoutZen:
-		return CreateZenLayout(state)
-	default:
-		return CreateDefaultLayout(state)
-	}
+	return CreateDefaultLayout(state)
 }
 
 // layoutName is the config key for a layout — identical to its id, except an

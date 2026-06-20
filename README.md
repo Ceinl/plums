@@ -49,8 +49,9 @@ The user-authored config directory is `~/.config/plums/config`:
 Runtime preferences that opt into `cfg.Dynamic` are stored separately in the
 app-managed `~/.config/plums/state.toml`; it is not a user config format.
 
-`split` ships as a user plugin in `config.go` (not a builtin) — run `plums -doctor`
-to see it registered as `split (split-layout)`.
+The bundled layout plugin ships only `zen`. The seeded `config.go` adds `split`
+as a user plugin — run `plums -doctor` to see `zen (ui/layouts)` and
+`split (split-layout)`.
 
 ## Development
 

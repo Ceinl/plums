@@ -14,8 +14,8 @@ func TestPluginLayouts(t *testing.T) {
 	for _, l := range got {
 		names = append(names, l.Name())
 	}
-	// split / narrow_split intentionally ship as a user plugin, not here.
-	want := []string{"chat", "zen", "narrow_chat"}
+	// split intentionally ships as a user plugin, not here.
+	want := []string{"zen"}
 	if len(names) != len(want) {
 		t.Fatalf("layout names = %v, want %v", names, want)
 	}
@@ -26,19 +26,12 @@ func TestPluginLayouts(t *testing.T) {
 	}
 }
 
-func TestNarrowChatHidden(t *testing.T) {
+func TestBundledLayoutsSelectable(t *testing.T) {
 	for _, l := range (&Plugin{}).Layouts() {
 		selectable, ok := l.(interface{ Selectable() bool })
 		hidden := ok && !selectable.Selectable()
-		switch l.Name() {
-		case "narrow_chat":
-			if !hidden {
-				t.Fatalf("narrow_chat should be hidden")
-			}
-		default:
-			if hidden {
-				t.Fatalf("%s should be selectable", l.Name())
-			}
+		if hidden {
+			t.Fatalf("%s should be selectable", l.Name())
 		}
 	}
 }

@@ -112,7 +112,7 @@ func NewState(width int, height int) *State {
 		width:            width,
 		height:           height,
 		Editor:           components.NewTextEditor(),
-		Layout:           LayoutSplit,
+		Layout:           LayoutDefault,
 		availableLayouts: defaultLayoutCycle(),
 		Mode:             "build",
 		OutputPercent:    defaultOutputPercentage,

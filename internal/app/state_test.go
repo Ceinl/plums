@@ -71,9 +71,10 @@ func TestNewRenderConfig(t *testing.T) {
 
 func TestSwitchLayoutSkipsUnavailableConfiguredLayouts(t *testing.T) {
 	state := NewState(120, 40)
+	state.Layout = LayoutSplit
 	cfg := &RenderConfig{Layouts: map[string]LayoutNode{
 		"split": {},
-		"chat":  {},
+		"zen":   {},
 	}}
 	state.SetAvailableLayouts(cfg.AvailableLayoutTypes())
 
@@ -81,8 +82,8 @@ func TestSwitchLayoutSkipsUnavailableConfiguredLayouts(t *testing.T) {
 		t.Fatalf("expected initial layout to remain split, got %v", state.Layout)
 	}
 	state.SwitchLayout()
-	if state.Layout != LayoutChat {
-		t.Fatalf("expected tab to switch to chat, got %v", state.Layout)
+	if state.Layout != LayoutZen {
+		t.Fatalf("expected tab to switch to zen, got %v", state.Layout)
 	}
 	state.SwitchLayout()
 	if state.Layout != LayoutSplit {
@@ -92,6 +93,7 @@ func TestSwitchLayoutSkipsUnavailableConfiguredLayouts(t *testing.T) {
 
 func TestPaletteIncludesLayoutCommand(t *testing.T) {
 	state := stateWithBuiltinCommands(120, 40)
+	state.Layout = LayoutSplit
 	state.OpenPalette()
 	for _, ch := range "layout" {
 		state.InsertPaletteRune(ch)
@@ -141,15 +143,16 @@ func TestNonSplitCommandPaletteHidesOutputPercentage(t *testing.T) {
 
 func TestLayoutPaletteSelection(t *testing.T) {
 	state := NewState(120, 40)
-	state.SetAvailableLayouts([]LayoutType{LayoutDefault, LayoutSplit, LayoutZen})
+	state.SetAvailableLayouts([]LayoutType{LayoutZen, LayoutSplit})
+	state.SetLayout(LayoutSplit)
 	state.SetLayoutItems()
 
 	if state.PaletteTitle() != "Layouts" {
 		t.Fatalf("expected layouts title, got %q", state.PaletteTitle())
 	}
 	items := state.PaletteItems()
-	if len(items) != 3 {
-		t.Fatalf("expected 3 layout items, got %#v", items)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 layout items, got %#v", items)
 	}
 	if items[1].Title != "Split" || !strings.Contains(items[1].Detail, "current") {
 		t.Fatalf("expected split current item, got %#v", items[1])

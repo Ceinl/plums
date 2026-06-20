@@ -29,9 +29,9 @@ func renderPublicComponentForTest(t *testing.T, state *State, publicComponent ca
 	built.Render(screen.NewScreen(state.width, state.height))
 }
 
-func TestPlainEnterSubmitsInputInChat(t *testing.T) {
+func TestPlainEnterSubmitsInputInZen(t *testing.T) {
 	state := NewState(80, 24)
-	state.Layout = LayoutChat
+	state.Layout = LayoutZen
 	state.Editor.SetContent("send me")
 
 	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyEnter})
@@ -43,9 +43,9 @@ func TestPlainEnterSubmitsInputInChat(t *testing.T) {
 	}
 }
 
-func TestShiftEnterInsertsNewlineInChat(t *testing.T) {
+func TestShiftEnterInsertsNewlineInZen(t *testing.T) {
 	state := NewState(80, 24)
-	state.Layout = LayoutChat
+	state.Layout = LayoutZen
 	state.Editor.SetContent("line")
 
 	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyEnter, Shift: true})
@@ -275,7 +275,7 @@ func TestEnterSelectsEditorDropdownItem(t *testing.T) {
 
 func TestEnterSubmitsExactSlashCommandWhenDropdownOpen(t *testing.T) {
 	state := stateWithBuiltinCommands(80, 24)
-	state.Layout = LayoutChat
+	state.Layout = LayoutZen
 	state.Editor.SetContent("/new")
 
 	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyEnter})

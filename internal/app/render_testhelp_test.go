@@ -10,17 +10,16 @@ import (
 
 // testRenderConfig builds a RenderConfig the way the runtime does: start from the
 // internal scaffold (overlays only) and install the public layouts from the
-// bundled layouts plugin, plus the split layouts standing in for the user-config
+// bundled layouts plugin, plus the split layout standing in for the user-config
 // SplitLayoutPlugin (a compiled template, not linked into tests). This gives
-// tests the same chat/zen/narrow_chat/split/narrow_split set the app sees at
-// runtime, without embedded layout data files.
+// tests the same zen/split layout set the app sees at runtime, without embedded
+// layout data files.
 func testRenderConfig(t *testing.T) *RenderConfig {
 	t.Helper()
 	cfg := NewRenderConfig()
 	all := append([]capabilities.Layout{}, (&layouts.Plugin{}).Layouts()...)
 	all = append(all,
 		layout.Named("split", testSplitTree()),
-		layout.Hidden(layout.Named("narrow_split", testNarrowSplitTree())),
 	)
 	for _, l := range all {
 		if _, err := InstallPublicLayout(cfg, l); err != nil {
@@ -50,15 +49,6 @@ func testSplitTree() capabilities.Node {
 			layout.SplitStatusBar().Width("100%").Height(1).Style(layout.ThemeStyle(layout.ColorBgBase, layout.ColorTextFaint)),
 		).
 			Width("grow").Height("100%").Padding(testPad(1, 2, 1, 2)).Style(layout.ThemeBg(layout.ColorBgBase)),
-	).
-		Width("100%").Height("100%").MinWidth("MinSplitLayoutWidth").Fallback("narrow_split")
-}
-
-func testNarrowSplitTree() capabilities.Node {
-	return layout.Column(
-		layout.Chat().Width("100%").Height("50%").Padding(testPad(1, 2, 1, 2)).Style(layout.ThemeBg(layout.ColorBgBase)),
-		layout.Separator().Width("100%").Height(1),
-		layout.Editor().Width("100%").Height("grow").Padding(testPad(1, 2, 1, 2)).Style(layout.ThemeStyle(layout.ColorBgPanel, layout.ColorText)),
 	).
 		Width("100%").Height("100%")
 }

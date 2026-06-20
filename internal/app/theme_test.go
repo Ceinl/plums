@@ -9,7 +9,7 @@ import (
 
 func TestPaletteForStateUsesExplicitTheme(t *testing.T) {
 	state := NewState(80, 24)
-	state.Layout = LayoutChat
+	state.Layout = LayoutZen
 	state.SetTheme(capabilities.Theme{Name: "zen"})
 
 	if got := paletteForState(state); got.BgBase != theme.Zen.BgBase {
