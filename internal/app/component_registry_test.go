@@ -16,8 +16,30 @@ func TestDefaultComponentFactoriesResolveComponent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildComponent() error = %v", err)
 	}
-	if _, ok := component.(*components.StatusBar); !ok {
-		t.Fatalf("component type = %T, want *components.StatusBar", component)
+	// Every stock component now resolves through the public-component path, so a
+	// bare State builds it as a publicComponentAdapter wrapping the registered
+	// capabilities.Component.
+	adapter, ok := component.(*publicComponentAdapter)
+	if !ok {
+		t.Fatalf("component type = %T, want *publicComponentAdapter", component)
+	}
+	if got := adapter.component.Name(); got != "status_bar" {
+		t.Fatalf("wrapped component name = %q, want status_bar", got)
+	}
+}
+
+func TestDefaultComponentFactoriesIncludePortedComponents(t *testing.T) {
+	// The last five privileged-factory components are now public components, so a
+	// bare State must resolve them through ComponentFactoryForPublic too.
+	state := NewState(80, 24)
+	for _, name := range []string{"editor", "editor_or_palette", "input_box", "text_box", "fullscreen_view"} {
+		component, err := buildComponent(state, LayoutNode{Component: name})
+		if err != nil {
+			t.Fatalf("buildComponent(%q) error = %v", name, err)
+		}
+		if _, ok := component.(*publicComponentAdapter); !ok {
+			t.Fatalf("component %q type = %T, want *publicComponentAdapter", name, component)
+		}
 	}
 }
 

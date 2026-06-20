@@ -6,5 +6,5 @@ import (
 )
 
 func DefaultComponents() []capabilities.Component {
-	return app.DefaultPluginComponents()
+	return app.DefaultComponents()
 }

@@ -507,14 +507,8 @@ func componentFactoriesFromRegistry(reg *kernel.Registry) (map[string]app.Compon
 		if !ok {
 			return nil, fmt.Errorf("registry component %q from %s has type %T", entry.Name, entry.Owner, entry.Value)
 		}
-		// A bundled component that wraps an internal factory exposes it via
-		// ComponentFactoryProvider; everything else renders through the public
-		// Component/Surface path. Ownership no longer gates this.
-		factory := app.ComponentFactoryForPublic(component)
-		if provider, ok := component.(app.ComponentFactoryProvider); ok {
-			factory = provider.AppComponentFactory()
-		}
-		factories[component.Name()] = factory
+		// Every component renders through the public Component/Surface path.
+		factories[component.Name()] = app.ComponentFactoryForPublic(component)
 	}
 	return factories, nil
 }
