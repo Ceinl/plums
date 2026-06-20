@@ -120,21 +120,21 @@ func TestDefaultCommandConfigOmitsChatLayoutCommand(t *testing.T) {
 	}
 }
 
-func TestFullscreenCommandPaletteHidesOutputPercentage(t *testing.T) {
+func TestNonSplitCommandPaletteHidesOutputPercentage(t *testing.T) {
 	state := NewState(120, 40)
-	state.Layout = LayoutFullscreen
+	state.Layout = LayoutZen
 	state.OpenPalette()
 
 	for _, item := range state.PaletteItems() {
 		if item.Title == "Output percentage" {
-			t.Fatalf("expected fullscreen palette to hide output percentage")
+			t.Fatalf("expected non-split palette to hide output percentage")
 		}
 	}
 }
 
 func TestLayoutPaletteSelection(t *testing.T) {
 	state := NewState(120, 40)
-	state.SetAvailableLayouts([]LayoutType{LayoutDefault, LayoutSplit, LayoutFullscreen})
+	state.SetAvailableLayouts([]LayoutType{LayoutDefault, LayoutSplit, LayoutZen})
 	state.SetLayoutItems()
 
 	if state.PaletteTitle() != "Layouts" {
@@ -154,12 +154,12 @@ func TestLayoutPaletteSelection(t *testing.T) {
 		t.Fatalf("expected select layout action, got %v", got)
 	}
 	layoutType, ok := state.SelectedLayout()
-	if !ok || layoutType != LayoutFullscreen {
-		t.Fatalf("expected fullscreen selection, got %v ok=%v", layoutType, ok)
+	if !ok || layoutType != LayoutZen {
+		t.Fatalf("expected zen selection, got %v ok=%v", layoutType, ok)
 	}
 	state.SetLayout(layoutType)
-	if state.Layout != LayoutFullscreen {
-		t.Fatalf("expected fullscreen layout, got %v", state.Layout)
+	if state.Layout != LayoutZen {
+		t.Fatalf("expected zen layout, got %v", state.Layout)
 	}
 }
 

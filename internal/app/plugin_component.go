@@ -27,6 +27,5 @@ func DefaultComponents() []capabilities.Component {
 		NewEditorOrPaletteComponent(),
 		NewInputBoxComponent(),
 		NewTextBoxComponent(),
-		NewFullscreenViewComponent(),
 	}
 }

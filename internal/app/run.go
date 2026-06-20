@@ -425,7 +425,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 			}
 			if handled {
 				if ev.Type == keyboard.KeyEnter {
-					// In split layout Shift+Enter submits; in chat/fullscreen Enter submits.
+					// In split layout Shift+Enter submits; in chat Enter submits.
 					isSubmit := (!ev.Shift && state.EffectiveLayout() != LayoutSplit) || (ev.Shift && state.EffectiveLayout() == LayoutSplit)
 					if isSubmit {
 						raw := state.ConsumeSubmittedMessage()

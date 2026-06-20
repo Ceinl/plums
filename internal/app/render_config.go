@@ -19,8 +19,7 @@ type RenderConfig struct {
 	// Menu is the ordered list of user-selectable layout ids (the ones the
 	// layout cycle and palette offer). It is the data-driven knob for adding a
 	// layout: define it under "layouts" and list its key here. When empty, the
-	// built-in chat/split/fullscreen set is recognised for backwards
-	// compatibility.
+	// built-in chat/split/zen set is recognised for backwards compatibility.
 	Menu     []string               `json:"menu"`
 	Overlays map[string]OverlayNode `json:"overlays"`
 }
@@ -142,9 +141,6 @@ func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {
 	if _, ok := cfg.Layouts["zen"]; ok {
 		layouts = append(layouts, LayoutZen)
 	}
-	if _, ok := cfg.Layouts["fullscreen"]; ok {
-		layouts = append(layouts, LayoutFullscreen)
-	}
 	return layouts
 }
 
@@ -185,9 +181,6 @@ func buildLayout(state *State, cfg *RenderConfig, name string) (layout.Component
 	node, ok := cfg.Layouts[name]
 	if !ok && name == "chat" {
 		node, ok = cfg.Layouts["default"]
-	}
-	if !ok && name == "chat" {
-		node, ok = cfg.Layouts["fullscreen"]
 	}
 	if !ok {
 		return nil, fmt.Errorf("layout %q not found", name)

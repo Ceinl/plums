@@ -29,10 +29,10 @@ func TestDefaultComponentFactoriesResolveComponent(t *testing.T) {
 }
 
 func TestDefaultComponentFactoriesIncludePortedComponents(t *testing.T) {
-	// The last five privileged-factory components are now public components, so a
-	// bare State must resolve them through ComponentFactoryForPublic too.
+	// These privileged-factory components are now public components, so a bare
+	// State must resolve them through ComponentFactoryForPublic too.
 	state := NewState(80, 24)
-	for _, name := range []string{"editor", "editor_or_palette", "input_box", "text_box", "fullscreen_view"} {
+	for _, name := range []string{"editor", "editor_or_palette", "input_box", "text_box"} {
 		component, err := buildComponent(state, LayoutNode{Component: name})
 		if err != nil {
 			t.Fatalf("buildComponent(%q) error = %v", name, err)

@@ -116,41 +116,6 @@ func newInfoView(state *State) layout.Component {
 	return newChatLog(state)
 }
 
-func newFullscreenView(state *State) layout.Component {
-	if state.FullscreenTab == FullscreenTabEditor {
-		div := newEditorDiv(
-			state.Editor,
-			layout.Unit{Type: layout.UnitPercent, Value: 100},
-			layout.Unit{Type: layout.UnitPercent, Value: 100},
-		)
-		div.SetPadding(layout.Padding{
-			Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
-			Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
-			Top:    layout.Unit{Type: layout.UnitPx, Value: 3},
-			Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
-		})
-		return div
-	}
-
-	outputDiv := newOutput()
-	outputDiv.SetSize(
-		layout.Unit{Type: layout.UnitPercent, Value: 100},
-		layout.Unit{Type: layout.UnitPercent, Value: 100},
-	)
-	outputDiv.SetPadding(layout.Padding{
-		Left:   layout.Unit{Type: layout.UnitPx, Value: 2},
-		Right:  layout.Unit{Type: layout.UnitPx, Value: 2},
-		Top:    layout.Unit{Type: layout.UnitPx, Value: 3},
-		Bottom: layout.Unit{Type: layout.UnitPx, Value: 1},
-	})
-	if state.FullscreenOutputView() == InfoViewGitDiff {
-		outputDiv.AppendChild(newGitDiffLog(state))
-	} else {
-		outputDiv.AppendChild(newChatLog(state))
-	}
-	return outputDiv
-}
-
 func newHorizontalRule(state *State) *components.Div {
 	div := components.NewDiv()
 	div.SetSize(
@@ -495,11 +460,4 @@ func CreateNarrowSessionsLayout(state *State) *components.Div {
 	root.AppendChild(outputDiv)
 	root.AppendChild(inputDiv)
 	return root
-}
-
-func CreateFullscreenLayout(state *State) *components.Div {
-	if div, ok := newFullscreenView(state).(*components.Div); ok {
-		return div
-	}
-	return CreateDefaultLayout(state)
 }

@@ -146,64 +146,6 @@ func TestTabCyclesOutputPanelsNotLayout(t *testing.T) {
 	}
 }
 
-func TestFullscreenTabCyclesViews(t *testing.T) {
-	state := NewState(120, 40)
-	state.Layout = LayoutFullscreen
-
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyTab}, DefaultClipboardCommand())
-	if !handled || quit {
-		t.Fatalf("expected Tab handled without quit, handled=%v quit=%v", handled, quit)
-	}
-	if state.Layout != LayoutFullscreen {
-		t.Fatalf("expected Tab to keep fullscreen layout, got %v", state.Layout)
-	}
-	if state.FullscreenTab != FullscreenTabOutput {
-		t.Fatalf("expected Tab to move to output tab, got %v", state.FullscreenTab)
-	}
-
-	handled, quit = HandleKey(state, keyboard.Event{Type: keyboard.KeyTab}, DefaultClipboardCommand())
-	if !handled || quit {
-		t.Fatalf("expected second Tab handled without quit, handled=%v quit=%v", handled, quit)
-	}
-	if state.FullscreenTab != FullscreenTabDiff {
-		t.Fatalf("expected second Tab to move to diff tab, got %v", state.FullscreenTab)
-	}
-
-	handled, quit = HandleKey(state, keyboard.Event{Type: keyboard.KeyTab, Shift: true}, DefaultClipboardCommand())
-	if !handled || quit {
-		t.Fatalf("expected Shift+Tab handled without quit, handled=%v quit=%v", handled, quit)
-	}
-	if state.FullscreenTab != FullscreenTabOutput {
-		t.Fatalf("expected Shift+Tab to move back to output tab, got %v", state.FullscreenTab)
-	}
-}
-
-func TestFullscreenTabAcceptsTabRune(t *testing.T) {
-	state := NewState(120, 40)
-	state.Layout = LayoutFullscreen
-
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyRune, Ch: '\t'}, DefaultClipboardCommand())
-	if !handled || quit {
-		t.Fatalf("expected tab rune handled without quit, handled=%v quit=%v", handled, quit)
-	}
-	if state.FullscreenTab != FullscreenTabOutput {
-		t.Fatalf("expected tab rune to move to output tab, got %v", state.FullscreenTab)
-	}
-}
-
-func TestFullscreenTabAcceptsCtrlI(t *testing.T) {
-	state := NewState(120, 40)
-	state.Layout = LayoutFullscreen
-
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyRune, Ch: 'I', Ctrl: true}, DefaultClipboardCommand())
-	if !handled || quit {
-		t.Fatalf("expected Ctrl+I handled without quit, handled=%v quit=%v", handled, quit)
-	}
-	if state.FullscreenTab != FullscreenTabOutput {
-		t.Fatalf("expected Ctrl+I to move to output tab, got %v", state.FullscreenTab)
-	}
-}
-
 func TestCtrlTDoesNotCycleOutputPanels(t *testing.T) {
 	state := NewState(120, 40)
 

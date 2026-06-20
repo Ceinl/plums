@@ -83,7 +83,6 @@ type State struct {
 	ModelProvider      string
 	ModelID            string
 	InfoView           InfoView
-	FullscreenTab      FullscreenTab
 	GitDiff            string
 	OutputPercent      int
 	submittedInput     string

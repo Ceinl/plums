@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "menu": ["chat", "split", "zen", "fullscreen"],
+  "menu": ["chat", "split", "zen"],
   "layouts": {
     "chat": {
       "type": "div",
@@ -175,9 +175,6 @@
           }
         }
       ]
-    },
-    "fullscreen": {
-      "component": "fullscreen_view"
     }
   },
   "overlays": {

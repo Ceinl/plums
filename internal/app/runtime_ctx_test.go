@@ -12,7 +12,7 @@ func TestRuntimeCtxQueuesStateMutations(t *testing.T) {
 	ctx := newRuntimeCtx(state, RunConfig{WorkingDirectory: "/tmp/project"}, mutations, nil)
 
 	ctx.Chat("system", "hello")
-	ctx.SetLayout("fullscreen")
+	ctx.SetLayout("zen")
 	ctx.Input().SetText("next")
 
 	for i := 0; i < 3; i++ {
@@ -24,8 +24,8 @@ func TestRuntimeCtxQueuesStateMutations(t *testing.T) {
 	if len(messages) != 1 || messages[0].Role != "system" || messages[0].Content != "hello" {
 		t.Fatalf("messages = %+v", messages)
 	}
-	if state.Layout != LayoutFullscreen {
-		t.Fatalf("layout = %q, want fullscreen", state.Layout)
+	if state.Layout != LayoutZen {
+		t.Fatalf("layout = %q, want zen", state.Layout)
 	}
 	if got := state.Editor.GetContent(); got != "next" {
 		t.Fatalf("editor content = %q, want next", got)

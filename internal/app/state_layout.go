@@ -6,13 +6,11 @@ import "strings"
 // the render config's "layouts" map. New layouts are added purely in JSON (a
 // layouts entry plus a "menu" entry); no Go constant is required. The named
 // constants below exist only for the built-in layouts that carry special
-// interaction behaviour (split's two-pane submit, fullscreen's tabs); any other
-// layout id is treated as a simple chat-style layout.
+// interaction behaviour (split's two-pane submit); any other layout id is
+// treated as a simple chat-style layout.
 type LayoutType string
 
 type InfoView int
-
-type FullscreenTab int
 
 const MinSplitLayoutWidth = 90
 
@@ -24,9 +22,8 @@ const (
 )
 
 const (
-	LayoutChat       LayoutType = "chat"
-	LayoutSplit      LayoutType = "split"
-	LayoutFullscreen LayoutType = "fullscreen"
+	LayoutChat  LayoutType = "chat"
+	LayoutSplit LayoutType = "split"
 	// LayoutZen is the built-in minimalistic single-column layout in neutral
 	// greys. It needs no special Go behaviour — it's named only so the Go
 	// fallback builder and default cycle can reference it.
@@ -40,15 +37,8 @@ const (
 	InfoViewGitDiff
 )
 
-const (
-	FullscreenTabEditor FullscreenTab = iota
-	FullscreenTabOutput
-	FullscreenTabDiff
-	fullscreenTabCount
-)
-
 func defaultLayoutCycle() []LayoutType {
-	return []LayoutType{LayoutChat, LayoutSplit, LayoutZen, LayoutFullscreen}
+	return []LayoutType{LayoutChat, LayoutSplit, LayoutZen}
 }
 
 func (s *State) SetAvailableLayouts(layouts []LayoutType) {
@@ -89,35 +79,6 @@ func (s *State) CycleInfoView() {
 	}
 }
 
-func (s *State) CycleFullscreenTab(delta int) {
-	before := s.FullscreenTab
-	next := int(s.FullscreenTab) + delta
-	for next < 0 {
-		next += int(fullscreenTabCount)
-	}
-	s.FullscreenTab = FullscreenTab(next % int(fullscreenTabCount))
-	if s.FullscreenTab != before {
-		s.outputScroll = 0
-		s.invalidateOutputMax()
-		s.ChatLog().ClearSelection()
-		s.DiffLog().ClearSelection()
-	}
-	if s.FullscreenTab == FullscreenTabDiff {
-		s.RefreshGitDiff()
-	}
-}
-
-func (s *State) FullscreenShowsEditor() bool {
-	return s.EffectiveLayout() != LayoutFullscreen || s.FullscreenTab == FullscreenTabEditor
-}
-
-func (s *State) FullscreenOutputView() InfoView {
-	if s.FullscreenTab == FullscreenTabDiff {
-		return InfoViewGitDiff
-	}
-	return InfoViewAI
-}
-
 func (s *State) SwitchLayout() {
 	if len(s.availableLayouts) == 0 {
 		s.availableLayouts = defaultLayoutCycle()
@@ -130,9 +91,6 @@ func (s *State) SwitchLayout() {
 		}
 	}
 	s.Layout = s.availableLayouts[next]
-	if s.Layout == LayoutFullscreen {
-		s.FullscreenTab = FullscreenTabEditor
-	}
 	s.invalidateOutputMax()
 	s.ChatLog().ClearSelection()
 	s.DiffLog().ClearSelection()
@@ -197,9 +155,6 @@ func (s *State) SetLayout(layoutType LayoutType) {
 		return
 	}
 	s.Layout = layoutType
-	if s.Layout == LayoutFullscreen {
-		s.FullscreenTab = FullscreenTabEditor
-	}
 	s.invalidateOutputMax()
 	s.ChatLog().ClearSelection()
 	s.DiffLog().ClearSelection()
@@ -252,11 +207,11 @@ func layoutTitle(layoutType LayoutType) string {
 
 // LayoutScrollsOutput reports whether vertical scroll keys (PageUp/Down and the
 // mouse wheel) should move the chat output rather than the editor. True for
-// simple single-column layouts — chat, zen, and any custom layout that is
-// neither split nor fullscreen.
+// simple single-column layouts — chat, zen, and any custom layout that is not
+// split.
 func (s *State) LayoutScrollsOutput() bool {
 	switch s.EffectiveLayout() {
-	case LayoutSplit, LayoutFullscreen:
+	case LayoutSplit:
 		return false
 	default:
 		return true

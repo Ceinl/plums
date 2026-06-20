@@ -19,13 +19,14 @@ type CoreOptions struct {
 
 // DefaultPlugins returns the bundled default plugin set as config.Plugin values,
 // lowest priority, in load order: one plugin per backend, then the grouped UI
-// plugins. Each is a distinct registry owner, so a user config can shadow or
-// Disable any single one (e.g. drop backend/codex) without re-providing the rest.
+// plugins (components, commands). Layouts are NOT here — they ship as a public
+// layout plugin wired by the Default Config (see internal/builtincfg). Each
+// plugin is a distinct registry owner, so a user config can shadow or Disable
+// any single one (e.g. drop backend/codex) without re-providing the rest.
 func DefaultPlugins(options CoreOptions) []cfgpkg.Plugin {
 	plugins := BackendPlugins(options)
 	plugins = append(plugins,
 		cfgpkg.Plugin{Self: componentsPlugin{components: DefaultComponents()}},
-		cfgpkg.Plugin{Self: layoutsPlugin{layouts: DefaultLayouts()}},
 		cfgpkg.Plugin{Self: commandsPlugin{commands: DefaultCommands()}},
 	)
 	return plugins
@@ -63,16 +64,6 @@ func (componentsPlugin) Name() string                      { return "ui/componen
 func (componentsPlugin) Init(capabilities.Host, any) error { return nil }
 func (p componentsPlugin) Components() []capabilities.Component {
 	return append([]capabilities.Component(nil), p.components...)
-}
-
-type layoutsPlugin struct {
-	layouts []capabilities.Layout
-}
-
-func (layoutsPlugin) Name() string                      { return "ui/layouts" }
-func (layoutsPlugin) Init(capabilities.Host, any) error { return nil }
-func (p layoutsPlugin) Layouts() []capabilities.Layout {
-	return append([]capabilities.Layout(nil), p.layouts...)
 }
 
 type commandsPlugin struct {

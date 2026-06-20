@@ -106,7 +106,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 			ed.InsertNewline()
 			return true, false
 		}
-		// Chat and fullscreen layouts: Enter sends, Shift+Enter adds newline.
+		// Chat layout: Enter sends, Shift+Enter adds newline.
 		if ev.Shift {
 			ed.InsertNewline()
 			return true, false
@@ -130,14 +130,6 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		}
 		return true, false
 	case keyboard.KeyTab:
-		if state.EffectiveLayout() == LayoutFullscreen {
-			if ev.Shift {
-				state.CycleFullscreenTab(-1)
-			} else {
-				state.CycleFullscreenTab(1)
-			}
-			return true, false
-		}
 		if state.EffectiveLayout() == LayoutSplit {
 			state.CycleInfoView()
 			return true, false
@@ -259,17 +251,11 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		}
 		return true, false
 	case keyboard.KeyPageUp:
-		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
-			return state.ScrollOutputPage(1), false
-		}
 		if state.LayoutScrollsOutput() {
 			return state.ScrollOutputPage(1), false
 		}
 		return ed.ScrollPage(1), false
 	case keyboard.KeyPageDown:
-		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
-			return state.ScrollOutputPage(-1), false
-		}
 		if state.LayoutScrollsOutput() {
 			return state.ScrollOutputPage(-1), false
 		}
@@ -278,9 +264,6 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		if ev.Mouse {
 			return state.ScrollAt(ev.MouseX, ev.MouseY, 3), false
 		}
-		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
-			return state.ScrollOutputVisible(3), false
-		}
 		if state.LayoutScrollsOutput() {
 			return state.ScrollOutputVisible(3), false
 		}
@@ -288,9 +271,6 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 	case keyboard.KeyMouseWheelDown:
 		if ev.Mouse {
 			return state.ScrollAt(ev.MouseX, ev.MouseY, -3), false
-		}
-		if state.EffectiveLayout() == LayoutFullscreen && !state.FullscreenShowsEditor() {
-			return state.ScrollOutputVisible(-3), false
 		}
 		if state.LayoutScrollsOutput() {
 			return state.ScrollOutputVisible(-3), false
@@ -335,10 +315,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		return false, false
 	case keyboard.KeyHome:
 		if ev.Ctrl {
-			if state.FullscreenShowsEditor() {
-				return ed.ScrollTop(), false
-			}
-			return state.ScrollOutputPage(1 << 20), false
+			return ed.ScrollTop(), false
 		}
 		if ev.Shift {
 			ed.SelectHome()
@@ -348,10 +325,7 @@ func HandleKey(state *State, ev keyboard.Event, clipboardCmd string) (handled bo
 		return true, false
 	case keyboard.KeyEnd:
 		if ev.Ctrl {
-			if state.FullscreenShowsEditor() {
-				return ed.ScrollBottom(), false
-			}
-			return state.ScrollOutputBottom(), false
+			return ed.ScrollBottom(), false
 		}
 		if ev.Shift {
 			ed.SelectEnd()

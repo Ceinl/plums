@@ -50,7 +50,7 @@ func TestRenderAllLayoutsAndSizes(t *testing.T) {
 		t.Fatalf("load render config: %v", err)
 	}
 
-	layouts := []LayoutType{LayoutChat, LayoutSplit, LayoutZen, LayoutFullscreen}
+	layouts := []LayoutType{LayoutChat, LayoutSplit, LayoutZen}
 	sizes := [][2]int{{160, 48}, {120, 40}, {80, 24}, {40, 12}}
 	for _, lt := range layouts {
 		for _, size := range sizes {
@@ -74,7 +74,6 @@ func TestFallbackLayoutBuilders(t *testing.T) {
 		"narrow_split":    CreateNarrowSplitLayout,
 		"narrow_sessions": CreateNarrowSessionsLayout,
 		"zen":             CreateZenLayout,
-		"fullscreen":      CreateFullscreenLayout,
 	}
 	sizes := [][2]int{{120, 40}, {40, 12}}
 	for name, build := range builders {

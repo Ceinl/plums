@@ -7,7 +7,7 @@ import (
 
 // activeOutputScrollable returns the on-screen public component that owns a
 // scrollable body (e.g. chat_output), or nil when the active output pane is still
-// a legacy State-driven pane (diff log, fullscreen).
+// a legacy State-driven pane (diff log).
 func (s *State) activeOutputScrollable() capabilities.Scrollable {
 	for i := len(s.publicComponents) - 1; i >= 0; i-- {
 		if sc, ok := s.publicComponents[i].component.(capabilities.Scrollable); ok {
@@ -77,8 +77,6 @@ func (s *State) isEditorPoint(x, y int) bool {
 	}
 
 	switch s.EffectiveLayout() {
-	case LayoutFullscreen:
-		return s.FullscreenShowsEditor()
 	case LayoutSplit:
 		if s.width >= MinSplitLayoutWidth {
 			leftW := s.SplitLeftWidth()

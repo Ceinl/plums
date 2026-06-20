@@ -49,13 +49,6 @@ func (c testComponent) Name() string                                        { re
 func (c testComponent) Arrange(capabilities.Rect)                           {}
 func (c testComponent) Render(capabilities.RenderCtx, capabilities.Surface) {}
 
-type testLayout struct {
-	name string
-}
-
-func (l testLayout) Name() string            { return l.name }
-func (l testLayout) Tree() capabilities.Node { return nil }
-
 func TestDefaultPluginsHasPerFeatureOwners(t *testing.T) {
 	plugins := DefaultPlugins(CoreOptions{
 		WorkingDirectory:  "/tmp/project",
@@ -69,9 +62,11 @@ func TestDefaultPluginsHasPerFeatureOwners(t *testing.T) {
 		}
 		names = append(names, named.Name())
 	}
+	// Layouts no longer ship from Core — they are a public layouts plugin wired
+	// by the Default Config (internal/builtincfg), so "ui/layouts" is absent here.
 	want := []string{
 		"backend/opencode", "backend/codex", "backend/claude", "backend/claude-mirror",
-		"ui/components", "ui/layouts", "ui/commands",
+		"ui/components", "ui/commands",
 	}
 	if len(names) != len(want) {
 		t.Fatalf("plugin names = %v, want %v", names, want)
@@ -186,37 +181,5 @@ func TestComponentsPluginCopiesDefaults(t *testing.T) {
 	again := plugin.Components()
 	if again[0].Name() != "chat_output" {
 		t.Fatalf("Components() exposed mutable slice: %+v", again)
-	}
-}
-
-func TestDefaultLayouts(t *testing.T) {
-	layouts := DefaultLayouts()
-	names := make([]string, 0, len(layouts))
-	for _, layout := range layouts {
-		names = append(names, layout.Name())
-	}
-	// split / narrow_split intentionally ship as a user plugin, not a builtin.
-	want := []string{"chat", "zen", "narrow_chat", "fullscreen"}
-	if len(names) != len(want) {
-		t.Fatalf("layout names = %v, want %v", names, want)
-	}
-	for i := range want {
-		if names[i] != want[i] {
-			t.Fatalf("layout names = %v, want %v", names, want)
-		}
-	}
-}
-
-func TestLayoutsPluginCopiesDefaults(t *testing.T) {
-	plugin := layoutsPlugin{layouts: DefaultLayouts()}
-	layouts := plugin.Layouts()
-	if len(layouts) == 0 {
-		t.Fatal("expected default layouts")
-	}
-
-	layouts[0] = testLayout{name: "changed"}
-	again := plugin.Layouts()
-	if again[0].Name() != "chat" {
-		t.Fatalf("Layouts() exposed mutable slice: %+v", again)
 	}
 }

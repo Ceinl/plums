@@ -150,9 +150,6 @@
           }
         }
       ]
-    },
-    "fullscreen": {
-      "component": "fullscreen_view"
     }
   },
   "overlays": {
