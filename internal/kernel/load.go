@@ -21,6 +21,10 @@ type Loaded struct {
 	Settings capabilities.Settings
 	Registry *Registry
 	Hooks    Hooks
+	// Completion holds the completion sources plugins contributed via
+	// Host.Services().Completion().Register at Init. Core consumes these (plus its
+	// own built-in @file/slash sources) at runtime.
+	Completion *CompletionRegistry
 }
 
 type Hooks struct {
@@ -31,14 +35,15 @@ type Hooks struct {
 
 func Load(cfg cfgpkg.Config, opts LoadOptions) (*Loaded, error) {
 	loaded := &Loaded{
-		Registry: NewRegistry(opts.Logf),
+		Registry:   NewRegistry(opts.Logf),
+		Completion: newCompletionRegistry(),
 	}
 	if opts.Settings != nil {
 		loaded.Settings = *opts.Settings
 	} else {
 		loaded.Settings = cfg.Opts.ToSettings(cfgpkg.SettingsDefaults{})
 	}
-	host := host{settings: loaded.Settings, logf: opts.Logf}
+	host := host{settings: loaded.Settings, logf: opts.Logf, services: hostServices{completion: loaded.Completion}}
 
 	for _, plugin := range opts.Defaults {
 		if plugin.Self == nil {
@@ -63,6 +68,7 @@ func Load(cfg cfgpkg.Config, opts LoadOptions) (*Loaded, error) {
 type host struct {
 	settings capabilities.Settings
 	logf     func(string, ...any)
+	services capabilities.Services
 }
 
 func (h host) Settings() capabilities.Settings {
@@ -73,6 +79,10 @@ func (h host) Log(format string, args ...any) {
 	if h.logf != nil {
 		h.logf(format, args...)
 	}
+}
+
+func (h host) Services() capabilities.Services {
+	return h.services
 }
 
 func activatePlugin(plugin cfgpkg.Plugin, host host, loaded *Loaded) error {

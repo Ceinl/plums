@@ -21,6 +21,7 @@ type runtimeCtx struct {
 	clipboardCmd string
 	mutations    chan<- stateMutation
 	prompts      chan<- string
+	completion   *completionRegistry
 }
 
 func newRuntimeCtx(state *State, cfg RunConfig, mutations chan<- stateMutation, prompts chan<- string) *runtimeCtx {
@@ -90,9 +91,20 @@ func (c *runtimeCtx) Copy(text string) {
 	if text == "" {
 		return
 	}
-	if err := writeClipboard(text, c.clipboardCmd); err != nil {
+	if err := c.Services().Clipboard().Copy(text); err != nil {
 		c.Chat("system", "copy failed: "+err.Error())
 	}
+}
+
+// Services returns the host capability services bound to this runtime context.
+// The Completion registry is shared across the build; Palette/Clipboard/Selection
+// are bound to this context's state.
+func (c *runtimeCtx) Services() capabilities.Services {
+	registry := c.completion
+	if registry == nil {
+		registry = newCompletionRegistry()
+	}
+	return services{completion: registry, rt: c}
 }
 
 func (c *runtimeCtx) Shell(ctx context.Context, name string, args ...string) (string, error) {
@@ -122,10 +134,7 @@ func (c *runtimeCtx) SetLayout(name string) {
 }
 
 func (c *runtimeCtx) OpenList(title string, items []capabilities.ListItem, onPick func(capabilities.ListItem)) {
-	items = append([]capabilities.ListItem(nil), items...)
-	c.enqueue(func(state *State) {
-		state.SetRuntimeList(title, items, onPick)
-	})
+	c.Services().Palette().Open(title, items, onPick)
 }
 
 func (c *runtimeCtx) enqueue(mutation stateMutation) {

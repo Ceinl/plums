@@ -18,10 +18,78 @@ type Plugin interface {
 	Init(Host, any) error
 }
 
-// Host is available only during plugin initialization.
+// Host is available only during plugin initialization. Services exposes the
+// host capability services for registration-time use (e.g. contributing a
+// Completion source); the same services are reachable at runtime via Ctx.
 type Host interface {
 	Settings() Settings
 	Log(format string, args ...any)
+	Services() Services
+}
+
+// Services is the set of host capability services Core provides and
+// plugins/components consume. It is obtained from Host at Init (for
+// registration, e.g. Completion.Register) and from Ctx at runtime (for
+// invocation, e.g. Palette.Open / Clipboard.Copy). Theme and keybinds are NOT
+// services — Theme is read via RenderCtx.Theme(); keybinds are Opts.Keybinds
+// resolved centrally by Core.
+type Services interface {
+	Palette() Palette
+	Clipboard() Clipboard
+	Completion() Completion
+	Selection() Selection
+}
+
+// Palette opens a list/command picker. It backs the cm-palette behavior and the
+// Ctx.OpenList convenience. Open shows an arbitrary item list with a pick
+// callback; OpenCommandPalette opens the built-in command palette view.
+type Palette interface {
+	Open(title string, items []ListItem, onPick func(ListItem))
+	OpenCommandPalette()
+}
+
+// Clipboard copies/pastes text through the host's configured clipboard command
+// (Settings.ClipboardCommand). It backs the kb-clip behavior.
+type Clipboard interface {
+	Copy(text string) error
+	Paste() (string, error)
+}
+
+// Completion is the registry of completion sources keyed by trigger rune (e.g.
+// '@' for files, '/' for slash commands). Components/plugins contribute a source
+// at Init; Core queries the matching source as the user types. The built-in
+// @file and /slash behaviors are modeled as two registered sources.
+type Completion interface {
+	// Register adds a completion source. Later registrations for the same trigger
+	// take precedence (last-wins), consistent with the registry merge rule.
+	Register(source CompletionSource)
+	// Sources returns the registered sources (most-recent-first per trigger).
+	Sources() []CompletionSource
+}
+
+// CompletionSource produces candidates for a single trigger rune. Trigger is the
+// rune that activates the source ('@', '/'); Candidates is called with the query
+// text typed after the trigger and returns the ranked completions.
+type CompletionSource interface {
+	Trigger() rune
+	Candidates(query string) []Candidate
+}
+
+// Candidate is a single completion result. Value is inserted on accept; Detail
+// is shown alongside it in the dropdown.
+type Candidate struct {
+	Value  string
+	Detail string
+}
+
+// Selection is the host-level glue between a component's selection and the
+// clipboard: Current returns the active selection text (editor selection, else
+// the focused component's SelectionProvider), and Copy copies it. Components
+// that own selection still implement the optional SelectionProvider/MouseHandler
+// interfaces — this service is only for host-level selection→clipboard glue.
+type Selection interface {
+	Current() string
+	Copy() error
 }
 
 // Settings is the resolved, merged runtime configuration handed to the kernel
@@ -106,6 +174,10 @@ type Ctx interface {
 	Shell(context.Context, string, ...string) (string, error)
 	SetLayout(name string)
 	OpenList(title string, items []ListItem, onPick func(ListItem))
+	// Services exposes the host capability services for runtime invocation. Copy
+	// and OpenList above are conveniences that delegate to Services().Clipboard()
+	// and Services().Palette() respectively.
+	Services() Services
 }
 
 type Editor interface {

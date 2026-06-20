@@ -91,6 +91,10 @@ type Deps struct {
 	Components    map[string]ComponentFactory
 	Hooks         Hooks
 	Registry      *core.AgentRegistry
+	// CompletionSources are the completion sources plugins contributed at Init via
+	// Host.Services().Completion(). Core prepends its built-in @file/slash sources
+	// when building the runtime completion registry.
+	CompletionSources []capabilities.CompletionSource
 }
 
 // BackendRuntime describes one selectable application backend.
@@ -193,8 +197,12 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 	var escStopper doubleEscapeStopper
 	mutations := make(chan stateMutation, 64)
 	promptRequests := make(chan string, 64)
+	completion := buildCompletionRegistry(state, deps.CompletionSources)
+	state.completion = completion
 	newHookCtx := func() *runtimeCtx {
-		return newRuntimeCtx(state, cfg, mutations, promptRequests)
+		rt := newRuntimeCtx(state, cfg, mutations, promptRequests)
+		rt.completion = completion
+		return rt
 	}
 	emitMessageHook := func(role, text string) {
 		if text == "" {
@@ -337,6 +345,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 			return
 		}
 		commandCtx := newRuntimeCtx(state, cfg, mutations, promptRequests)
+		commandCtx.completion = completion
 		go func() {
 			if err := command.Do(ctx, commandCtx); err != nil {
 				commandCtx.Chat("system", err.Error())

@@ -124,16 +124,58 @@ func (s *State) SlashCommands() []SlashCommand {
 	if !ok || strings.Contains(ctx.Query, "\n") {
 		return nil
 	}
-	input := "/" + ctx.Query
 
 	commands := s.allSlashCommands()
-	items := make([]SlashCommand, 0, len(commands))
+	// Gate which command names the registered '/' completion source surfaces, then
+	// map them back to the richer SlashCommand records the dropdown needs.
+	byName := make(map[string]SlashCommand, len(commands))
 	for _, command := range commands {
-		if strings.HasPrefix(command.Name, input) {
+		byName[command.Name] = command
+	}
+	items := make([]SlashCommand, 0, len(commands))
+	for _, candidate := range s.completionCandidates('/', ctx.Query) {
+		if command, found := byName[candidate.Value]; found {
 			items = append(items, command)
 		}
 	}
 	return items
+}
+
+// completionCandidates queries the registered completion source for the trigger,
+// or returns nil when no registry/source is present (e.g. State built without a
+// runtime). This routes the built-in dropdowns through the Completion capability.
+func (s *State) completionCandidates(trigger rune, query string) []capabilities.Candidate {
+	var source capabilities.CompletionSource
+	if s.completion != nil {
+		source = s.completion.source(trigger)
+	}
+	if source == nil {
+		// Fall back to the built-in source bound to this state so a State without a
+		// runtime registry (e.g. tests) still produces identical candidates.
+		source = s.builtinCompletionSource(trigger)
+	}
+	if source == nil {
+		return nil
+	}
+	return source.Candidates(query)
+}
+
+// builtinCompletionSource returns the default source for a trigger bound to this
+// state. It mirrors buildCompletionRegistry's built-ins for the no-registry path.
+func (s *State) builtinCompletionSource(trigger rune) capabilities.CompletionSource {
+	switch trigger {
+	case '@':
+		return fileCompletionSource{paths: func() []string {
+			if s.projectFiles == nil {
+				s.projectFiles = projectFilePaths(".", 5000)
+			}
+			return s.projectFiles
+		}}
+	case '/':
+		return slashCompletionSource{commands: s.allSlashCommands}
+	default:
+		return nil
+	}
 }
 
 func (s *State) allSlashCommands() []SlashCommand {
@@ -221,18 +263,10 @@ func (s *State) FileCommandSuggestions() []FileCommandSuggestion {
 	if !ok {
 		return nil
 	}
-	if s.projectFiles == nil {
-		s.projectFiles = projectFilePaths(".", 5000)
-	}
-	query := normalizedQuery(ctx.Query)
-	items := make([]FileCommandSuggestion, 0, 12)
-	for _, path := range s.projectFiles {
-		if query == "" || paletteMatches(query, path) {
-			items = append(items, FileCommandSuggestion{Path: path})
-			if len(items) >= 12 {
-				break
-			}
-		}
+	candidates := s.completionCandidates('@', ctx.Query)
+	items := make([]FileCommandSuggestion, 0, len(candidates))
+	for _, candidate := range candidates {
+		items = append(items, FileCommandSuggestion{Path: candidate.Value})
 	}
 	return items
 }

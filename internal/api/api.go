@@ -315,6 +315,9 @@ func Run(cfg *Config) error {
 		Registry: registry,
 		Backends: backendRuntimes,
 	}
+	if loaded.Completion != nil {
+		deps.CompletionSources = loaded.Completion.Sources()
+	}
 
 	server, err := app.Run(ctx, deps, runCfg)
 	if server != nil {

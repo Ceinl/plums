@@ -118,3 +118,34 @@ func TestLoadSettingsOverrideKeepsPluginCapabilities(t *testing.T) {
 		t.Fatal("config command capability was not activated")
 	}
 }
+
+type completionPlugin struct {
+	source capabilities.CompletionSource
+}
+
+func (completionPlugin) Name() string { return "completion-plugin" }
+
+func (p completionPlugin) Init(host capabilities.Host, _ any) error {
+	host.Services().Completion().Register(p.source)
+	return nil
+}
+
+type fakeSource struct{ trigger rune }
+
+func (s fakeSource) Trigger() rune                            { return s.trigger }
+func (fakeSource) Candidates(string) []capabilities.Candidate { return nil }
+
+func TestLoadCollectsCompletionSourcesFromHostServices(t *testing.T) {
+	plugin := completionPlugin{source: fakeSource{trigger: '@'}}
+	loaded, err := Load(cfgpkg.Config{Plugins: []cfgpkg.Plugin{{Self: plugin}}}, LoadOptions{})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.Completion == nil {
+		t.Fatal("loaded.Completion is nil")
+	}
+	sources := loaded.Completion.Sources()
+	if len(sources) != 1 || sources[0].Trigger() != '@' {
+		t.Fatalf("registered sources = %+v", sources)
+	}
+}

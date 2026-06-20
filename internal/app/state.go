@@ -96,6 +96,7 @@ type State struct {
 	publicInstances    map[string]capabilities.Component
 	mouseCapture       *publicComponentAdapter
 	projectFiles       []string
+	completion         *completionRegistry
 
 	// runSessionIDs tracks sessions created during this run, so pre-existing
 	// backend history can be hidden when RunConfig.ClearHistory is set.
