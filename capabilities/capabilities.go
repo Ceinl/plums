@@ -163,6 +163,12 @@ type GitDiffProvider interface {
 	GitDiff(ctx context.Context, cwd string) (string, error)
 }
 
+type QuestionProvider interface {
+	Title(request *QuestionRequest) string
+	Options(request *QuestionRequest) []QuestionOption
+	ParseAnswers(input string, request *QuestionRequest) [][]string
+}
+
 // --- Commands & runtime context ---
 
 type Command struct {
@@ -210,10 +216,14 @@ type Ctx interface {
 	// behavior; backends are not yet refactored into capabilities.
 	OpenCommandPalette()
 	ChangeModel()
+	SetModel(providerID, modelID string)
 	SwitchBackend()
+	SelectBackend(id string)
 	NewSession()
 	OpenSessions()
+	OpenSession(id string)
 	OpenSkills()
+	AnswerQuestion(answer string)
 	SwitchMode()
 	CycleThinkingVisibility()
 	CycleToolCallVisibility()

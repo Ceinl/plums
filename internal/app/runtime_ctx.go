@@ -11,6 +11,21 @@ import (
 )
 
 type stateMutation func(*State)
+type runtimeAction func()
+
+type runtimeActions struct {
+	openCommandPalette func()
+	changeModel        func()
+	setModel           func(providerID, modelID string)
+	switchBackend      func()
+	selectBackend      func(id string)
+	newSession         func()
+	openSessions       func()
+	openSession        func(id string)
+	openSkills         func()
+	answerQuestion     func(answer string)
+	switchLayout       func()
+}
 
 type runtimeCtx struct {
 	session      capabilities.Session
@@ -20,6 +35,8 @@ type runtimeCtx struct {
 	shellTimeout time.Duration
 	clipboardCmd string
 	mutations    chan<- stateMutation
+	actions      chan<- runtimeAction
+	actionFns    runtimeActions
 	prompts      chan<- string
 	completion   *completionRegistry
 	commandState capabilities.CommandState
@@ -154,34 +171,63 @@ func (c *runtimeCtx) OpenList(title string, items []capabilities.ListItem, onPic
 
 // --- Command verbs ---
 //
-// Each verb enqueues the same effect the legacy PaletteAction handler ran. The
-// pure-state toggles mutate state directly through a mutation; the
-// backend-dependent verbs set PendingAction so the run loop's dispatch
-// (handlePaletteAction) executes them with the live backend client. This keeps
-// the existing internal behavior intact ahead of the Phase 6 backend refactor.
+// Pure-state toggles mutate state directly. Backend/session/model verbs enqueue
+// runtime actions so the event loop runs them with the live backend client.
 
 func (c *runtimeCtx) OpenCommandPalette() {
-	c.enqueue(func(state *State) { state.PendingAction = PaletteActionOpenPalette })
+	c.enqueueAction(c.actionFns.openCommandPalette)
 }
 
 func (c *runtimeCtx) ChangeModel() {
-	c.enqueue(func(state *State) { state.PendingAction = PaletteActionChangeModel })
+	c.enqueueAction(c.actionFns.changeModel)
+}
+
+func (c *runtimeCtx) SetModel(providerID, modelID string) {
+	c.enqueueAction(func() {
+		if c.actionFns.setModel != nil {
+			c.actionFns.setModel(providerID, modelID)
+		}
+	})
 }
 
 func (c *runtimeCtx) SwitchBackend() {
-	c.enqueue(func(state *State) { state.PendingAction = PaletteActionBackendList })
+	c.enqueueAction(c.actionFns.switchBackend)
+}
+
+func (c *runtimeCtx) SelectBackend(id string) {
+	c.enqueueAction(func() {
+		if c.actionFns.selectBackend != nil {
+			c.actionFns.selectBackend(id)
+		}
+	})
 }
 
 func (c *runtimeCtx) NewSession() {
-	c.enqueue(func(state *State) { state.PendingAction = PaletteActionNewSession })
+	c.enqueueAction(c.actionFns.newSession)
 }
 
 func (c *runtimeCtx) OpenSessions() {
-	c.enqueue(func(state *State) { state.PendingAction = PaletteActionSessionsList })
+	c.enqueueAction(c.actionFns.openSessions)
+}
+
+func (c *runtimeCtx) OpenSession(id string) {
+	c.enqueueAction(func() {
+		if c.actionFns.openSession != nil {
+			c.actionFns.openSession(id)
+		}
+	})
 }
 
 func (c *runtimeCtx) OpenSkills() {
-	c.enqueue(func(state *State) { state.PendingAction = PaletteActionSkillsList })
+	c.enqueueAction(c.actionFns.openSkills)
+}
+
+func (c *runtimeCtx) AnswerQuestion(answer string) {
+	c.enqueueAction(func() {
+		if c.actionFns.answerQuestion != nil {
+			c.actionFns.answerQuestion(answer)
+		}
+	})
 }
 
 func (c *runtimeCtx) SwitchMode() {
@@ -201,7 +247,7 @@ func (c *runtimeCtx) AdjustOutputPercent(delta int) {
 }
 
 func (c *runtimeCtx) SwitchLayout() {
-	c.enqueue(func(state *State) { state.PendingAction = PaletteActionLayoutsList })
+	c.enqueueAction(c.actionFns.switchLayout)
 }
 
 func (c *runtimeCtx) State() capabilities.CommandState {
@@ -213,6 +259,13 @@ func (c *runtimeCtx) enqueue(mutation stateMutation) {
 		return
 	}
 	c.mutations <- mutation
+}
+
+func (c *runtimeCtx) enqueueAction(action runtimeAction) {
+	if action == nil || c.actions == nil {
+		return
+	}
+	c.actions <- action
 }
 
 type runtimeEditor struct {

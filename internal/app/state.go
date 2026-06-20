@@ -62,16 +62,16 @@ type State struct {
 	DropdownHidden     bool
 	PaletteView        PaletteView
 	PaletteQuery       string
-	PendingAction      PaletteAction
 	ModelItems         []ModelListItem
 	SessionItems       []SessionListItem
 	SkillItems         []capabilities.Skill
 	QuestionTitle      string
-	QuestionItems      []QuestionOptionItem
+	QuestionItems      []capabilities.QuestionOption
 	BackendItems       []BackendListItem
 	ListTitle          string
 	ListItems          []capabilities.ListItem
 	listOnPick         func(capabilities.ListItem)
+	pendingListPick    bool
 	BackendProvider    string
 	Mode               string
 	Theme              capabilities.Theme

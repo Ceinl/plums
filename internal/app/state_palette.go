@@ -7,29 +7,6 @@ import (
 	"github.com/Ceinl/plums/internal/ui/tui/components"
 )
 
-type PaletteAction int
-
-const (
-	PaletteActionNone PaletteAction = iota
-	PaletteActionOpenPalette
-	PaletteActionChangeModel
-	PaletteActionSelectModel
-	PaletteActionNewSession
-	PaletteActionSwitchMode
-	PaletteActionSessionsList
-	PaletteActionSelectSession
-	PaletteActionSkillsList
-	PaletteActionSelectSkill
-	PaletteActionAnswerQuestion
-	PaletteActionCycleThinkingVisibility
-	PaletteActionCycleToolCallVisibility
-	PaletteActionBackendList
-	PaletteActionSelectBackend
-	PaletteActionLayoutsList
-	PaletteActionSelectLayout
-	PaletteActionSelectListItem
-)
-
 type PaletteView int
 
 const (
@@ -52,11 +29,6 @@ type paletteCommandItem struct {
 	Disabled    bool
 }
 
-type QuestionOptionItem struct {
-	Label       string
-	Description string
-}
-
 func (s *State) TogglePopup() {
 	if s.PopupOpen {
 		s.ClosePalette()
@@ -69,7 +41,6 @@ func (s *State) OpenPalette() {
 	s.PopupOpen = true
 	s.PaletteView = PaletteViewCommands
 	s.PaletteQuery = ""
-	s.PendingAction = PaletteActionNone
 	items := s.PaletteItems()
 	if s.PaletteIndex >= len(items) {
 		s.PaletteIndex = 0
@@ -86,7 +57,6 @@ func (s *State) ClosePalette() {
 	s.PopupOpen = false
 	s.PaletteView = PaletteViewCommands
 	s.PaletteQuery = ""
-	s.PendingAction = PaletteActionNone
 }
 
 func (s *State) PaletteTitle() string {
@@ -339,42 +309,62 @@ func (s *State) ensurePaletteSelection() {
 }
 
 func (s *State) SelectPaletteItem() {
+	s.SelectPaletteItemWithCtx(nil)
+}
+
+func (s *State) SelectPaletteItemWithCtx(ctx capabilities.Ctx) {
 	items := s.PaletteItems()
 	if s.PaletteIndex < 0 || s.PaletteIndex >= len(items) || items[s.PaletteIndex].Disabled {
 		return
 	}
 	if s.PaletteView == PaletteViewSessions {
-		s.PendingAction = PaletteActionSelectSession
+		sessionID := s.SelectedSessionID()
 		s.PopupOpen = false
+		if ctx != nil {
+			ctx.OpenSession(sessionID)
+		}
 		return
 	}
 	if s.PaletteView == PaletteViewModels {
-		s.PendingAction = PaletteActionSelectModel
+		providerID, modelID := s.SelectedModel()
 		s.PopupOpen = false
+		if ctx != nil {
+			ctx.SetModel(providerID, modelID)
+		}
 		return
 	}
 	if s.PaletteView == PaletteViewSkills {
-		s.PendingAction = PaletteActionSelectSkill
+		if skill, ok := s.SelectedSkill(); ok {
+			s.InsertSkillMarker(skill)
+		}
 		s.PopupOpen = false
 		return
 	}
 	if s.PaletteView == PaletteViewQuestions {
-		s.PendingAction = PaletteActionAnswerQuestion
+		answer, ok := s.SelectedQuestionAnswer()
 		s.PopupOpen = false
+		if ok && ctx != nil {
+			ctx.AnswerQuestion(answer)
+		}
 		return
 	}
 	if s.PaletteView == PaletteViewBackends {
-		s.PendingAction = PaletteActionSelectBackend
+		backendID := s.SelectedBackendID()
 		s.PopupOpen = false
+		if ctx != nil {
+			ctx.SelectBackend(backendID)
+		}
 		return
 	}
 	if s.PaletteView == PaletteViewLayouts {
-		s.PendingAction = PaletteActionSelectLayout
+		if layoutType, ok := s.SelectedLayout(); ok {
+			s.SetLayout(layoutType)
+		}
 		s.PopupOpen = false
 		return
 	}
 	if s.PaletteView == PaletteViewList {
-		s.PendingAction = PaletteActionSelectListItem
+		s.pendingListPick = true
 		s.PopupOpen = false
 		return
 	}
@@ -409,12 +399,6 @@ func commandKeepsPaletteOpen(name string) bool {
 	default:
 		return false
 	}
-}
-
-func (s *State) ConsumePendingAction() PaletteAction {
-	action := s.PendingAction
-	s.PendingAction = PaletteActionNone
-	return action
 }
 
 func (s *State) SetSessionItems(items []SessionListItem) {
@@ -457,7 +441,7 @@ func (s *State) SetSkillItems(items []capabilities.Skill) {
 	s.PopupOpen = true
 }
 
-func (s *State) SetQuestionItems(title string, items []QuestionOptionItem) {
+func (s *State) SetQuestionItems(title string, items []capabilities.QuestionOption) {
 	s.QuestionTitle = title
 	s.QuestionItems = items
 	s.PaletteView = PaletteViewQuestions
@@ -495,6 +479,10 @@ func (s *State) SetRuntimeList(title string, items []capabilities.ListItem, onPi
 }
 
 func (s *State) ConsumePendingListPick() (capabilities.ListItem, func(capabilities.ListItem), bool) {
+	if !s.pendingListPick {
+		return capabilities.ListItem{}, nil, false
+	}
+	s.pendingListPick = false
 	items := s.visibleRuntimeListItems()
 	if s.PaletteIndex < 0 || s.PaletteIndex >= len(items) {
 		s.clearRuntimeList()
@@ -687,12 +675,12 @@ func (s *State) visibleSkillItems() []capabilities.Skill {
 	return items
 }
 
-func (s *State) visibleQuestionItems() []QuestionOptionItem {
+func (s *State) visibleQuestionItems() []capabilities.QuestionOption {
 	query := normalizedQuery(s.PaletteQuery)
 	if query == "" {
 		return s.QuestionItems
 	}
-	items := make([]QuestionOptionItem, 0, len(s.QuestionItems))
+	items := make([]capabilities.QuestionOption, 0, len(s.QuestionItems))
 	for _, option := range s.QuestionItems {
 		if paletteMatches(query, option.Label, option.Description) {
 			items = append(items, option)

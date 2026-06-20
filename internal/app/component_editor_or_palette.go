@@ -48,7 +48,7 @@ func (c *editorOrPaletteComponent) Render(rctx capabilities.RenderCtx, surface c
 
 func (c *editorOrPaletteComponent) HandleKey(ctx capabilities.Ctx, ev capabilities.KeyEvent) bool {
 	if c.state != nil && c.state.PopupOpen {
-		return handlePaletteKey(c.state, ev)
+		return handlePaletteKey(c.state, ctx, ev)
 	}
 	return handleEditorKey(c.state, ctx, ev)
 }

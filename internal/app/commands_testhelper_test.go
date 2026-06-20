@@ -60,10 +60,14 @@ func (c *fakeCtx) Services() capabilities.Services                              
 
 func (c *fakeCtx) OpenCommandPalette()      { c.record("OpenCommandPalette") }
 func (c *fakeCtx) ChangeModel()             { c.record("ChangeModel") }
+func (c *fakeCtx) SetModel(string, string)  { c.record("SetModel") }
 func (c *fakeCtx) SwitchBackend()           { c.record("SwitchBackend") }
+func (c *fakeCtx) SelectBackend(string)     { c.record("SelectBackend") }
 func (c *fakeCtx) NewSession()              { c.record("NewSession") }
 func (c *fakeCtx) OpenSessions()            { c.record("OpenSessions") }
+func (c *fakeCtx) OpenSession(string)       { c.record("OpenSession") }
 func (c *fakeCtx) OpenSkills()              { c.record("OpenSkills") }
+func (c *fakeCtx) AnswerQuestion(string)    { c.record("AnswerQuestion") }
 func (c *fakeCtx) SwitchMode()              { c.record("SwitchMode") }
 func (c *fakeCtx) CycleThinkingVisibility() { c.record("CycleThinkingVisibility") }
 func (c *fakeCtx) CycleToolCallVisibility() { c.record("CycleToolCallVisibility") }

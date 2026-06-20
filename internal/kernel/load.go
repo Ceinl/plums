@@ -23,6 +23,7 @@ type Loaded struct {
 	Hooks    Hooks
 	Skills   capabilities.SkillProvider
 	GitDiff  capabilities.GitDiffProvider
+	Question capabilities.QuestionProvider
 	// Completion holds the completion sources plugins contributed via
 	// Host.Services().Completion().Register at Init. Core consumes these (plus its
 	// own built-in @file/slash sources) at runtime.
@@ -143,6 +144,9 @@ func activateCapabilities(value any, owner string, loaded *Loaded) error {
 	}
 	if provider, ok := value.(capabilities.GitDiffProvider); ok {
 		loaded.GitDiff = provider
+	}
+	if provider, ok := value.(capabilities.QuestionProvider); ok {
+		loaded.Question = provider
 	}
 	if hook, ok := value.(capabilities.OnMessage); ok {
 		loaded.Hooks.OnMessage = append(loaded.Hooks.OnMessage, hook)

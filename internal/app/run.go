@@ -86,6 +86,7 @@ type Deps struct {
 	Registry     *core.AgentRegistry
 	Skills       capabilities.SkillProvider
 	GitDiff      capabilities.GitDiffProvider
+	Question     capabilities.QuestionProvider
 	// CompletionSources are the completion sources plugins contributed at Init via
 	// Host.Services().Completion(). Core prepends its built-in @file/slash sources
 	// when building the runtime completion registry.
@@ -192,12 +193,16 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 	var pendingStreamRender bool
 	var escStopper doubleEscapeStopper
 	mutations := make(chan stateMutation, 64)
+	actionQueue := make(chan runtimeAction, 64)
 	promptRequests := make(chan string, 64)
 	completion := buildCompletionRegistry(state, deps.CompletionSources)
 	state.completion = completion
+	actionFns := runtimeActions{}
 	newHookCtx := func() *runtimeCtx {
 		rt := newRuntimeCtx(state, cfg, mutations, promptRequests)
 		rt.completion = completion
+		rt.actions = actionQueue
+		rt.actionFns = actionFns
 		return rt
 	}
 	expandSubmittedInput := func(input string) string {
@@ -205,6 +210,24 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 			return input
 		}
 		return deps.Skills.Expand(input, state.SkillItems)
+	}
+	parseQuestionAnswers := func(input string, req *capabilities.QuestionRequest) [][]string {
+		if deps.Question == nil {
+			return [][]string{{strings.TrimSpace(input)}}
+		}
+		return deps.Question.ParseAnswers(input, req)
+	}
+	questionTitle := func(req *capabilities.QuestionRequest) string {
+		if deps.Question == nil {
+			return "Question"
+		}
+		return deps.Question.Title(req)
+	}
+	questionOptions := func(req *capabilities.QuestionRequest) []capabilities.QuestionOption {
+		if deps.Question == nil {
+			return nil
+		}
+		return deps.Question.Options(req)
 	}
 	refreshGitDiffIfNeeded := func() {
 		if !state.ConsumeGitDiffDirty() {
@@ -385,33 +408,26 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 		}()
 	}
 
-	// dispatchPendingAction drains a single pending PaletteAction and runs the
-	// matching internal effect. Commands enqueue these actions through Ctx verbs;
-	// it is also reached from direct state interactions (mouse, question reply).
-	// It is the internal effect engine the command verbs wrap, awaiting the Phase
-	// 6 backend-into-capabilities refactor.
-	dispatchPendingAction := func() {
-		action := state.ConsumePendingAction()
-		if action == PaletteActionNone {
-			return
+	drainPendingListPick := func() {
+		if item, onPick, ok := state.ConsumePendingListPick(); ok && onPick != nil {
+			go onPick(item)
 		}
-		switch action {
-		case PaletteActionAnswerQuestion:
-			if pendingQuestion != nil {
-				if answer, ok := state.SelectedQuestionAnswer(); ok {
-					if replyQuestion(ctx, state, backend, pendingQuestion.ID, [][]string{{answer}}, cfg.QuestionReplyTimeout) {
-						pendingQuestion = nil
-					}
-				}
+	}
+	actionFns = runtimeActions{
+		openCommandPalette: func() { state.OpenPalette() },
+		changeModel: func() {
+			openModelList(ctx, state, backend, cfg)
+		},
+		setModel: func(providerID, modelID string) {
+			if providerID == "" || modelID == "" {
+				return
 			}
-		case PaletteActionSelectListItem:
-			if item, onPick, ok := state.ConsumePendingListPick(); ok && onPick != nil {
-				go onPick(item)
-			}
-		case PaletteActionBackendList:
+			state.SetModel(providerID, modelID)
+		},
+		switchBackend: func() {
 			state.SetBackendItems(backendItemsFromRuntimes(runtimes, runtime.ID))
-		case PaletteActionSelectBackend:
-			backendID := state.SelectedBackendID()
+		},
+		selectBackend: func(backendID string) {
 			if selected, ok := backendRuntimeByID(runtimes, backendID); ok && selected.ID != runtime.ID {
 				if cancelStream != nil {
 					cancelStream()
@@ -431,9 +447,30 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 				state.SessionItems = nil
 				startBackend(selected)
 			}
-		default:
-			handlePaletteAction(ctx, state, backend, action, cfg, deps.Skills)
-		}
+		},
+		newSession: func() {
+			createNewSession(ctx, state, backend, cfg)
+		},
+		openSessions: func() {
+			openSessionList(ctx, state, backend, cfg)
+		},
+		openSession: func(sessionID string) {
+			openSessionByID(ctx, state, backend, cfg, sessionID)
+		},
+		openSkills: func() {
+			openSkillsList(ctx, state, cfg, deps.Skills)
+		},
+		answerQuestion: func(answer string) {
+			if pendingQuestion == nil {
+				return
+			}
+			if replyQuestion(ctx, state, backend, pendingQuestion.ID, [][]string{{answer}}, cfg.QuestionReplyTimeout) {
+				pendingQuestion = nil
+			}
+		},
+		switchLayout: func() {
+			state.SetLayoutItems()
+		},
 	}
 
 	for {
@@ -463,7 +500,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 				stopActiveStream()
 				handled = true
 			}
-			dispatchPendingAction()
+			drainPendingListPick()
 			if command, ok := state.ConsumePendingCommand(); ok {
 				runCommand(command)
 			}
@@ -486,6 +523,14 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 			submitPrompt(input)
 			Render(state, deps.RenderConfig)
 			saveConfigIfChanged()
+		case action := <-actionQueue:
+			if action != nil {
+				action()
+				drainPendingListPick()
+				refreshGitDiffIfNeeded()
+				Render(state, deps.RenderConfig)
+				saveConfigIfChanged()
+			}
 		case event, ok := <-aiStream:
 			if ok {
 				if event.Tool != nil {
@@ -494,7 +539,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 				if event.Question != nil {
 					pendingQuestion = event.Question
 					state.SetStreaming(false)
-					state.SetQuestionItems(questionTitle(event.Question), questionOptionItems(event.Question))
+					state.SetQuestionItems(questionTitle(event.Question), questionOptions(event.Question))
 					// Streaming just stopped, so the spinner tick won't redraw;
 					// render the question prompt now.
 					Render(state, deps.RenderConfig)
@@ -546,9 +591,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 		case mutation := <-mutations:
 			if mutation != nil {
 				mutation(state)
-				// Command verbs enqueue effects by setting PendingAction inside a
-				// mutation; drain it here so the effect runs with the live backend.
-				dispatchPendingAction()
+				drainPendingListPick()
 				refreshGitDiffIfNeeded()
 				Render(state, deps.RenderConfig)
 				saveConfigIfChanged()

@@ -157,14 +157,6 @@ func TestLayoutPaletteSelection(t *testing.T) {
 
 	state.MovePalette(1)
 	state.SelectPaletteItem()
-	if got := state.ConsumePendingAction(); got != PaletteActionSelectLayout {
-		t.Fatalf("expected select layout action, got %v", got)
-	}
-	layoutType, ok := state.SelectedLayout()
-	if !ok || layoutType != LayoutZen {
-		t.Fatalf("expected zen selection, got %v ok=%v", layoutType, ok)
-	}
-	state.SetLayout(layoutType)
 	if state.Layout != LayoutZen {
 		t.Fatalf("expected zen layout, got %v", state.Layout)
 	}
@@ -290,13 +282,11 @@ func TestBackendPaletteSelection(t *testing.T) {
 		{ID: "codex", Name: "Codex"},
 	})
 	state.MovePalette(1)
-	state.SelectPaletteItem()
+	ctx := &fakeCtx{}
+	state.SelectPaletteItemWithCtx(ctx)
 
-	if got := state.ConsumePendingAction(); got != PaletteActionSelectBackend {
-		t.Fatalf("expected select backend action, got %v", got)
-	}
-	if got := state.SelectedBackendID(); got != "codex" {
-		t.Fatalf("expected codex backend selection, got %q", got)
+	if !ctx.called("SelectBackend") {
+		t.Fatalf("expected select backend call, got %v", ctx.calls)
 	}
 }
 
@@ -485,7 +475,7 @@ func TestPaletteSearchSelectsFilteredModel(t *testing.T) {
 
 func TestQuestionPaletteSelectsAnswer(t *testing.T) {
 	state := NewState(80, 24)
-	state.SetQuestionItems("Pick one", []QuestionOptionItem{
+	state.SetQuestionItems("Pick one", []capabilities.QuestionOption{
 		{Label: "It works", Description: "Confirm the tool works"},
 		{Label: "Try again", Description: "Ask another question"},
 	})
@@ -494,12 +484,13 @@ func TestQuestionPaletteSelectsAnswer(t *testing.T) {
 		t.Fatalf("expected question palette to open")
 	}
 	state.MovePalette(1)
-	state.SelectPaletteItem()
-	if got := state.ConsumePendingAction(); got != PaletteActionAnswerQuestion {
-		t.Fatalf("expected answer question action, got %v", got)
-	}
+	ctx := &fakeCtx{}
+	state.SelectPaletteItemWithCtx(ctx)
 	answer, ok := state.SelectedQuestionAnswer()
 	if !ok || answer != "Try again" {
 		t.Fatalf("expected selected answer Try again, got %q ok=%v", answer, ok)
+	}
+	if !ctx.called("AnswerQuestion") {
+		t.Fatalf("expected answer question call, got %v", ctx.calls)
 	}
 }

@@ -2,7 +2,7 @@ package app
 
 import "github.com/Ceinl/plums/capabilities"
 
-func handlePaletteKey(state *State, ev capabilities.KeyEvent) bool {
+func handlePaletteKey(state *State, ctx capabilities.Ctx, ev capabilities.KeyEvent) bool {
 	if state == nil || !state.PopupOpen {
 		return false
 	}
@@ -37,7 +37,7 @@ func handlePaletteKey(state *State, ev capabilities.KeyEvent) bool {
 		state.MovePalette(1)
 		return true
 	case "enter":
-		state.SelectPaletteItem()
+		state.SelectPaletteItemWithCtx(ctx)
 		return true
 	}
 	if ev.Ctrl && (ev.Rune == 'N' || ev.Rune == 'n') {

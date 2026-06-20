@@ -286,6 +286,7 @@ func Run(cfg *Config) error {
 		Backends: backendRuntimes,
 		Skills:   loaded.Skills,
 		GitDiff:  loaded.GitDiff,
+		Question: loaded.Question,
 	}
 	if loaded.Completion != nil {
 		deps.CompletionSources = loaded.Completion.Sources()

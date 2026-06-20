@@ -14,11 +14,12 @@ func TestSessionMouseDownQueuesNewSessionAction(t *testing.T) {
 	sessions.Layout(0, 0, 30, 10)
 	sessions.Render(screen.NewScreen(80, 24))
 
-	if !state.SessionMouseDown(1, 0) {
+	ctx := &fakeCtx{}
+	if !state.SessionMouseDown(ctx, 1, 0) {
 		t.Fatalf("expected new session button hit")
 	}
-	if got := state.ConsumePendingAction(); got != PaletteActionNewSession {
-		t.Fatalf("expected new session action, got %v", got)
+	if !ctx.called("NewSession") {
+		t.Fatalf("expected new session call, got %v", ctx.calls)
 	}
 }
 
@@ -33,14 +34,12 @@ func TestSessionMouseDownQueuesSelectSessionAction(t *testing.T) {
 	sessions.Layout(0, 0, 30, 10)
 	sessions.Render(screen.NewScreen(80, 24))
 
-	if !state.SessionMouseDown(1, 3) {
+	ctx := &fakeCtx{}
+	if !state.SessionMouseDown(ctx, 1, 3) {
 		t.Fatalf("expected session mouse hit")
 	}
-	if got := state.ConsumePendingAction(); got != PaletteActionSelectSession {
-		t.Fatalf("expected select session action, got %v", got)
-	}
-	if got := state.SelectedSessionID(); got != "s2" {
-		t.Fatalf("expected selected session s2, got %q", got)
+	if !ctx.called("OpenSession") {
+		t.Fatalf("expected open session call, got %v", ctx.calls)
 	}
 }
 
@@ -53,11 +52,12 @@ func TestChatLayoutVerticalSessionsNewAction(t *testing.T) {
 	root.Layout(0, 0, 100, 24)
 	root.Render(screen.NewScreen(100, 24))
 
-	if !state.SessionMouseDown(1, 0) {
+	ctx := &fakeCtx{}
+	if !state.SessionMouseDown(ctx, 1, 0) {
 		t.Fatalf("expected vertical sessions new button hit")
 	}
-	if got := state.ConsumePendingAction(); got != PaletteActionNewSession {
-		t.Fatalf("expected new session action, got %v", got)
+	if !ctx.called("NewSession") {
+		t.Fatalf("expected new session call, got %v", ctx.calls)
 	}
 }
 
@@ -70,22 +70,21 @@ func TestNarrowChatLayoutHorizontalSessionsActions(t *testing.T) {
 	root.Layout(0, 0, 80, 24)
 	root.Render(screen.NewScreen(80, 24))
 
-	if !state.SessionMouseDown(1, 1) {
+	ctx := &fakeCtx{}
+	if !state.SessionMouseDown(ctx, 1, 1) {
 		t.Fatalf("expected horizontal sessions tab hit")
 	}
-	if got := state.ConsumePendingAction(); got != PaletteActionSelectSession {
-		t.Fatalf("expected select session action, got %v", got)
-	}
-	if got := state.SelectedSessionID(); got != "s1" {
-		t.Fatalf("expected selected session s1, got %q", got)
+	if !ctx.called("OpenSession") {
+		t.Fatalf("expected open session call, got %v", ctx.calls)
 	}
 
 	root.Render(screen.NewScreen(80, 24))
-	if !state.SessionMouseDown(78, 1) {
+	ctx = &fakeCtx{}
+	if !state.SessionMouseDown(ctx, 78, 1) {
 		t.Fatalf("expected horizontal sessions new button hit")
 	}
-	if got := state.ConsumePendingAction(); got != PaletteActionNewSession {
-		t.Fatalf("expected new session action, got %v", got)
+	if !ctx.called("NewSession") {
+		t.Fatalf("expected new session call, got %v", ctx.calls)
 	}
 }
 
@@ -101,11 +100,12 @@ func TestConfiguredChatLayoutsSessionsActions(t *testing.T) {
 	}
 	root.Layout(0, 0, 100, 24)
 	root.Render(screen.NewScreen(100, 24))
-	if !wide.SessionMouseDown(1, 0) {
+	ctx := &fakeCtx{}
+	if !wide.SessionMouseDown(ctx, 1, 0) {
 		t.Fatalf("expected configured vertical sessions new button hit")
 	}
-	if got := wide.ConsumePendingAction(); got != PaletteActionNewSession {
-		t.Fatalf("expected new session action, got %v", got)
+	if !ctx.called("NewSession") {
+		t.Fatalf("expected new session call, got %v", ctx.calls)
 	}
 
 	narrow := NewState(80, 24)
@@ -117,18 +117,20 @@ func TestConfiguredChatLayoutsSessionsActions(t *testing.T) {
 	}
 	root.Layout(0, 0, 80, 24)
 	root.Render(screen.NewScreen(80, 24))
-	if !narrow.SessionMouseDown(1, 1) {
+	ctx = &fakeCtx{}
+	if !narrow.SessionMouseDown(ctx, 1, 1) {
 		t.Fatalf("expected configured horizontal sessions tab hit")
 	}
-	if got := narrow.ConsumePendingAction(); got != PaletteActionSelectSession {
-		t.Fatalf("expected select session action, got %v", got)
+	if !ctx.called("OpenSession") {
+		t.Fatalf("expected open session call, got %v", ctx.calls)
 	}
 	root.Render(screen.NewScreen(80, 24))
-	if !narrow.SessionMouseDown(78, 1) {
+	ctx = &fakeCtx{}
+	if !narrow.SessionMouseDown(ctx, 78, 1) {
 		t.Fatalf("expected configured horizontal sessions new button hit")
 	}
-	if got := narrow.ConsumePendingAction(); got != PaletteActionNewSession {
-		t.Fatalf("expected new session action, got %v", got)
+	if !ctx.called("NewSession") {
+		t.Fatalf("expected new session call, got %v", ctx.calls)
 	}
 }
 
@@ -144,11 +146,12 @@ func TestActiveConfiguredChatLayoutsSessionsActions(t *testing.T) {
 	}
 	root.Layout(0, 0, 80, 24)
 	root.Render(screen.NewScreen(80, 24))
-	if !state.SessionMouseDown(1, 1) {
+	ctx := &fakeCtx{}
+	if !state.SessionMouseDown(ctx, 1, 1) {
 		t.Fatalf("expected active configured horizontal sessions tab hit")
 	}
-	if got := state.ConsumePendingAction(); got != PaletteActionSelectSession {
-		t.Fatalf("expected select session action, got %v", got)
+	if !ctx.called("OpenSession") {
+		t.Fatalf("expected open session call, got %v", ctx.calls)
 	}
 }
 
@@ -164,10 +167,11 @@ func TestVerticalAndHorizontalSessionsKeepSeparateHitMaps(t *testing.T) {
 	horizontal.Layout(20, 0, 80, 3)
 	horizontal.Render(screen.NewScreen(120, 24))
 
-	if !state.SessionMouseDown(1, 0) {
+	ctx := &fakeCtx{}
+	if !state.SessionMouseDown(ctx, 1, 0) {
 		t.Fatalf("expected vertical session to still hit after horizontal render")
 	}
-	if got := state.ConsumePendingAction(); got != PaletteActionNewSession {
-		t.Fatalf("expected new session action, got %v", got)
+	if !ctx.called("NewSession") {
+		t.Fatalf("expected new session call, got %v", ctx.calls)
 	}
 }

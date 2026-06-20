@@ -60,7 +60,7 @@ func (c *inputBoxComponent) Render(rctx capabilities.RenderCtx, surface capabili
 
 func (c *inputBoxComponent) HandleKey(ctx capabilities.Ctx, ev capabilities.KeyEvent) bool {
 	if c.state != nil && c.state.PopupOpen {
-		return handlePaletteKey(c.state, ev)
+		return handlePaletteKey(c.state, ctx, ev)
 	}
 	return handleEditorKey(c.state, ctx, ev)
 }

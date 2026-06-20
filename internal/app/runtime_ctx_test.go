@@ -91,9 +91,6 @@ func TestRuntimeCtxOpenListQueuesInteractivePalette(t *testing.T) {
 
 	state.InsertPaletteRune('f')
 	state.SelectPaletteItem()
-	if got := state.ConsumePendingAction(); got != PaletteActionSelectListItem {
-		t.Fatalf("pending action = %v, want select list item", got)
-	}
 	item, onPick, ok := state.ConsumePendingListPick()
 	if !ok {
 		t.Fatal("expected pending list pick")

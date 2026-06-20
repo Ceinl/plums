@@ -133,7 +133,7 @@ func (s *State) invalidateOutputMax() {
 	// past the visible range and then snapping back during render.
 }
 
-func (s *State) SessionMouseDown(x, y int) bool {
+func (s *State) SessionMouseDown(ctx capabilities.Ctx, x, y int) bool {
 	sessions := s.Sessions()
 	if s.sessionsHorizontal != nil && s.sessionsHorizontal.Contains(x, y) {
 		sessions = s.sessionsHorizontal
@@ -145,21 +145,18 @@ func (s *State) SessionMouseDown(x, y int) bool {
 	s.PopupOpen = false
 	s.PaletteQuery = ""
 	s.PaletteView = PaletteViewSessions
-	s.PendingAction = PaletteActionNone
 	s.PaletteIndex = 0
 	switch action {
 	case components.SessionMouseNew:
-		s.PendingAction = PaletteActionNewSession
+		if ctx != nil {
+			ctx.NewSession()
+		}
 	case components.SessionMouseSelect:
 		if id == "" || id == s.SessionID {
 			return true
 		}
-		for i, item := range s.visibleSessionItems() {
-			if item.ID == id {
-				s.PaletteIndex = i
-				s.PendingAction = PaletteActionSelectSession
-				break
-			}
+		if ctx != nil {
+			ctx.OpenSession(id)
 		}
 	}
 	return true

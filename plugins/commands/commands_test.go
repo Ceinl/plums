@@ -13,7 +13,7 @@ func TestPluginName(t *testing.T) {
 	}
 }
 
-func TestCommandsIncludeSlashAndPaletteActions(t *testing.T) {
+func TestCommandsIncludeSlashAndPaletteCommands(t *testing.T) {
 	got := (&Plugin{}).Commands()
 	names := make([]string, 0, len(got))
 	for _, c := range got {

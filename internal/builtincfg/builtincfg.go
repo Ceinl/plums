@@ -16,6 +16,7 @@ import (
 	"github.com/Ceinl/plums/plugins/commands"
 	"github.com/Ceinl/plums/plugins/gitdiff"
 	"github.com/Ceinl/plums/plugins/layouts"
+	"github.com/Ceinl/plums/plugins/questions"
 	"github.com/Ceinl/plums/plugins/sessions"
 	"github.com/Ceinl/plums/plugins/skills"
 )
@@ -78,6 +79,7 @@ func Config(params RuntimeParams) cfgpkg.Config {
 		cfgpkg.Plugin{Self: &sessions.Plugin{}},
 		cfgpkg.Plugin{Self: &commands.Plugin{}},
 		cfgpkg.Plugin{Self: &skills.Plugin{}},
+		cfgpkg.Plugin{Self: &questions.Plugin{}},
 		cfgpkg.Plugin{Self: &gitdiff.Plugin{}},
 	)
 	return cfgpkg.Config{

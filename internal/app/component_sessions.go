@@ -74,11 +74,11 @@ func (c *sessionsComponent) Render(rctx capabilities.RenderCtx, surface capabili
 	sessions.Render(scr)
 }
 
-func (c *sessionsComponent) HandleMouse(_ capabilities.Ctx, ev capabilities.MouseEvent) bool {
+func (c *sessionsComponent) HandleMouse(ctx capabilities.Ctx, ev capabilities.MouseEvent) bool {
 	if c.state == nil || ev.Action != capabilities.MousePress {
 		return false
 	}
-	return c.state.SessionMouseDown(ev.X, ev.Y)
+	return c.state.SessionMouseDown(ctx, ev.X, ev.Y)
 }
 
 func (c *sessionsComponent) Scroll(delta int) bool {
