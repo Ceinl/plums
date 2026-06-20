@@ -10,7 +10,6 @@ import (
 type SlashCommand struct {
 	Name   string
 	Detail string
-	Action PaletteAction
 	Do     func(context.Context, capabilities.Ctx) error
 }
 
@@ -35,13 +34,6 @@ const (
 type editorDropdownItem struct {
 	Value  string
 	Detail string
-}
-
-func (s *State) SetCommandConfig(cfg *CommandConfig) {
-	if cfg == nil {
-		cfg = DefaultCommandConfig()
-	}
-	s.commandConfig = cfg
 }
 
 func (s *State) SetCommands(commands []capabilities.Command) {
@@ -120,7 +112,7 @@ func (s *State) ActiveEditorDropdownIndex(total int) int {
 }
 
 func (s *State) SlashCommands() []SlashCommand {
-	_, ctx, ok := s.activeCommand("/")
+	ctx, ok := s.activeCommand("/")
 	if !ok || strings.Contains(ctx.Query, "\n") {
 		return nil
 	}
@@ -178,31 +170,17 @@ func (s *State) builtinCompletionSource(trigger rune) capabilities.CompletionSou
 	}
 }
 
+// allSlashCommands returns the registered commands whose name is a "/" slash
+// command. These feed the editor's "/" dropdown and exact-submit path.
 func (s *State) allSlashCommands() []SlashCommand {
-	if len(s.commands) == 0 {
-		items := make([]SlashCommand, 0, len(s.commandConfig.SlashCommands))
-		for _, command := range s.commandConfig.SlashCommands {
-			items = append(items, SlashCommand{Name: command.Name, Detail: command.Detail, Action: s.commandConfig.actionFor(command.Action)})
-		}
-		return items
-	}
 	items := make([]SlashCommand, 0, len(s.commands))
 	for _, command := range s.commands {
 		if command.Name == "" || !strings.HasPrefix(command.Name, "/") {
 			continue
 		}
-		items = append(items, SlashCommand{Name: command.Name, Detail: command.Detail, Action: s.actionForSlashCommand(command.Name), Do: command.Do})
+		items = append(items, SlashCommand{Name: command.Name, Detail: command.Detail, Do: command.Do})
 	}
 	return items
-}
-
-func (s *State) actionForSlashCommand(name string) PaletteAction {
-	for _, command := range s.commandConfig.SlashCommands {
-		if command.Name == name {
-			return s.commandConfig.actionFor(command.Action)
-		}
-	}
-	return PaletteActionNone
 }
 
 func (s *State) editorDropdownItems() (editorDropdownKind, []editorDropdownItem) {
@@ -236,13 +214,13 @@ func (s *State) replaceActiveEditorDropdown(kind editorDropdownKind, value strin
 	case editorDropdownSkill:
 		s.Editor.SetContent("/skill " + value)
 	case editorDropdownFile:
-		_, ctx, ok := s.activeCommand("@")
+		ctx, ok := s.activeCommand("@")
 		if !ok {
 			return
 		}
 		s.replaceEditorRange(ctx.TriggerStart, ctx.CursorIndex, "@"+value)
 	case editorDropdownSlash:
-		_, ctx, ok := s.activeCommand("/")
+		ctx, ok := s.activeCommand("/")
 		if !ok {
 			return
 		}
@@ -259,7 +237,7 @@ func (s *State) replaceEditorRange(start, end int, replacement string) {
 }
 
 func (s *State) FileCommandSuggestions() []FileCommandSuggestion {
-	_, ctx, ok := s.activeCommand("@")
+	ctx, ok := s.activeCommand("@")
 	if !ok {
 		return nil
 	}
@@ -300,11 +278,11 @@ func (s *State) InsertSkillMarker(skill SkillListItem) {
 func (s *State) runEditorCommand(input string) bool {
 	line := strings.TrimSpace(input)
 	if strings.HasPrefix(line, "/") {
-		command, ctx, ok := s.activeCommand("/")
-		if !ok || command.HandlerFunction == nil {
+		ctx, ok := s.activeCommand("/")
+		if !ok {
 			return false
 		}
-		return command.HandlerFunction(s, ctx)
+		return s.runSlashCommand(ctx.Query)
 	}
 	if !strings.HasPrefix(line, ">") {
 		return false
@@ -315,23 +293,9 @@ func (s *State) runEditorCommand(input string) bool {
 
 func (s *State) runSlashCommand(command string) bool {
 	command = strings.ToLower(strings.TrimSpace(command))
-	switch command {
-	case "clear":
+	if command == "clear" {
 		s.Editor.SetContent("")
 		return true
-	case "command":
-		if len(s.commands) == 0 {
-			s.Editor.SetContent("")
-			s.OpenPalette()
-			return true
-		}
-	case "skills":
-		if len(s.commands) == 0 {
-			s.Editor.SetContent("")
-			s.PendingAction = PaletteActionSkillsList
-			return true
-		}
-	default:
 	}
 	for _, slashCommand := range s.allSlashCommands() {
 		if strings.TrimPrefix(slashCommand.Name, "/") != command {
@@ -340,16 +304,7 @@ func (s *State) runSlashCommand(command string) bool {
 		s.Editor.SetContent("")
 		if slashCommand.Do != nil {
 			s.pendingCommand = slashCommand.Name
-			return true
 		}
-		if slashCommand.Action == PaletteActionOpenPalette {
-			s.OpenPalette()
-			return true
-		}
-		if slashCommand.Action == PaletteActionNone {
-			return true
-		}
-		s.PendingAction = slashCommand.Action
 		return true
 	}
 	return false

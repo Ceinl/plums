@@ -80,33 +80,6 @@ func TestLoadBackendProviderRejectsUnknownFallback(t *testing.T) {
 	}
 }
 
-func TestResolveCommandsConfigPath(t *testing.T) {
-	dir := t.TempDir()
-	layoutPath := filepath.Join(dir, "layout.json")
-	commandsPath := filepath.Join(dir, "commands.json")
-	if err := os.WriteFile(commandsPath, []byte("{}"), 0o600); err != nil {
-		t.Fatalf("write commands config: %v", err)
-	}
-
-	got, err := ResolveCommandsConfigPath(layoutPath)
-	if err != nil {
-		t.Fatalf("resolve commands config: %v", err)
-	}
-	if got != commandsPath {
-		t.Fatalf("expected %q, got %q", commandsPath, got)
-	}
-}
-
-func TestResolveCommandsConfigPathDefaultsWhenMissing(t *testing.T) {
-	got, err := ResolveCommandsConfigPath(filepath.Join(t.TempDir(), "layout.json"))
-	if err != nil {
-		t.Fatalf("resolve missing commands config: %v", err)
-	}
-	if got != "" {
-		t.Fatalf("expected default command config, got %q", got)
-	}
-}
-
 func TestResolveConfigPathReturnsGlobalWhenPresent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

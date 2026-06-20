@@ -188,23 +188,10 @@ func Run(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to load layout config: %w", err)
 	}
-	commandConfigPath, err := app.ResolveCommandsConfigPath(configPath)
-	if err != nil {
-		return err
-	}
-	commandConfig, err := app.LoadCommandConfig(commandConfigPath)
-	if err != nil {
-		return fmt.Errorf("failed to load command config: %w", err)
-	}
 	if configPath != "" {
 		debuglog.Printf("config: using %s", configPath)
 	} else {
 		debuglog.Printf("config: using built-in layout config")
-	}
-	if commandConfigPath != "" {
-		debuglog.Printf("config: using %s", commandConfigPath)
-	} else {
-		debuglog.Printf("config: using built-in command config")
 	}
 
 	t := ui.NewTerminal(int(os.Stdin.Fd()))
@@ -299,14 +286,13 @@ func Run(cfg *Config) error {
 	runCfg.BackendProvider = loaded.Settings.Backend
 
 	deps := app.Deps{
-		Terminal:      t,
-		Keyboard:      keys,
-		RenderConfig:  renderConfig,
-		Layouts:       layouts,
-		CommandConfig: commandConfig,
-		Commands:      commands,
-		Keybinds:      loaded.Settings.Keybinds,
-		Components:    components,
+		Terminal:     t,
+		Keyboard:     keys,
+		RenderConfig: renderConfig,
+		Layouts:      layouts,
+		Commands:     commands,
+		Keybinds:     loaded.Settings.Keybinds,
+		Components:   components,
 		Hooks: app.Hooks{
 			OnMessage:      loaded.Hooks.OnMessage,
 			OnSessionStart: loaded.Hooks.OnSessionStart,

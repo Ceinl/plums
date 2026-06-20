@@ -78,19 +78,18 @@ type serverProcessExtractor interface {
 
 // Deps bundles all wired dependencies needed by the event loop.
 type Deps struct {
-	Terminal      *ui.Terminal
-	Keyboard      <-chan keyboard.Event
-	Backend       capabilities.Backend
-	Startup       func(ctx context.Context, backend capabilities.Backend) (*capabilities.StartupResult, error)
-	Backends      []BackendRuntime
-	RenderConfig  *RenderConfig
-	Layouts       []LayoutType
-	CommandConfig *CommandConfig
-	Commands      []capabilities.Command
-	Keybinds      []capabilities.Keybind
-	Components    map[string]ComponentFactory
-	Hooks         Hooks
-	Registry      *core.AgentRegistry
+	Terminal     *ui.Terminal
+	Keyboard     <-chan keyboard.Event
+	Backend      capabilities.Backend
+	Startup      func(ctx context.Context, backend capabilities.Backend) (*capabilities.StartupResult, error)
+	Backends     []BackendRuntime
+	RenderConfig *RenderConfig
+	Layouts      []LayoutType
+	Commands     []capabilities.Command
+	Keybinds     []capabilities.Keybind
+	Components   map[string]ComponentFactory
+	Hooks        Hooks
+	Registry     *core.AgentRegistry
 	// CompletionSources are the completion sources plugins contributed at Init via
 	// Host.Services().Completion(). Core prepends its built-in @file/slash sources
 	// when building the runtime completion registry.
@@ -122,7 +121,6 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 	} else {
 		state.SetAvailableLayouts(deps.RenderConfig.AvailableLayoutTypes())
 	}
-	state.SetCommandConfig(deps.CommandConfig)
 	state.SetCommands(deps.Commands)
 	state.SetComponentFactories(deps.Components)
 	// Apply remembered config values (always override NewState's hardcoded default).
@@ -353,6 +351,57 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 		}()
 	}
 
+	// dispatchPendingAction drains a single pending PaletteAction and runs the
+	// matching internal effect. Commands enqueue these actions through Ctx verbs;
+	// it is also reached from direct state interactions (mouse, question reply).
+	// It is the internal effect engine the command verbs wrap, awaiting the Phase
+	// 6 backend-into-capabilities refactor.
+	dispatchPendingAction := func() {
+		action := state.ConsumePendingAction()
+		if action == PaletteActionNone {
+			return
+		}
+		switch action {
+		case PaletteActionAnswerQuestion:
+			if pendingQuestion != nil {
+				if answer, ok := state.SelectedQuestionAnswer(); ok {
+					if replyQuestion(ctx, state, backend, pendingQuestion.ID, [][]string{{answer}}, cfg.QuestionReplyTimeout) {
+						pendingQuestion = nil
+					}
+				}
+			}
+		case PaletteActionSelectListItem:
+			if item, onPick, ok := state.ConsumePendingListPick(); ok && onPick != nil {
+				go onPick(item)
+			}
+		case PaletteActionBackendList:
+			state.SetBackendItems(backendItemsFromRuntimes(runtimes, runtime.ID))
+		case PaletteActionSelectBackend:
+			backendID := state.SelectedBackendID()
+			if selected, ok := backendRuntimeByID(runtimes, backendID); ok && selected.ID != runtime.ID {
+				if cancelStream != nil {
+					cancelStream()
+					cancelStream = nil
+				}
+				if serverProc != nil {
+					serverProc.Stop()
+					serverProc = nil
+				} else if sp, ok := backend.(serverProcessExtractor); ok {
+					if proc := sp.ServerProcess(); proc != nil {
+						proc.Stop()
+					}
+				}
+				runtime = selected
+				backend = selected.Backend
+				state.ResetBackendSession()
+				state.SessionItems = nil
+				startBackend(selected)
+			}
+		default:
+			handlePaletteAction(ctx, state, backend, action, cfg)
+		}
+	}
+
 	for {
 		select {
 		case ev, ok := <-deps.Keyboard:
@@ -380,46 +429,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 				stopActiveStream()
 				handled = true
 			}
-			if action := state.ConsumePendingAction(); action != PaletteActionNone {
-				if action == PaletteActionAnswerQuestion {
-					if pendingQuestion != nil {
-						if answer, ok := state.SelectedQuestionAnswer(); ok {
-							if replyQuestion(ctx, state, backend, pendingQuestion.ID, [][]string{{answer}}, cfg.QuestionReplyTimeout) {
-								pendingQuestion = nil
-							}
-						}
-					}
-				} else if action == PaletteActionSelectListItem {
-					if item, onPick, ok := state.ConsumePendingListPick(); ok && onPick != nil {
-						go onPick(item)
-					}
-				} else if action == PaletteActionBackendList {
-					state.SetBackendItems(backendItemsFromRuntimes(runtimes, runtime.ID))
-				} else if action == PaletteActionSelectBackend {
-					backendID := state.SelectedBackendID()
-					if selected, ok := backendRuntimeByID(runtimes, backendID); ok && selected.ID != runtime.ID {
-						if cancelStream != nil {
-							cancelStream()
-							cancelStream = nil
-						}
-						if serverProc != nil {
-							serverProc.Stop()
-							serverProc = nil
-						} else if sp, ok := backend.(serverProcessExtractor); ok {
-							if proc := sp.ServerProcess(); proc != nil {
-								proc.Stop()
-							}
-						}
-						runtime = selected
-						backend = selected.Backend
-						state.ResetBackendSession()
-						state.SessionItems = nil
-						startBackend(selected)
-					}
-				} else {
-					handlePaletteAction(ctx, state, backend, action, cfg)
-				}
-			}
+			dispatchPendingAction()
 			if command, ok := state.ConsumePendingCommand(); ok {
 				runCommand(command)
 			}
@@ -501,6 +511,9 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 		case mutation := <-mutations:
 			if mutation != nil {
 				mutation(state)
+				// Command verbs enqueue effects by setting PendingAction inside a
+				// mutation; drain it here so the effect runs with the live backend.
+				dispatchPendingAction()
 				Render(state, deps.RenderConfig)
 				saveConfigIfChanged()
 			}

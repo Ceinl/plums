@@ -83,8 +83,8 @@ func TestSwitchLayoutSkipsUnavailableConfiguredLayouts(t *testing.T) {
 	}
 }
 
-func TestDefaultCommandConfigIncludesLayoutCommand(t *testing.T) {
-	state := NewState(120, 40)
+func TestPaletteIncludesLayoutCommand(t *testing.T) {
+	state := stateWithBuiltinCommands(120, 40)
 	state.OpenPalette()
 	for _, ch := range "layout" {
 		state.InsertPaletteRune(ch)
@@ -99,13 +99,13 @@ func TestDefaultCommandConfigIncludesLayoutCommand(t *testing.T) {
 	}
 
 	state.SelectPaletteItem()
-	if got := state.ConsumePendingAction(); got != PaletteActionLayoutsList {
-		t.Fatalf("expected layouts list action, got %v", got)
+	if got := runPending(state); !got.called("SwitchLayout") {
+		t.Fatalf("expected layouts command to call SwitchLayout, got %v", got.calls)
 	}
 }
 
-func TestDefaultCommandConfigOmitsChatLayoutCommand(t *testing.T) {
-	state := NewState(120, 40)
+func TestPaletteOmitsChatLayoutCommand(t *testing.T) {
+	state := stateWithBuiltinCommands(120, 40)
 	state.OpenPalette()
 	for _, ch := range "chat layout" {
 		state.InsertPaletteRune(ch)
@@ -121,7 +121,7 @@ func TestDefaultCommandConfigOmitsChatLayoutCommand(t *testing.T) {
 }
 
 func TestNonSplitCommandPaletteHidesOutputPercentage(t *testing.T) {
-	state := NewState(120, 40)
+	state := stateWithBuiltinCommands(120, 40)
 	state.Layout = LayoutZen
 	state.OpenPalette()
 
@@ -163,70 +163,56 @@ func TestLayoutPaletteSelection(t *testing.T) {
 	}
 }
 
-func TestLoadCommandConfig(t *testing.T) {
-	if _, err := LoadCommandConfig(""); err != nil {
-		t.Fatalf("load built-in command config: %v", err)
-	}
-	if _, err := LoadCommandConfig("testdata/commands.json"); err != nil {
-		t.Fatalf("load test command config: %v", err)
-	}
-}
-
-func TestCommandConfigControlsSlashCommands(t *testing.T) {
-	cfg, err := LoadCommandConfig("testdata/commands.json")
-	if err != nil {
-		t.Fatalf("load command config: %v", err)
-	}
-	state := NewState(80, 24)
-	state.SetCommandConfig(cfg)
-	state.Editor.SetContent("/command")
-	state.SubmitInput()
-
-	if !state.PopupOpen {
-		t.Fatalf("expected configured /command slash command to open palette")
-	}
-}
-
-func TestDefaultCommandConfigIncludesSkillsCommand(t *testing.T) {
-	state := NewState(80, 24)
+func TestSlashSkillsCallsOpenSkills(t *testing.T) {
+	state := stateWithBuiltinCommands(80, 24)
 	state.Editor.SetContent("/skills")
 	state.SubmitInput()
 
-	if got := state.ConsumePendingAction(); got != PaletteActionSkillsList {
-		t.Fatalf("expected /skills to open skills list, got %v", got)
+	if got := runPending(state); !got.called("OpenSkills") {
+		t.Fatalf("expected /skills to call OpenSkills, got %v", got.calls)
 	}
 }
 
-func TestDefaultCommandConfigIncludesBackendCommand(t *testing.T) {
-	state := NewState(80, 24)
+func TestSlashBackendCallsSwitchBackend(t *testing.T) {
+	state := stateWithBuiltinCommands(80, 24)
 	state.Editor.SetContent("/backend")
 	state.SubmitInput()
 
-	if got := state.ConsumePendingAction(); got != PaletteActionBackendList {
-		t.Fatalf("expected /backend to open backend list, got %v", got)
+	if got := runPending(state); !got.called("SwitchBackend") {
+		t.Fatalf("expected /backend to call SwitchBackend, got %v", got.calls)
 	}
 }
 
 func TestRegistryCommandsControlSlashCommands(t *testing.T) {
 	state := NewState(80, 24)
+	called := false
 	state.SetCommands([]capabilities.Command{
-		{Name: "/command", Detail: "Open from registry"},
+		{Name: "/command", Detail: "Open from registry", Do: func(context.Context, capabilities.Ctx) error {
+			called = true
+			return nil
+		}},
 	})
 	state.Editor.SetContent("/command")
 	state.SubmitInput()
 
-	if !state.PopupOpen {
-		t.Fatalf("expected registry /command slash command to open palette")
+	command, ok := state.ConsumePendingCommand()
+	if !ok || command.Name != "/command" {
+		t.Fatalf("expected registry /command to be pending, got %+v ok=%v", command, ok)
+	}
+	_ = command.Do(context.Background(), &fakeCtx{})
+	if !called {
+		t.Fatal("expected registry /command Do to run")
 	}
 
+	// A command set without /skills means /skills does nothing.
 	state = NewState(80, 24)
 	state.SetCommands([]capabilities.Command{
-		{Name: "/backend", Detail: "Switch backend"},
+		{Name: "/backend", Detail: "Switch backend", Do: func(context.Context, capabilities.Ctx) error { return nil }},
 	})
 	state.Editor.SetContent("/skills")
 	state.SubmitInput()
-	if got := state.ConsumePendingAction(); got != PaletteActionNone {
-		t.Fatalf("expected /skills to be disabled by registry command set, got %v", got)
+	if _, ok := state.ConsumePendingCommand(); ok {
+		t.Fatal("expected /skills to be absent from registry command set")
 	}
 }
 
@@ -277,9 +263,6 @@ func TestRegistryCommandWithDoAppearsInPalette(t *testing.T) {
 	state.PaletteQuery = "custom"
 	state.SelectPaletteItem()
 
-	if got := state.ConsumePendingAction(); got != PaletteActionNone {
-		t.Fatalf("pending action = %v, want none", got)
-	}
 	command, ok := state.ConsumePendingCommand()
 	if !ok {
 		t.Fatal("expected pending registry command")
@@ -310,8 +293,8 @@ func TestBackendPaletteSelection(t *testing.T) {
 	}
 }
 
-func TestDefaultCommandConfigIncludesThinkingVisibilityCommand(t *testing.T) {
-	state := NewState(80, 24)
+func TestPaletteIncludesThinkingVisibilityCommand(t *testing.T) {
+	state := stateWithBuiltinCommands(80, 24)
 	state.OpenPalette()
 	for _, ch := range "thinking" {
 		state.InsertPaletteRune(ch)
@@ -326,8 +309,8 @@ func TestDefaultCommandConfigIncludesThinkingVisibilityCommand(t *testing.T) {
 	}
 
 	state.SelectPaletteItem()
-	if got := state.ConsumePendingAction(); got != PaletteActionCycleThinkingVisibility {
-		t.Fatalf("expected thinking visibility action, got %v", got)
+	if got := runPending(state); !got.called("CycleThinkingVisibility") {
+		t.Fatalf("expected thinking visibility command to call CycleThinkingVisibility, got %v", got.calls)
 	}
 }
 
@@ -347,28 +330,6 @@ func TestCycleThinkingVisibilityUpdatesChatLog(t *testing.T) {
 	state.CycleThinkingVisibility()
 	if state.ThinkingMode != components.ThinkingVisibilityHidden {
 		t.Fatalf("expected hidden visibility, got %v", state.ThinkingMode)
-	}
-}
-
-func TestEditorSkillsCommandDoesNotRequireCommandConfig(t *testing.T) {
-	state := NewState(80, 24)
-	state.SetCommandConfig(&CommandConfig{
-		Version: 1,
-		SlashCommands: []SlashCommandConfig{
-			{Name: "/command", Detail: "Open palette", Action: "open_palette"},
-		},
-		Palette: PaletteConfig{Items: []PaletteItemConfig{
-			{Title: "Open palette", Action: "open_palette"},
-		}},
-		Actions: map[string]ActionSpec{
-			"open_palette": {Kind: "builtin"},
-		},
-	})
-	state.Editor.SetContent("/skills")
-	state.SubmitInput()
-
-	if got := state.ConsumePendingAction(); got != PaletteActionSkillsList {
-		t.Fatalf("expected built-in /skills action, got %v", got)
 	}
 }
 
@@ -513,7 +474,7 @@ func TestDiscoverSkillsFindsOpenCodeCompatibleSkill(t *testing.T) {
 }
 
 func TestPaletteSearchSelectsFilteredCommand(t *testing.T) {
-	state := NewState(80, 24)
+	state := stateWithBuiltinCommands(80, 24)
 	state.OpenPalette()
 	for _, ch := range "session" {
 		state.InsertPaletteRune(ch)
@@ -529,8 +490,8 @@ func TestPaletteSearchSelectsFilteredCommand(t *testing.T) {
 
 	state.MovePalette(1)
 	state.SelectPaletteItem()
-	if got := state.ConsumePendingAction(); got != PaletteActionSessionsList {
-		t.Fatalf("expected sessions list action, got %v", got)
+	if got := runPending(state); !got.called("OpenSessions") {
+		t.Fatalf("expected sessions list command to call OpenSessions, got %v", got.calls)
 	}
 }
 

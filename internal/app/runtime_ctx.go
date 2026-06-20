@@ -22,6 +22,7 @@ type runtimeCtx struct {
 	mutations    chan<- stateMutation
 	prompts      chan<- string
 	completion   *completionRegistry
+	commandState capabilities.CommandState
 }
 
 func newRuntimeCtx(state *State, cfg RunConfig, mutations chan<- stateMutation, prompts chan<- string) *runtimeCtx {
@@ -48,6 +49,20 @@ func newRuntimeCtx(state *State, cfg RunConfig, mutations chan<- stateMutation, 
 		clipboardCmd: cfg.ClipboardCommand,
 		mutations:    mutations,
 		prompts:      prompts,
+		commandState: commandStateFromState(state),
+	}
+}
+
+// commandStateFromState snapshots the host fields commands read to render
+// dynamic palette labels. It mirrors the legacy commands.json template vars.
+func commandStateFromState(state *State) capabilities.CommandState {
+	return capabilities.CommandState{
+		Mode:               state.Mode,
+		Layout:             state.LayoutLabel(),
+		ThinkingVisibility: state.ThinkingVisibilityLabel(),
+		ToolCallVisibility: state.ToolCallVisibilityLabel(),
+		OutputPercent:      state.SplitOutputPercent(),
+		BackendProvider:    state.BackendProvider,
 	}
 }
 
@@ -135,6 +150,62 @@ func (c *runtimeCtx) SetLayout(name string) {
 
 func (c *runtimeCtx) OpenList(title string, items []capabilities.ListItem, onPick func(capabilities.ListItem)) {
 	c.Services().Palette().Open(title, items, onPick)
+}
+
+// --- Command verbs ---
+//
+// Each verb enqueues the same effect the legacy PaletteAction handler ran. The
+// pure-state toggles mutate state directly through a mutation; the
+// backend-dependent verbs set PendingAction so the run loop's dispatch
+// (handlePaletteAction) executes them with the live backend client. This keeps
+// the existing internal behavior intact ahead of the Phase 6 backend refactor.
+
+func (c *runtimeCtx) OpenCommandPalette() {
+	c.enqueue(func(state *State) { state.PendingAction = PaletteActionOpenPalette })
+}
+
+func (c *runtimeCtx) ChangeModel() {
+	c.enqueue(func(state *State) { state.PendingAction = PaletteActionChangeModel })
+}
+
+func (c *runtimeCtx) SwitchBackend() {
+	c.enqueue(func(state *State) { state.PendingAction = PaletteActionBackendList })
+}
+
+func (c *runtimeCtx) NewSession() {
+	c.enqueue(func(state *State) { state.PendingAction = PaletteActionNewSession })
+}
+
+func (c *runtimeCtx) OpenSessions() {
+	c.enqueue(func(state *State) { state.PendingAction = PaletteActionSessionsList })
+}
+
+func (c *runtimeCtx) OpenSkills() {
+	c.enqueue(func(state *State) { state.PendingAction = PaletteActionSkillsList })
+}
+
+func (c *runtimeCtx) SwitchMode() {
+	c.enqueue(func(state *State) { state.ToggleMode() })
+}
+
+func (c *runtimeCtx) CycleThinkingVisibility() {
+	c.enqueue(func(state *State) { state.CycleThinkingVisibility() })
+}
+
+func (c *runtimeCtx) CycleToolCallVisibility() {
+	c.enqueue(func(state *State) { state.CycleToolCallVisibility() })
+}
+
+func (c *runtimeCtx) AdjustOutputPercent(delta int) {
+	c.enqueue(func(state *State) { state.AdjustOutputPercentage(delta) })
+}
+
+func (c *runtimeCtx) SwitchLayout() {
+	c.enqueue(func(state *State) { state.PendingAction = PaletteActionLayoutsList })
+}
+
+func (c *runtimeCtx) State() capabilities.CommandState {
+	return c.commandState
 }
 
 func (c *runtimeCtx) enqueue(mutation stateMutation) {

@@ -161,6 +161,23 @@ type Command struct {
 	Name   string
 	Detail string
 	Do     func(context.Context, Ctx) error
+	// Title, when set, supplies the palette row's title/detail dynamically from
+	// host state (e.g. "Switch to build mode", "Current mode: plan"). It replaces
+	// the static Name/Detail in the command palette when present. Returning a
+	// disabled item hides the row from selection. Slash-command dropdowns always
+	// use Name; Title only affects the palette.
+	Title func(CommandState) PaletteLabel
+}
+
+// PaletteLabel is a command's rendered palette row. Title/Detail are the visible
+// text; Disabled greys the row out; Adjust marks the row as a left/right
+// adjuster (the output-percent slider) and Step is its increment.
+type PaletteLabel struct {
+	Title    string
+	Detail   string
+	Disabled bool
+	Adjust   bool
+	Step     int
 }
 
 // Ctx is the runtime surface exposed to commands and hooks.
@@ -178,6 +195,38 @@ type Ctx interface {
 	// and OpenList above are conveniences that delegate to Services().Clipboard()
 	// and Services().Palette() respectively.
 	Services() Services
+
+	// Command verbs — the built-in command set drives the host through these. Each
+	// enqueues the same effect the host would run for the corresponding action
+	// (open a picker, toggle a setting, start a session). They wrap existing host
+	// behavior; backends are not yet refactored into capabilities.
+	OpenCommandPalette()
+	ChangeModel()
+	SwitchBackend()
+	NewSession()
+	OpenSessions()
+	OpenSkills()
+	SwitchMode()
+	CycleThinkingVisibility()
+	CycleToolCallVisibility()
+	AdjustOutputPercent(delta int)
+	SwitchLayout()
+
+	// State reads commands use to render dynamic titles (mode/layout/visibility
+	// labels, output percent, active backend).
+	State() CommandState
+}
+
+// CommandState is the read-only snapshot of host state a command consults to
+// render dynamic palette labels. It mirrors the template fields the legacy
+// commands.json titles used ({mode}, {layout}, {thinking_visibility}, ...).
+type CommandState struct {
+	Mode               string
+	Layout             string
+	ThinkingVisibility string
+	ToolCallVisibility string
+	OutputPercent      int
+	BackendProvider    string
 }
 
 type Editor interface {

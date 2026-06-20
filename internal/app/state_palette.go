@@ -46,11 +46,8 @@ const (
 type paletteCommandItem struct {
 	Title       string
 	Detail      string
-	Action      PaletteAction
 	CommandName string
 	Adjust      bool
-	Min         int
-	Max         int
 	Step        int
 	Disabled    bool
 }
@@ -120,8 +117,14 @@ func (s *State) PaletteTitle() string {
 		}
 		return "List"
 	}
-	return s.commandConfig.Palette.Title
+	return paletteCommandsTitle
 }
+
+const (
+	paletteCommandsTitle      = "Command Palette"
+	paletteEmptySessionsTitle = "No sessions"
+	paletteEmptySessionsHint  = "No opencode sessions found"
+)
 
 func (s *State) PaletteItems() []components.PopupItem {
 	if s.PaletteView == PaletteViewModels {
@@ -149,7 +152,7 @@ func (s *State) PaletteItems() []components.PopupItem {
 	if s.PaletteView == PaletteViewSessions {
 		sessions := s.visibleSessionItems()
 		if len(sessions) == 0 {
-			return []components.PopupItem{{Title: s.commandConfig.Palette.EmptySessionsTitle, Detail: s.commandConfig.Palette.EmptySessionsDetail, Disabled: true}}
+			return []components.PopupItem{{Title: paletteEmptySessionsTitle, Detail: paletteEmptySessionsHint, Disabled: true}}
 		}
 		items := make([]components.PopupItem, len(sessions))
 		for i, session := range sessions {
@@ -250,7 +253,7 @@ func (s *State) AdjustSelectedPaletteItem(delta int) bool {
 	}
 	step := command.Step
 	if step == 0 {
-		_, _, step = s.outputAdjustment()
+		step = outputPercentageStep
 	}
 	return s.AdjustOutputPercentage(delta * step)
 }
@@ -269,27 +272,6 @@ func (s *State) selectedAdjustableCommand() (paletteCommandItem, bool) {
 		return paletteCommandItem{}, false
 	}
 	return commands[s.PaletteIndex], true
-}
-
-func (s *State) outputAdjustment() (min, max, step int) {
-	min, max, step = minOutputPercentage, maxOutputPercentage, outputPercentageStep
-	if s.commandConfig == nil {
-		return min, max, step
-	}
-	for _, spec := range s.commandConfig.Actions {
-		if spec.Adjustment.Step == 0 {
-			continue
-		}
-		if spec.Adjustment.Min != 0 {
-			min = spec.Adjustment.Min
-		}
-		if spec.Adjustment.Max != 0 {
-			max = spec.Adjustment.Max
-		}
-		step = spec.Adjustment.Step
-		return min, max, step
-	}
-	return min, max, step
 }
 
 func (s *State) PaletteSearch() string {
@@ -401,17 +383,31 @@ func (s *State) SelectPaletteItem() {
 		return
 	}
 	command := commands[s.PaletteIndex]
-	if command.CommandName != "" {
+	if command.CommandName == "" {
+		return
+	}
+	// The command's Do verb decides whether a new picker/list opens (model,
+	// backend, sessions, skills, layouts) or the palette closes (toggles, new
+	// session). For the picker-opening verbs the palette stays open until the run
+	// loop swaps the view; the others close it here. Output-percent adjusts in
+	// place via Left/Right and never selects.
+	if !command.Adjust {
 		s.pendingCommand = command.CommandName
-		s.PopupOpen = false
-		return
+		if !commandKeepsPaletteOpen(command.CommandName) {
+			s.PopupOpen = false
+		}
 	}
-	s.PendingAction = command.Action
-	if s.PendingAction == PaletteActionNone {
-		return
-	}
-	if s.PendingAction != PaletteActionSessionsList && s.PendingAction != PaletteActionSkillsList && s.PendingAction != PaletteActionChangeModel && s.PendingAction != PaletteActionOpenPalette && s.PendingAction != PaletteActionBackendList && s.PendingAction != PaletteActionLayoutsList {
-		s.PopupOpen = false
+}
+
+// commandKeepsPaletteOpen reports whether selecting a command leaves the palette
+// open (because the command swaps to a sub-view: models, backends, sessions,
+// skills, layouts, or re-opens the palette), matching the legacy dispatch gate.
+func commandKeepsPaletteOpen(name string) bool {
+	switch name {
+	case "Change model", "Backend provider", "Sessions list", "Skills list", "Layouts":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -565,36 +561,60 @@ func (s *State) SelectedBackendID() string {
 	return backends[s.PaletteIndex].ID
 }
 
+// commandItems builds the command-palette rows from the registered commands.
+// Each row's visible label comes from the command's dynamic Title (fed the
+// current host state) when present, else its static Name/Detail. Title-disabled
+// rows (e.g. the slash commands) are skipped so the palette shows only the
+// palette actions. The split-only output-percent adjuster is hidden outside the
+// split layout, matching the legacy behavior.
 func (s *State) commandItems() []paletteCommandItem {
-	items := s.commandConfig.commandItems(s)
-	if len(s.commands) == 0 {
-		return items
-	}
-	legacy := make(map[string]bool, len(s.commandConfig.SlashCommands))
-	for _, command := range s.commandConfig.SlashCommands {
-		legacy[command.Name] = true
-	}
+	state := s.commandState()
+	items := make([]paletteCommandItem, 0, len(s.commands))
 	for _, command := range s.commands {
-		if command.Name == "" || !strings.HasPrefix(command.Name, "/") {
+		if command.Do == nil {
 			continue
 		}
-		action := s.actionForSlashCommand(command.Name)
-		if legacy[command.Name] && command.Do == nil {
+		title := command.Name
+		detail := command.Detail
+		disabled := false
+		adjust := false
+		step := 0
+		if command.Title != nil {
+			label := command.Title(state)
+			if label.Disabled {
+				continue
+			}
+			title = label.Title
+			detail = label.Detail
+			adjust = label.Adjust
+			step = label.Step
+		}
+		if adjust && s.EffectiveLayout() != LayoutSplit {
 			continue
 		}
-		item := paletteCommandItem{
-			Title:    command.Name,
-			Detail:   command.Detail,
-			Action:   action,
-			Disabled: action == PaletteActionNone && command.Do == nil,
-		}
-		if command.Do != nil {
-			item.CommandName = command.Name
-			item.Disabled = false
-		}
-		items = append(items, item)
+		items = append(items, paletteCommandItem{
+			Title:       title,
+			Detail:      detail,
+			CommandName: command.Name,
+			Adjust:      adjust,
+			Step:        step,
+			Disabled:    disabled,
+		})
 	}
 	return items
+}
+
+// commandState snapshots the host fields commands read for dynamic palette
+// titles, mirroring runtime_ctx's commandStateFromState.
+func (s *State) commandState() capabilities.CommandState {
+	return capabilities.CommandState{
+		Mode:               s.Mode,
+		Layout:             s.LayoutLabel(),
+		ThinkingVisibility: s.ThinkingVisibilityLabel(),
+		ToolCallVisibility: s.ToolCallVisibilityLabel(),
+		OutputPercent:      s.SplitOutputPercent(),
+		BackendProvider:    s.BackendProvider,
+	}
 }
 
 func (s *State) visibleCommandItems() []paletteCommandItem {

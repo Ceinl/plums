@@ -40,6 +40,11 @@ func HandleConfiguredKeybind(state *State, ev keyboard.Event, keybinds []capabil
 	return false
 }
 
+// RunKeybindAction resolves a keybind's Do string against the registered
+// commands. A slash name ("/new") runs that command; the legacy action keywords
+// ("open_palette", "change_model", ...) map to their equivalent slash command so
+// existing keymaps keep working. The bare "open_palette" opens the palette
+// directly even when no command matches.
 func (s *State) RunKeybindAction(action string) bool {
 	action = strings.TrimSpace(action)
 	if action == "" {
@@ -48,15 +53,29 @@ func (s *State) RunKeybindAction(action string) bool {
 	if strings.HasPrefix(action, "/") {
 		return s.runSlashCommand(strings.TrimPrefix(action, "/"))
 	}
-	if builtin := s.commandConfig.actionFor(action); builtin != PaletteActionNone {
-		if builtin == PaletteActionOpenPalette {
+	if name, ok := keybindActionAliases[action]; ok {
+		if s.runSlashCommand(name) {
+			return true
+		}
+		if action == "open_palette" {
 			s.OpenPalette()
 			return true
 		}
-		s.PendingAction = builtin
-		return true
+		return false
 	}
 	return s.runSlashCommand(action)
+}
+
+// keybindActionAliases maps the legacy action keywords (commands.json action
+// names) to the slash command that performs the same effect, so a keybind
+// `Do: "open_palette"` still works after the unification.
+var keybindActionAliases = map[string]string{
+	"open_palette":  "command",
+	"new_session":   "new",
+	"change_model":  "model",
+	"backend_list":  "backend",
+	"skills_list":   "skills",
+	"sessions_list": "sessions",
 }
 
 func parseKeybindSpec(key string) (keybindSpec, bool) {

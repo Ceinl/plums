@@ -159,7 +159,7 @@ func TestCtrlTDoesNotCycleOutputPanels(t *testing.T) {
 }
 
 func TestArrowKeysNavigateEditorDropdown(t *testing.T) {
-	state := NewState(80, 24)
+	state := stateWithBuiltinCommands(80, 24)
 	state.Editor.SetContent("/")
 
 	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyArrowDown}, DefaultClipboardCommand())
@@ -186,7 +186,7 @@ func TestArrowKeysNavigateEditorDropdown(t *testing.T) {
 }
 
 func TestEnterSelectsEditorDropdownItem(t *testing.T) {
-	state := NewState(80, 24)
+	state := stateWithBuiltinCommands(80, 24)
 	state.Editor.SetContent("/")
 	state.MoveEditorDropdown(1)
 
@@ -203,7 +203,7 @@ func TestEnterSelectsEditorDropdownItem(t *testing.T) {
 }
 
 func TestEnterSubmitsExactSlashCommandWhenDropdownOpen(t *testing.T) {
-	state := NewState(80, 24)
+	state := stateWithBuiltinCommands(80, 24)
 	state.Layout = LayoutChat
 	state.Editor.SetContent("/new")
 
@@ -211,8 +211,8 @@ func TestEnterSubmitsExactSlashCommandWhenDropdownOpen(t *testing.T) {
 	if !handled || quit {
 		t.Fatalf("expected exact slash command handled without quit, handled=%v quit=%v", handled, quit)
 	}
-	if got := state.ConsumePendingAction(); got != PaletteActionNewSession {
-		t.Fatalf("expected new session action, got %v", got)
+	if got := runPending(state); !got.called("NewSession") {
+		t.Fatalf("expected /new to call NewSession, got %v", got.calls)
 	}
 	if got := state.ConsumeSubmittedInput(); got != "" {
 		t.Fatalf("expected slash command not submitted as text, got %q", got)

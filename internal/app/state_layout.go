@@ -101,11 +101,10 @@ func (s *State) LayoutLabel() string {
 }
 
 func (s *State) SplitOutputPercent() int {
-	min, max, _ := s.outputAdjustment()
 	if s.OutputPercent == 0 {
 		return defaultOutputPercentage
 	}
-	return clampInt(s.OutputPercent, min, max)
+	return clampInt(s.OutputPercent, minOutputPercentage, maxOutputPercentage)
 }
 
 func (s *State) SplitLeftPercent() int {
@@ -117,9 +116,8 @@ func (s *State) SplitLeftWidth() int {
 }
 
 func (s *State) AdjustOutputPercentage(delta int) bool {
-	min, max, _ := s.outputAdjustment()
 	before := s.SplitOutputPercent()
-	s.OutputPercent = clampInt(before+delta, min, max)
+	s.OutputPercent = clampInt(before+delta, minOutputPercentage, maxOutputPercentage)
 	if s.OutputPercent != before {
 		s.invalidateOutputMax()
 	}

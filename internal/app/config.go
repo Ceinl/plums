@@ -46,22 +46,6 @@ func ResolveConfigPath() (string, error) {
 	return path, nil
 }
 
-// ResolveCommandsConfigPath derives the commands config path from the layout
-// config path.
-func ResolveCommandsConfigPath(layoutConfigPath string) (string, error) {
-	if layoutConfigPath == "" {
-		return "", nil
-	}
-	path := strings.TrimSuffix(layoutConfigPath, "layout.json") + "commands.json"
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	return path, nil
-}
-
 // ResolveOpencodeConfigPath derives the opencode TOML config path from the
 // layout config path.
 func ResolveOpencodeConfigPath(layoutConfigPath string) string {

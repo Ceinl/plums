@@ -62,11 +62,12 @@ func TestDefaultPluginsHasPerFeatureOwners(t *testing.T) {
 		}
 		names = append(names, named.Name())
 	}
-	// Layouts no longer ship from Core — they are a public layouts plugin wired
-	// by the Default Config (internal/builtincfg), so "ui/layouts" is absent here.
+	// Layouts and commands no longer ship from Core — they are public plugins
+	// wired by the Default Config (internal/builtincfg), so "ui/layouts" and
+	// "ui/commands" are absent here.
 	want := []string{
 		"backend/opencode", "backend/codex", "backend/claude", "backend/claude-mirror",
-		"ui/components", "ui/commands",
+		"ui/components",
 	}
 	if len(names) != len(want) {
 		t.Fatalf("plugin names = %v, want %v", names, want)
@@ -113,40 +114,6 @@ func TestBackendRegistrations(t *testing.T) {
 		if names[i] != want[i] {
 			t.Fatalf("backend names = %v, want %v", names, want)
 		}
-	}
-}
-
-func TestDefaultCommands(t *testing.T) {
-	commands := DefaultCommands()
-	names := make([]string, 0, len(commands))
-	for _, command := range commands {
-		if command.Detail == "" {
-			t.Fatalf("%s command has empty detail", command.Name)
-		}
-		names = append(names, command.Name)
-	}
-	want := []string{"/new", "/command", "/backend", "/skills", "/sessions", "/model"}
-	if len(names) != len(want) {
-		t.Fatalf("command names = %v, want %v", names, want)
-	}
-	for i := range want {
-		if names[i] != want[i] {
-			t.Fatalf("command names = %v, want %v", names, want)
-		}
-	}
-}
-
-func TestCommandsPluginCopiesDefaults(t *testing.T) {
-	plugin := commandsPlugin{commands: DefaultCommands()}
-	commands := plugin.Commands()
-	if len(commands) == 0 {
-		t.Fatal("expected default commands")
-	}
-
-	commands[0].Name = "/changed"
-	again := plugin.Commands()
-	if again[0].Name != "/new" {
-		t.Fatalf("Commands() exposed mutable slice: %+v", again)
 	}
 }
 

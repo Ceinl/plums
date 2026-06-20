@@ -7,14 +7,13 @@ import (
 	"path/filepath"
 )
 
-//go:embed config.toml layout.json commands.json config.go.tmpl
+//go:embed config.toml layout.json config.go.tmpl
 var files embed.FS
 
 const (
-	configToml   = "config.toml"
-	layoutJSON   = "layout.json"
-	commandsJSON = "commands.json"
-	configGo     = "config.go"
+	configToml = "config.toml"
+	layoutJSON = "layout.json"
+	configGo   = "config.go"
 )
 
 // Read returns the content of a built-in default config file by name.
@@ -23,8 +22,7 @@ func Read(name string) ([]byte, error) {
 }
 
 // WriteDefault writes a built-in default file into dir if it does not already
-// exist. name must be one of "config.toml", "layout.json", "commands.json" or
-// "config.go".
+// exist. name must be one of "config.toml", "layout.json" or "config.go".
 func WriteDefault(dir, name string) error {
 	dst := filepath.Join(dir, name)
 	if _, err := os.Stat(dst); err == nil {
@@ -45,7 +43,7 @@ func WriteDefault(dir, name string) error {
 // defaults (e.g. config.go) without clobbering edits or erroring on the files
 // that already exist.
 func WriteAll(dir string) error {
-	for _, name := range []string{configToml, layoutJSON, commandsJSON, configGo} {
+	for _, name := range []string{configToml, layoutJSON, configGo} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
 			continue
 		} else if !os.IsNotExist(err) {

@@ -12,6 +12,7 @@ import (
 
 	cfgpkg "github.com/Ceinl/plums/config"
 	"github.com/Ceinl/plums/internal/kernel/builtin"
+	"github.com/Ceinl/plums/plugins/commands"
 	"github.com/Ceinl/plums/plugins/layouts"
 )
 
@@ -56,7 +57,10 @@ func Config(params RuntimeParams) cfgpkg.Config {
 		OpencodeServerURL: params.OpencodeServerURL,
 		HealthTimeout:     params.HealthTimeout,
 	})
-	plugins = append(plugins, cfgpkg.Plugin{Self: &layouts.Plugin{}})
+	plugins = append(plugins,
+		cfgpkg.Plugin{Self: &layouts.Plugin{}},
+		cfgpkg.Plugin{Self: &commands.Plugin{}},
+	)
 	return cfgpkg.Config{
 		Opts:    Opts(),
 		Plugins: plugins,

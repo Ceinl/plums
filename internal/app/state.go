@@ -88,7 +88,6 @@ type State struct {
 	submittedInput     string
 	submittedMessage   string
 	pendingCommand     string
-	commandConfig      *CommandConfig
 	commands           []capabilities.Command
 	componentFactories map[string]ComponentFactory
 	publicComponents   []*publicComponentAdapter
@@ -119,7 +118,6 @@ func NewState(width int, height int) *State {
 		availableLayouts: defaultLayoutCycle(),
 		Mode:             "build",
 		OutputPercent:    defaultOutputPercentage,
-		commandConfig:    DefaultCommandConfig(),
 		ThinkingMode:     components.ThinkingVisibilityHidden,
 		ToolCallMode:     components.ToolCallVisibilityFull,
 		runSessionIDs:    map[string]bool{},

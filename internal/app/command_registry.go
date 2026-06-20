@@ -8,18 +8,13 @@ import (
 	"unicode"
 )
 
-type CommandCondition func(CommandContext) bool
-
-type CommandHandler func(*State, CommandContext) bool
-
-type Command struct {
-	Name            string
-	Trigger         string
-	Conditions      []CommandCondition
-	HandlerFunction CommandHandler
-}
-
-type CommandContext struct {
+// triggerContext locates a completion trigger ("/" or "@") relative to the
+// editor cursor and the text typed after it. It is the activation gate the
+// editor's "/" and "@" dropdowns share (the completion candidates themselves
+// come from the registered Completion sources). It is NOT the command-execution
+// path — slash commands run through runSlashCommand against the registered
+// command set.
+type triggerContext struct {
 	Input        string
 	CursorIndex  int
 	TriggerStart int
@@ -27,30 +22,15 @@ type CommandContext struct {
 	Query        string
 }
 
-func (s *State) registeredCommands() []Command {
-	return []Command{
-		{
-			Name:       "SlashCommand",
-			Trigger:    "/",
-			Conditions: []CommandCondition{CommandAtFirstChar},
-			HandlerFunction: func(state *State, ctx CommandContext) bool {
-				return state.runSlashCommand(ctx.Query)
-			},
-		},
-		{
-			Name:            "FilePathCommand",
-			Trigger:         "@",
-			Conditions:      []CommandCondition{CommandAfterWhitespaceOrLineStart},
-			HandlerFunction: nil,
-		},
-	}
-}
+// triggerCondition gates whether a trigger at a given position is active (e.g.
+// "/" only at the first char; "@" only after whitespace or line start).
+type triggerCondition func(triggerContext) bool
 
-func CommandAtFirstChar(ctx CommandContext) bool {
+func triggerAtFirstChar(ctx triggerContext) bool {
 	return ctx.TriggerStart == 0
 }
 
-func CommandAfterWhitespaceOrLineStart(ctx CommandContext) bool {
+func triggerAfterWhitespaceOrLineStart(ctx triggerContext) bool {
 	if ctx.TriggerStart == 0 {
 		return true
 	}
@@ -61,28 +41,48 @@ func CommandAfterWhitespaceOrLineStart(ctx CommandContext) bool {
 	return len(previous) > 0 && unicode.IsSpace(previous[len(previous)-1])
 }
 
-func (s *State) commandContext(command Command) (CommandContext, bool) {
+// triggerConditionFor returns the activation condition for a trigger string.
+func triggerConditionFor(trigger string) triggerCondition {
+	switch trigger {
+	case "/":
+		return triggerAtFirstChar
+	case "@":
+		return triggerAfterWhitespaceOrLineStart
+	default:
+		return nil
+	}
+}
+
+func (s *State) triggerContext(trigger string) (triggerContext, bool) {
+	condition := triggerConditionFor(trigger)
+	if condition == nil {
+		return triggerContext{}, false
+	}
 	input := s.Editor.GetContent()
 	cursorIndex := s.editorCursorIndex()
 	if cursorIndex < 0 || cursorIndex > len(input) {
-		return CommandContext{}, false
+		return triggerContext{}, false
 	}
 	beforeCursor := input[:cursorIndex]
-	triggerStart := strings.LastIndex(beforeCursor, command.Trigger)
+	triggerStart := strings.LastIndex(beforeCursor, trigger)
 	if triggerStart < 0 {
-		return CommandContext{}, false
+		return triggerContext{}, false
 	}
-	query := beforeCursor[triggerStart+len(command.Trigger):]
+	query := beforeCursor[triggerStart+len(trigger):]
 	if strings.ContainsAny(query, "\n\t ") {
-		return CommandContext{}, false
+		return triggerContext{}, false
 	}
-	ctx := CommandContext{Input: input, CursorIndex: cursorIndex, TriggerStart: triggerStart, TriggerEnd: triggerStart + len(command.Trigger), Query: query}
-	for _, condition := range command.Conditions {
-		if !condition(ctx) {
-			return CommandContext{}, false
-		}
+	ctx := triggerContext{Input: input, CursorIndex: cursorIndex, TriggerStart: triggerStart, TriggerEnd: triggerStart + len(trigger), Query: query}
+	if !condition(ctx) {
+		return triggerContext{}, false
 	}
 	return ctx, true
+}
+
+// activeCommand returns the active trigger context for the given trigger, if the
+// cursor is currently inside one. It powers the editor dropdowns' activation.
+func (s *State) activeCommand(trigger string) (triggerContext, bool) {
+	return s.triggerContext(trigger)
 }
 
 func (s *State) editorCursorIndex() int {
@@ -99,17 +99,6 @@ func (s *State) editorCursorIndex() int {
 	}
 	idx += len(string(s.Editor.Content[s.Editor.Cursor.Pos.Row][:col]))
 	return idx
-}
-
-func (s *State) activeCommand(trigger string) (Command, CommandContext, bool) {
-	for _, command := range s.registeredCommands() {
-		if command.Trigger != trigger {
-			continue
-		}
-		ctx, ok := s.commandContext(command)
-		return command, ctx, ok
-	}
-	return Command{}, CommandContext{}, false
 }
 
 func projectFilePaths(root string, limit int) []string {

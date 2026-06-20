@@ -27,7 +27,6 @@ func DefaultPlugins(options CoreOptions) []cfgpkg.Plugin {
 	plugins := BackendPlugins(options)
 	plugins = append(plugins,
 		cfgpkg.Plugin{Self: componentsPlugin{components: DefaultComponents()}},
-		cfgpkg.Plugin{Self: commandsPlugin{commands: DefaultCommands()}},
 	)
 	return plugins
 }
@@ -64,27 +63,6 @@ func (componentsPlugin) Name() string                      { return "ui/componen
 func (componentsPlugin) Init(capabilities.Host, any) error { return nil }
 func (p componentsPlugin) Components() []capabilities.Component {
 	return append([]capabilities.Component(nil), p.components...)
-}
-
-type commandsPlugin struct {
-	commands []capabilities.Command
-}
-
-func (commandsPlugin) Name() string                      { return "ui/commands" }
-func (commandsPlugin) Init(capabilities.Host, any) error { return nil }
-func (p commandsPlugin) Commands() []capabilities.Command {
-	return append([]capabilities.Command(nil), p.commands...)
-}
-
-func DefaultCommands() []capabilities.Command {
-	return []capabilities.Command{
-		{Name: "/new", Detail: "Create a fresh opencode session"},
-		{Name: "/command", Detail: "Open the command palette"},
-		{Name: "/backend", Detail: "Switch backend provider"},
-		{Name: "/skills", Detail: "Load an opencode skill"},
-		{Name: "/sessions", Detail: "Open existing opencode sessions"},
-		{Name: "/model", Detail: "Change the active model"},
-	}
 }
 
 func BackendRegistrations(options CoreOptions) []capabilities.BackendRegistration {

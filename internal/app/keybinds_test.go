@@ -23,7 +23,7 @@ func TestConfiguredKeybindRunsBuiltinAction(t *testing.T) {
 }
 
 func TestConfiguredKeybindRunsSlashAction(t *testing.T) {
-	state := NewState(80, 24)
+	state := stateWithBuiltinCommands(80, 24)
 	handled := HandleConfiguredKeybind(state, keyboard.Event{Type: keyboard.KeyRune, Ch: 's', Alt: true}, []capabilities.Keybind{
 		{Key: "alt+s", Do: "/skills"},
 	})
@@ -31,8 +31,8 @@ func TestConfiguredKeybindRunsSlashAction(t *testing.T) {
 	if !handled {
 		t.Fatal("expected configured keybind to be handled")
 	}
-	if got := state.ConsumePendingAction(); got != PaletteActionSkillsList {
-		t.Fatalf("pending action = %v, want skills list", got)
+	if got := runPending(state); !got.called("OpenSkills") {
+		t.Fatalf("expected /skills keybind to call OpenSkills, got %v", got.calls)
 	}
 }
 
@@ -77,7 +77,7 @@ func TestConfiguredKeybindMatchesSpecialKey(t *testing.T) {
 }
 
 func TestConfiguredKeybindOverridesLegacyDefault(t *testing.T) {
-	state := NewState(80, 24)
+	state := stateWithBuiltinCommands(80, 24)
 	handled := HandleConfiguredKeybind(state, keyboard.Event{Type: keyboard.KeyRune, Ch: 'p', Ctrl: true}, []capabilities.Keybind{
 		{Key: "ctrl+p", Do: "/skills"},
 	})
@@ -88,8 +88,8 @@ func TestConfiguredKeybindOverridesLegacyDefault(t *testing.T) {
 	if state.PopupOpen {
 		t.Fatal("expected configured ctrl+p to avoid legacy palette toggle")
 	}
-	if got := state.ConsumePendingAction(); got != PaletteActionSkillsList {
-		t.Fatalf("pending action = %v, want skills list", got)
+	if got := runPending(state); !got.called("OpenSkills") {
+		t.Fatalf("expected /skills keybind to call OpenSkills, got %v", got.calls)
 	}
 }
 
