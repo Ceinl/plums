@@ -18,17 +18,16 @@ type SettingsDefaults struct {
 // wires the dynamic-prefs store).
 func (o Opts) ToSettings(def SettingsDefaults) capabilities.Settings {
 	return capabilities.Settings{
-		Backend:           o.Backend.Value(),
-		DefaultLayout:     o.DefaultLayout.Value(),
-		Mode:              o.Mode.Value(),
-		Theme:             o.Theme,
-		Keybinds:          o.Keybinds,
-		ClipboardCommand:  o.ClipboardCommand,
-		HideThinking:      o.HideThinking.Value(def.HideThinking),
-		SplitLeftWidth:    o.SplitLeftWidth.Value(def.SplitLeftWidth),
-		OutputPercent:     o.OutputPercent.Value(def.OutputPercent),
-		ClearHistory:      o.ClearHistory.Value(def.ClearHistory),
-		OpencodeServerURL: o.OpencodeServerURL.Value(),
-		Disable:           o.Disable,
+		Backend:          o.Backend.Value(),
+		DefaultLayout:    o.DefaultLayout.Value(),
+		Mode:             o.Mode.Value(),
+		Theme:            o.Theme,
+		Keybinds:         o.Keybinds,
+		ClipboardCommand: o.ClipboardCommand,
+		HideThinking:     o.HideThinking.Value(def.HideThinking),
+		SplitLeftWidth:   o.SplitLeftWidth.Value(def.SplitLeftWidth),
+		OutputPercent:    o.OutputPercent.Value(def.OutputPercent),
+		ClearHistory:     o.ClearHistory.Value(def.ClearHistory),
+		Disable:          o.Disable,
 	}
 }

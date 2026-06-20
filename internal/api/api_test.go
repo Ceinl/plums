@@ -19,8 +19,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.BackendProvider != "opencode" {
 		t.Errorf("BackendProvider = %q, want opencode", cfg.BackendProvider)
 	}
-	if cfg.OpencodeServerURL == "" {
-		t.Error("OpencodeServerURL must have a default")
+	if cfg.OpencodeServerURL != "" {
+		t.Errorf("OpencodeServerURL = %q, want empty CLI override", cfg.OpencodeServerURL)
 	}
 	if cfg.ClipboardCommand == "" {
 		t.Error("ClipboardCommand must have a default")
@@ -294,15 +294,14 @@ func TestComponentFactoriesFromRegistryLetsUserOverrideBuiltInName(t *testing.T)
 
 func TestMergeOptsOverlaysExternalLastWins(t *testing.T) {
 	base := cfgpkg.Opts{
-		Backend:           "opencode",
-		DefaultLayout:     "split",
-		HideThinking:      cfgpkg.True,
-		SplitLeftWidth:    cfgpkg.Int(50),
-		ClearHistory:      cfgpkg.False,
-		OpencodeServerURL: "http://127.0.0.1:50000",
+		Backend:        "opencode",
+		DefaultLayout:  "split",
+		HideThinking:   cfgpkg.True,
+		SplitLeftWidth: cfgpkg.Int(50),
+		ClearHistory:   cfgpkg.False,
 	}
 	// External config pins backend + clear-history, flips hide_thinking, and
-	// leaves layout / split width / server URL unset so they inherit the base.
+	// leaves layout / split width unset so they inherit the base.
 	over := cfgpkg.Opts{
 		Backend:      "codex",
 		HideThinking: cfgpkg.False,
@@ -324,9 +323,6 @@ func TestMergeOptsOverlaysExternalLastWins(t *testing.T) {
 	}
 	if !got.ClearHistory {
 		t.Fatal("ClearHistory = false, want external true")
-	}
-	if got.OpencodeServerURL != "http://127.0.0.1:50000" {
-		t.Fatalf("OpencodeServerURL = %q, want inherited URL", got.OpencodeServerURL)
 	}
 }
 
@@ -365,14 +361,13 @@ func TestFormatDoctor(t *testing.T) {
 	}
 	loaded := &kernel.Loaded{
 		Settings: capabilities.Settings{
-			Backend:           "opencode",
-			DefaultLayout:     "split",
-			Theme:             capabilities.Theme{Name: "zen"},
-			Keybinds:          []capabilities.Keybind{{Key: "ctrl+p", Do: "open_palette"}},
-			Disable:           []capabilities.RegistryKey{{Kind: capabilities.RegistryCommand, Name: "/old"}},
-			HideThinking:      true,
-			SplitLeftWidth:    50,
-			OpencodeServerURL: "http://127.0.0.1:50000",
+			Backend:        "opencode",
+			DefaultLayout:  "split",
+			Theme:          capabilities.Theme{Name: "zen"},
+			Keybinds:       []capabilities.Keybind{{Key: "ctrl+p", Do: "open_palette"}},
+			Disable:        []capabilities.RegistryKey{{Kind: capabilities.RegistryCommand, Name: "/old"}},
+			HideThinking:   true,
+			SplitLeftWidth: 50,
 		},
 		Registry: reg,
 		Hooks: kernel.Hooks{
@@ -387,7 +382,6 @@ func TestFormatDoctor(t *testing.T) {
 		"settings.default_layout: split",
 		"settings.theme: zen",
 		"settings.split_left_width: 50",
-		"settings.opencode_server_url: http://127.0.0.1:50000",
 		"ctrl+p -> open_palette",
 		"command./old",
 		"on_message: 1",

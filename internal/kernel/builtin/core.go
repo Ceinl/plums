@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/Ceinl/plums/capabilities"
@@ -33,25 +34,49 @@ func DefaultPlugins(options CoreOptions) []cfgpkg.Plugin {
 
 // BackendPlugins returns one plugin per bundled backend, named backend/<name>.
 func BackendPlugins(options CoreOptions) []cfgpkg.Plugin {
-	registrations := BackendRegistrations(options)
-	plugins := make([]cfgpkg.Plugin, 0, len(registrations))
-	for _, registration := range registrations {
-		plugins = append(plugins, cfgpkg.Plugin{Self: backendPlugin{
-			name:         "backend/" + registration.Name,
-			registration: registration,
-		}})
+	return []cfgpkg.Plugin{
+		{
+			Self: &backendPlugin{
+				name: "backend/opencode",
+				init: func(opts any) (capabilities.BackendRegistration, error) {
+					opencodeOpts, ok := opts.(opencodebackend.Options)
+					if !ok {
+						return capabilities.BackendRegistration{}, fmt.Errorf("backend/opencode opts have type %T, want opencode.Options", opts)
+					}
+					return opencodebackend.Registration(opencodeOpts), nil
+				},
+			},
+			Opts: opencodebackend.Options{
+				WorkingDirectory: options.WorkingDirectory,
+				ServerURL:        options.OpencodeServerURL,
+				HealthTimeout:    options.HealthTimeout,
+			},
+		},
+		{Self: &backendPlugin{name: "backend/codex", registration: codexbackend.Registration()}},
+		{Self: &backendPlugin{name: "backend/claude", registration: claudebackend.Registration()}},
+		{Self: &backendPlugin{name: "backend/claude-mirror", registration: mirrorbackend.Registration()}},
 	}
-	return plugins
 }
 
 type backendPlugin struct {
 	name         string
 	registration capabilities.BackendRegistration
+	init         func(any) (capabilities.BackendRegistration, error)
 }
 
-func (p backendPlugin) Name() string                      { return p.name }
-func (p backendPlugin) Init(capabilities.Host, any) error { return nil }
-func (p backendPlugin) Backends() []capabilities.BackendRegistration {
+func (p *backendPlugin) Name() string { return p.name }
+func (p *backendPlugin) Init(_ capabilities.Host, opts any) error {
+	if p.init == nil {
+		return nil
+	}
+	registration, err := p.init(opts)
+	if err != nil {
+		return err
+	}
+	p.registration = registration
+	return nil
+}
+func (p *backendPlugin) Backends() []capabilities.BackendRegistration {
 	return []capabilities.BackendRegistration{p.registration}
 }
 

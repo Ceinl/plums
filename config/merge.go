@@ -22,10 +22,6 @@ func MergeOpts(base, over Opts) Opts {
 	if over.Mode.Set() {
 		out.Mode = over.Mode
 	}
-	if over.OpencodeServerURL.Set() {
-		out.OpencodeServerURL = over.OpencodeServerURL
-	}
-
 	if over.Theme != (Theme{}) {
 		out.Theme = over.Theme
 	}

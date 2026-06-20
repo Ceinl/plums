@@ -97,19 +97,18 @@ type Selection interface {
 // built-in Default Config's Opts (see github.com/Ceinl/plums/config). Authors do
 // not construct this directly; they declare config.Opts.
 type Settings struct {
-	Backend           string
-	Layout            Layout
-	DefaultLayout     string
-	Mode              string
-	Theme             Theme
-	Keybinds          []Keybind
-	HideThinking      bool
-	SplitLeftWidth    int
-	OutputPercent     int
-	ClipboardCommand  string
-	ClearHistory      bool
-	OpencodeServerURL string
-	Disable           []RegistryKey
+	Backend          string
+	Layout           Layout
+	DefaultLayout    string
+	Mode             string
+	Theme            Theme
+	Keybinds         []Keybind
+	HideThinking     bool
+	SplitLeftWidth   int
+	OutputPercent    int
+	ClipboardCommand string
+	ClearHistory     bool
+	Disable          []RegistryKey
 }
 
 // Keybind maps a key chord to a command name. The keymap is data the user owns;

@@ -50,7 +50,6 @@ func (s *doubleEscapeStopper) ShouldStop(ev keyboard.Event, streaming bool, now 
 
 // RunConfig holds timing and behaviour overrides for the event loop.
 type RunConfig struct {
-	OpencodeServerURL    string
 	BackendProvider      string
 	ClipboardCommand     string
 	SpinnerInterval      time.Duration

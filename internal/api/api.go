@@ -74,10 +74,14 @@ type resolvedKernelConfig struct {
 // only app-managed dynamic preferences.
 func resolveKernelConfig(cfg *Config, wd string) (*resolvedKernelConfig, error) {
 	defs := defaultRuntimeDefaults()
+	opencodeServerURL := opencodebackend.DefaultBaseURLForDir(wd)
+	if cfg != nil && strings.TrimSpace(cfg.OpencodeServerURL) != "" {
+		opencodeServerURL = strings.TrimSpace(cfg.OpencodeServerURL)
+	}
 
 	base := builtincfg.Config(builtincfg.RuntimeParams{
 		WorkingDirectory:  wd,
-		OpencodeServerURL: opencodebackend.DefaultBaseURLForDir(wd),
+		OpencodeServerURL: opencodeServerURL,
 		HealthTimeout:     defs.HealthTimeout,
 	})
 
@@ -124,12 +128,11 @@ func layoutNameFromSettings(settings capabilities.Settings) string {
 func DefaultConfig() *Config {
 	defs := defaultRuntimeDefaults()
 	return &Config{
-		Version:           defs.AppVersion,
-		Commit:            "unknown",
-		BuildDate:         "unknown",
-		OpencodeServerURL: opencodebackend.DefaultBaseURL,
-		BackendProvider:   "opencode",
-		ClipboardCommand:  defs.ClipboardCommand,
+		Version:          defs.AppVersion,
+		Commit:           "unknown",
+		BuildDate:        "unknown",
+		BackendProvider:  "opencode",
+		ClipboardCommand: defs.ClipboardCommand,
 	}
 }
 
@@ -204,7 +207,6 @@ func Run(cfg *Config) error {
 	}
 	settings := resolved.Settings
 	defaultLayout := layoutNameFromSettings(settings)
-	debuglog.Printf("config: opencode server URL %s", settings.OpencodeServerURL)
 	debuglog.Printf("config: backend provider %s", settings.Backend)
 	debuglog.Printf("config: default_layout %s", defaultLayout)
 	debuglog.Printf("config: hide_thinking %t", settings.HideThinking)
@@ -215,7 +217,6 @@ func Run(cfg *Config) error {
 	defs := defaultRuntimeDefaults()
 
 	runCfg := app.RunConfig{
-		OpencodeServerURL:    settings.OpencodeServerURL,
 		BackendProvider:      settings.Backend,
 		ClipboardCommand:     cfg.ClipboardCommand,
 		SpinnerInterval:      defs.SpinnerInterval,
@@ -366,7 +367,6 @@ func formatDoctor(loaded *kernel.Loaded) string {
 	fmt.Fprintf(&b, "settings.hide_thinking: %t\n", loaded.Settings.HideThinking)
 	fmt.Fprintf(&b, "settings.split_left_width: %d\n", loaded.Settings.SplitLeftWidth)
 	fmt.Fprintf(&b, "settings.clear_history: %t\n", loaded.Settings.ClearHistory)
-	fmt.Fprintf(&b, "settings.opencode_server_url: %s\n", loaded.Settings.OpencodeServerURL)
 	writeKeybinds(&b, loaded.Settings.Keybinds)
 	writeDisabled(&b, loaded.Settings.Disable)
 	fmt.Fprintf(&b, "\nhooks:\n")

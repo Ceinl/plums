@@ -66,10 +66,6 @@ type Opts struct {
 	// Registry.
 	Disable []RegistryKey
 
-	// TODO(phase6): OpencodeServerURL is a temporary home in global Opts. It
-	// moves into the opencode plugin's Opts once backends own their settings.
-	OpencodeServerURL Pref
-
 	// Advanced timeouts (nanoseconds; unset/0 inherits the default).
 	HealthTimeoutMS        int
 	QuestionReplyTimeoutMS int
