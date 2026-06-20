@@ -13,7 +13,7 @@ import (
 // bundled layouts plugin, plus the split layouts standing in for the user-config
 // SplitLayoutPlugin (a compiled template, not linked into tests). This gives
 // tests the same chat/zen/narrow_chat/split/narrow_split set the app sees at
-// runtime, without an embedded layout.json.
+// runtime, without embedded layout data files.
 func testRenderConfig(t *testing.T) *RenderConfig {
 	t.Helper()
 	cfg := NewRenderConfig()

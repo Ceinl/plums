@@ -240,8 +240,7 @@ type Ctx interface {
 }
 
 // CommandState is the read-only snapshot of host state a command consults to
-// render dynamic palette labels. It mirrors the template fields the legacy
-// commands.json titles used ({mode}, {layout}, {thinking_visibility}, ...).
+// render dynamic palette labels.
 type CommandState struct {
 	Mode               string
 	Layout             string

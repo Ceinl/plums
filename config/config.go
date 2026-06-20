@@ -75,9 +75,9 @@ type Opts struct {
 }
 
 // Pref is a string-valued option that distinguishes three states: unset (zero
-// value — inherit the default), Dynamic (remembered at runtime; treated as the
-// default until the dynamic-prefs store lands in Phase 5), and a pinned literal
-// value. An untyped string constant assigns directly: Backend: "opencode".
+// value — inherit the default), Dynamic (remembered at runtime by the
+// app-managed state.toml store), and a pinned literal value. An untyped string
+// constant assigns directly: Backend: "opencode".
 type Pref string
 
 // dynamicSentinel is an in-band marker chosen to never collide with a real
@@ -85,8 +85,8 @@ type Pref string
 // constant below.
 const dynamicSentinel Pref = "\x00plums:dynamic\x00"
 
-// Dynamic marks a Pref field as runtime-remembered. Until the dynamic-prefs
-// store is wired (Phase 5), Dynamic behaves as "use the default value".
+// Dynamic marks a Pref field as runtime-remembered. When no stored value exists,
+// it behaves as "use the default value".
 const Dynamic = dynamicSentinel
 
 // Set reports whether the Pref was assigned (any non-zero value, including
@@ -97,7 +97,7 @@ func (p Pref) Set() bool { return p != "" }
 func (p Pref) IsDynamic() bool { return p == dynamicSentinel }
 
 // Value returns the pinned string, or "" for unset or Dynamic (both of which
-// fall through to the default during merge for now).
+// fall through to the default during settings projection).
 func (p Pref) Value() string {
 	if p == "" || p == dynamicSentinel {
 		return ""

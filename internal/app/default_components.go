@@ -4,7 +4,7 @@ import (
 	"github.com/Ceinl/plums/capabilities"
 )
 
-// DefaultComponents returns the built-in public components. Every entry is a real
+// DefaultComponents returns the built-in public components. Every entry is a
 // capabilities.Component that renders through Surface from RenderCtx; there is no
 // privileged *State factory path. State-entangled panes (editor, sessions,
 // info_view, ...) render a State-owned widget via the in-package appStateProvider

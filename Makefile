@@ -18,8 +18,8 @@ PLUMS_CONFIG_DIR := $(HOME)/.config/plums/config
 run:
 	$(GO) run $(ENTRY)
 
-# init-config: seed the global config (~/.config/plums/config) once. It includes
-# config.go with the split-layout user plugin.
+# init-config: seed the global config (~/.config/plums/config) explicitly. A
+# normal first launch also creates config.go when it is missing.
 init-config:
 	$(GO) run $(ENTRY) -init-config
 
@@ -27,7 +27,7 @@ init-config:
 # plugins against THIS checkout, then run the result — so local plums changes and
 # your config plugins both take effect.
 dev:
-	@test -f "$(PLUMS_CONFIG_DIR)/config.go" || { echo "no $(PLUMS_CONFIG_DIR)/config.go — run 'make init-config' first"; exit 1; }
+	@test -f "$(PLUMS_CONFIG_DIR)/config.go" || { echo "no $(PLUMS_CONFIG_DIR)/config.go — run 'make init-config' or launch plums once first"; exit 1; }
 	@echo "Dev run — global config + plugins from $(PLUMS_CONFIG_DIR), compiled against $(CURDIR)"
 	$(GO) run $(ENTRY) build -plums-dir "$(CURDIR)" -o "$(BIN)"
 	$(BIN)

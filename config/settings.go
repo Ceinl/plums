@@ -14,8 +14,8 @@ type SettingsDefaults struct {
 
 // ToSettings projects resolved Opts into the kernel/runtime-facing
 // capabilities.Settings. Tri-state fields resolve through def; Pref fields use
-// their pinned value (Dynamic and unset both resolve to "" for now — Phase 5
-// wires the dynamic-prefs store).
+// their pinned value. Dynamic Pref fields should be seeded from the app-managed
+// state.toml store before this projection.
 func (o Opts) ToSettings(def SettingsDefaults) capabilities.Settings {
 	return capabilities.Settings{
 		Backend:          o.Backend.Value(),

@@ -71,7 +71,7 @@ func newRuntimeCtx(state *State, cfg RunConfig, mutations chan<- stateMutation, 
 }
 
 // commandStateFromState snapshots the host fields commands read to render
-// dynamic palette labels. It mirrors the legacy commands.json template vars.
+// dynamic palette labels.
 func commandStateFromState(state *State) capabilities.CommandState {
 	return capabilities.CommandState{
 		Mode:               state.Mode,

@@ -32,18 +32,22 @@ Useful flags:
 
 ## Config
 
-plums is global-only, neovim style. Seed the default config:
+plums is global-only, neovim style. On first launch, plums seeds a compiled Go
+config at `~/.config/plums/config/config.go` when one is missing. You can also
+seed it explicitly:
 
 ```bash
 plums -init-config
 ```
 
-Config files are written to `~/.config/plums/config`:
+The user-authored config directory is `~/.config/plums/config`:
 
 - `config.go` — the compiled Go config (`plums.Use`); edit this to reshape plums.
   Launching `plums` auto-compiles it (cached) and runs the result; `plums build`
   builds it explicitly.
-- `config.toml`, `layout.json`, `commands.json` — runtime data defaults for a stock binary.
+
+Runtime preferences that opt into `cfg.Dynamic` are stored separately in the
+app-managed `~/.config/plums/state.toml`; it is not a user config format.
 
 `split` ships as a user plugin in `config.go` (not a builtin) — run `plums -doctor`
 to see it registered as `split (split-layout)`.

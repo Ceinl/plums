@@ -90,9 +90,9 @@ func (s *State) queueCommandByName(name string) bool {
 	return false
 }
 
-// keybindActionAliases maps the legacy action keywords (the old commands.json
-// action names) to registered command names. These aliases are compatibility
-// only; the Default Config uses the canonical command names directly.
+// keybindActionAliases maps legacy action keywords to registered command names.
+// These aliases are compatibility only; the Default Config uses canonical
+// command names directly.
 var keybindActionAliases = map[string]string{
 	"open_palette":  "palette.open",
 	"new_session":   "/new",

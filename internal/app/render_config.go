@@ -77,7 +77,7 @@ type OverlayWidthNode struct {
 // set plus the fixed overlay definitions (the slash-command dropdown and command
 // palette popup). Layouts and the menu are populated at startup by
 // InstallPublicLayout from the registered layout plugins — there is no
-// user-facing layout.json. The overlays are app-internal chrome, not a
+// user-authored layout data file. The overlays are app-internal chrome, not a
 // user-authored layout, so they live here as Go values rather than a file.
 func NewRenderConfig() *RenderConfig {
 	return &RenderConfig{

@@ -22,7 +22,7 @@ type Plugin struct{}
 func (*Plugin) Name() string                      { return "ui/commands" }
 func (*Plugin) Init(capabilities.Host, any) error { return nil }
 
-// Output-percent slider bounds, matching the legacy commands.json adjustment.
+// Output-percent slider bounds.
 const (
 	outputStep = 5
 )
@@ -52,7 +52,7 @@ func (*Plugin) Commands() []capabilities.Command {
 			return nil
 		}),
 
-		// Command-palette actions, in the legacy commands.json order.
+		// Command-palette actions.
 		{
 			Name:   "Switch mode",
 			Detail: "Current mode: ",
