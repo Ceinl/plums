@@ -1,6 +1,7 @@
 package components
 
 import (
+	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
 	"github.com/Ceinl/plums/internal/ui/tui/theme"
@@ -260,7 +261,7 @@ func drawFill(s *screen.Screen, x, y, w int, bg string) {
 	}
 }
 
-func drawCenteredText(s *screen.Screen, x, y, w int, text, fg, bg string) {
+func drawCenteredText(s capabilities.Surface, x, y, w int, text, fg, bg string) {
 	runes := []rune(text)
 	textLen := len(runes)
 	if textLen > w {

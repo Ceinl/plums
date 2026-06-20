@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Step 2 — Dead code removal</title>
+<style>
+  :root{--bg:#16141b;--panel:#1f1d28;--panel2:#26232f;--ink:#e8e5f1;--mut:#9a98ac;--acc:#b9a3ff;--ok:#7fd6a0;--warn:#f0c674;--bad:#f08a8a;--line:#322f3f}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:940px;margin:0 auto;padding:40px 24px 110px}
+  a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
+  h1{font-size:27px;margin:0 0 4px;letter-spacing:-.02em}
+  h2{font-size:20px;margin:44px 0 12px;border-bottom:1px solid var(--line);padding-bottom:8px}
+  .sub{color:var(--mut);margin:0 0 8px}.back{font-size:13px}
+  p{margin:10px 0}
+  code{background:var(--panel2);padding:1px 6px;border-radius:6px;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  pre{background:#100e15;border:1px solid var(--line);border-radius:12px;padding:18px 20px;overflow:auto;font-size:12.5px;line-height:1.5;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfcbe0}
+  pre .c{color:#7d7a90}pre .g{color:var(--ok)}pre .y{color:var(--warn)}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600}
+  td.m{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;white-space:nowrap}
+  .ok{color:var(--ok)}.warn{color:var(--warn)}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:14px 0}
+  ul{margin:8px 0;padding-left:22px}li{margin:4px 0}
+  .kpi{display:flex;gap:14px;flex-wrap:wrap;margin:18px 0}
+  .kpi div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px;min-width:150px}
+  .kpi b{display:block;font-size:24px}.kpi span{color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="back"><a href="index.html">← audit index</a> · <a href="step-1-architecture-audit.html">Step 1</a></p>
+<h1>Step 2 — Dead code removal</h1>
+<p class="sub">Remove genuinely unreachable code while preserving reserved seams and the public extension API (which is &ldquo;unreachable&rdquo; only because external user configs call it).</p>
+
+<h2>1. Plan for this step</h2>
+<div class="box">
+<ol>
+  <li>Run <code>golang.org/x/tools/cmd/deadcode ./...</code> from the real entrypoint.</li>
+  <li>For every flag, grep the whole tree <em>including tests</em> (deadcode ignores test-only callers) to classify: truly dead vs. test-used vs. public API vs. reserved.</li>
+  <li>Remove only the truly-dead set. Re-run <code>go build</code>, <code>go vet</code>, <code>go test ./...</code>, <code>gofmt -l</code>.</li>
+  <li>Re-run deadcode to confirm the set shrank to only intentionally-retained items.</li>
+</ol>
+</div>
+
+<div class="kpi">
+  <div><b class="ok">9</b><span>functions removed</span></div>
+  <div><b class="ok">6</b><span>files touched</span></div>
+  <div><b class="ok">0</b><span>build / test failures</span></div>
+  <div><b>2</b><span>retained by decision</span></div>
+</div>
+
+<h2>2. Removed (verified unreachable, not test-used, not public API)</h2>
+<table>
+<tr><th>Symbol</th><th>File</th><th>Why it was dead</th></tr>
+<tr><td class="m">WriteClipboard</td><td class="m">internal/app/clipboard.go</td><td>Exported wrapper over the package-private <code>writeClipboard</code> var, which is what every caller (and the tests) actually use.</td></tr>
+<tr><td class="m">SkillPrompt</td><td class="m">internal/app/skills.go</td><td>No caller anywhere; skill expansion goes through <code>ExpandSkillMarkers</code>.</td></tr>
+<tr><td class="m">NewClient</td><td class="m">…/provider/opencode/client.go</td><td>Only <code>NewClientWithURL</code> is used by the bridge and tests; <code>NewClient</code> just defaulted the URL and had no caller.</td></tr>
+<tr><td class="m">TitleFromMessage</td><td class="m">…/provider/opencode/types.go</td><td>opencode takes titles from the SDK; the other providers define their own same-named helper. opencode&rsquo;s copy was unused (left <code>fmt</code>/<code>strings</code> imports dangling, also removed).</td></tr>
+<tr><td class="m">DefaultBaseURLForPort</td><td class="m">…/provider/opencode/types.go</td><td>No caller; port→URL formatting is done inline where needed.</td></tr>
+<tr><td class="m">WaitForHealth</td><td class="m">…/provider/opencode/server.go</td><td>Thin wrapper over <code>WaitForHealthOrExit</code>, which production calls directly. Kept the <code>healthClient</code> interface and re-pointed its doc comment.</td></tr>
+<tr><td class="m">(*Client).sessionDirectory</td><td class="m">…/provider/codex/client.go</td><td>No caller; codex resolves directories elsewhere.</td></tr>
+<tr><td class="m">parseThinkingSpans</td><td class="m">…/tui/components/chatlog_markdown.go</td><td>Superseded by <code>parseThinkingSpanLines</code>; the single-line wrapper had no caller.</td></tr>
+<tr><td class="m">wrapText</td><td class="m">…/tui/components/chatlog_markdown.go</td><td>Superseded by <code>wrapParagraph</code>-based wrapping used by the renderer.</td></tr>
+</table>
+
+<h2>3. Retained by decision (deadcode still lists these — intentionally)</h2>
+<table>
+<tr><th>Symbol</th><th>Reason kept</th></tr>
+<tr><td class="m">kernel.Registry.Entries</td><td>Test-backed, name-sorted registry accessor symmetric with the in-use <code>EntriesInRegistrationOrder</code>. A natural query for future <code>doctor</code>/tooling; deleting it would only shrink the registry&rsquo;s legitimate API surface.</td></tr>
+<tr><td class="m">components.Text (+ methods)</td><td>A clean, minimal <code>layout.Component</code> implementation. It backs the factory-override test and is the obvious candidate to register as a built-in <code>text</code>/<code>label</code> pane. Kept rather than deleted-and-replaced-with-a-test-fake.</td></tr>
+</table>
+
+<h2>4. Explicitly NOT touched (reserved seams)</h2>
+<p>Per <code>DESIGN.md</code> §10 and project memory, these are reserved for the author&rsquo;s own agent work and were excluded from the sweep even though deadcode flags them:</p>
+<ul>
+  <li><code>internal/core/harness/*</code> — agent modes, permissions (<code>SystemPrompt</code> = TODO).</li>
+  <li><code>internal/core/registry.go</code> — <code>AgentRegistry</code> placeholder with intentional fake outputs.</li>
+  <li>All of <code>plums/</code> and <code>plums/layout</code> — the public extension API; &ldquo;unreachable&rdquo; only because external user configs are the callers.</li>
+</ul>
+
+<h2>5. Verification</h2>
+<pre><span class="c">$ go build ./...</span>          <span class="g">exit 0</span>
+<span class="c">$ go vet ./...</span>            <span class="g">exit 0</span>
+<span class="c">$ go test ./...</span>           <span class="g">exit 0  (all packages ok)</span>
+<span class="c">$ gofmt -l internal plums cmd</span>  <span class="g">(empty — clean)</span>
+<span class="c">$ deadcode ./...   # after</span>
+internal/kernel/registry.go: Registry.Entries     <span class="y">← retained (see §3)</span>
+internal/ui/tui/components/text.go: Text + methods <span class="y">← retained (see §3)</span>
+<span class="c"># the 9 removed symbols and their dangling imports no longer appear</span></pre>
+
+<h2>6. Affected-package dependency note</h2>
+<p>All removals were leaf functions — none changed an import edge except removing two now-unused imports inside <code>opencode/types.go</code> (<code>fmt</code>, <code>strings</code>). The package dependency tree from Step 1 is therefore unchanged; the only delta is that <code>provider/opencode/types.go</code> is now import-free (pure data + constants), which slightly tightens the &ldquo;raw provider = standalone SDK&rdquo; goal from DESIGN §5.4.</p>
+<pre>internal/core/provider/opencode
+  ├─ client.go   imports: net/http, encoding/json, … , internal/debuglog
+  ├─ server.go   imports: os/exec, context, time, internal/debuglog
+  └─ types.go    imports: <span class="g">(none — was: fmt, strings)</span></pre>
+
+<p class="sub" style="margin-top:34px">Next: <a href="step-3-extensibility-verdicts.html">Step 3 — Per-tool extensibility deep dive →</a></p>
+</div>
+</body>
+</html>

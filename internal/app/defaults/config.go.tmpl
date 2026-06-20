@@ -1,0 +1,89 @@
+// Package config is your plums config — the neovim-style
+// ~/.config/plums/config/config.go. Launching plums auto-compiles it (cached)
+// and runs the result; you can also build explicitly with `plums build`.
+package config
+
+import (
+	"github.com/Ceinl/plums/capabilities"
+	cfg "github.com/Ceinl/plums/config"
+	layout "github.com/Ceinl/plums/plums/layout"
+)
+
+func init() { cfg.Use(Config) }
+
+// Config returns your plums configuration: Opts (everything that is not a
+// plugin) plus the plugins to activate. It is merged over the built-in Default
+// Config, last-wins.
+func Config() cfg.Config {
+	return cfg.Config{
+		Opts: cfg.Opts{
+			Backend:        "opencode",
+			DefaultLayout:  "split",
+			HideThinking:   cfg.True,
+			SplitLeftWidth: cfg.Int(50),
+			Keybinds:       []cfg.Keybind{{Key: "ctrl+p", Do: "open_palette"}},
+		},
+		Plugins: []cfg.Plugin{
+			{Self: &SplitLayoutPlugin{}},
+		},
+	}
+}
+
+// SplitLayoutPlugin contributes the `split` layout and its narrow-screen
+// fallback as a user plugin. `split` is intentionally NOT a builtin: this proves
+// a user-defined layout registers and resolves exactly like the bundled ones.
+// Run `plums --doctor` and you'll see `split` owned by "split-layout".
+type SplitLayoutPlugin struct{}
+
+func (*SplitLayoutPlugin) Name() string                      { return "split-layout" }
+func (*SplitLayoutPlugin) Init(capabilities.Host, any) error { return nil }
+
+func (*SplitLayoutPlugin) Layouts() []capabilities.Layout {
+	return []capabilities.Layout{
+		layout.Named("split", splitTree()),
+		layout.Hidden(layout.Named("narrow_split", narrowSplitTree())),
+	}
+}
+
+func splitTree() capabilities.Node {
+	return layout.Row(
+		layout.EditorOrPalette().
+			Width("state.SplitLeftPercent%").
+			Height("100%").
+			Padding(pad(1, 2, 1, 2)).
+			Style(bgFg(32, 30, 40, 232, 229, 241)).
+			WhenPopupOpen(
+				layout.Component("command_palette_panel").Padding(pad(1, 2, 1, 2)),
+			),
+		layout.VerticalSeparator().Width(1).Height("100%"),
+		layout.Column(
+			layout.Tabs().Width("100%").Height(1).Style(bg(22, 20, 27)),
+			layout.InfoView().Variants(map[string]string{
+				"ai":       "chat_log",
+				"git_diff": "git_diff_log",
+			}),
+			layout.SplitStatusBar().Width("100%").Height(1).Style(bgFg(22, 20, 27, 100, 98, 112)),
+		).
+			Width("grow").Height("100%").Padding(pad(1, 2, 1, 2)).Style(bg(22, 20, 27)),
+	).
+		Width("100%").Height("100%").MinWidth("MinSplitLayoutWidth").Fallback("narrow_split")
+}
+
+func narrowSplitTree() capabilities.Node {
+	return layout.Column(
+		layout.Chat().Width("100%").Height("50%").Padding(pad(1, 2, 1, 2)).Style(bg(22, 20, 27)),
+		layout.Separator().Width("100%").Height(1),
+		layout.Editor().Width("100%").Height("grow").Padding(pad(1, 2, 1, 2)).Style(bgFg(32, 30, 40, 232, 229, 241)),
+	).
+		Width("100%").Height("100%")
+}
+
+func pad(top, right, bottom, left float64) layout.Padding {
+	return layout.Padding{Top: &top, Right: &right, Bottom: &bottom, Left: &left}
+}
+
+func bg(r, g, b uint8) layout.Style { return layout.Style{Background: []uint8{r, g, b}} }
+
+func bgFg(br, bgc, bb, fr, fg, fb uint8) layout.Style {
+	return layout.Style{Background: []uint8{br, bgc, bb}, Foreground: []uint8{fr, fg, fb}}
+}

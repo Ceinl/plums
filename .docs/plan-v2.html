@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>plums v2 — execution plan</title>
+<style>
+  :root{--bg:#16141b;--panel:#1f1d28;--panel2:#26232f;--ink:#e8e5f1;--mut:#9a98ac;--acc:#b9a3ff;
+    --keep:#7fd6a0;--redo:#f0c674;--cut:#f08a8a;--line:#322f3f}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:38px 22px 130px}
+  a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
+  h1{font-size:28px;margin:0 0 4px;letter-spacing:-.02em}
+  h2{font-size:20px;margin:40px 0 10px;border-bottom:1px solid var(--line);padding-bottom:8px}
+  h3{font-size:16px;margin:22px 0 6px;color:var(--acc)}
+  .sub{color:var(--mut);margin:0 0 10px}
+  p{margin:9px 0}
+  code{background:var(--panel2);padding:1px 6px;border-radius:6px;font-size:12.5px;font-family:ui-monospace,Menlo,monospace}
+  pre{background:#100e15;border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow:auto;font-size:12.5px;line-height:1.5;font-family:ui-monospace,Menlo,monospace;color:#cfcbe0}
+  pre .c{color:#7d7a90}pre .k{color:var(--acc)}pre .g{color:var(--keep)}pre .y{color:var(--redo)}pre .r{color:var(--cut)}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:14px 0}
+  .phase{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:12px;padding:14px 18px;margin:14px 0}
+  .phase h3{margin-top:0}
+  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--mut);margin-left:6px}
+  .keep{color:var(--keep)}.redo{color:var(--redo)}.cut{color:var(--cut)}
+  .del{color:var(--cut)}
+  ul{margin:7px 0;padding-left:20px}li{margin:4px 0}
+  .exit{color:var(--keep);font-size:13px;margin-top:8px}
+  .dec{background:#241f17;border:1px solid #5a4d2a;border-radius:10px;padding:10px 14px;margin:8px 0;font-size:13.5px}
+  .dec b{color:var(--redo)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="sub"><a href="index.html">← docs index</a> · <a href="functionality-inventory.html">triage sheet</a></p>
+<h1>plums v2 — execution plan</h1>
+<p class="sub">Turning your keep/redo/cut triage into a sequenced, strangler-style rebuild. Every phase leaves a runnable app. Reserved seams (harness, AgentRegistry) are untouched.</p>
+
+<h2>1. The direction (what your triage says)</h2>
+<div class="box">
+<p><b>Two kinds of thing only: plugins and options.</b> Anything that is a unit of behaviour — components, layouts, commands, backends, hooks, the palette, sessions, skills, questions, git-diff — is a <b>plugin</b>. Anything that isn't — theme, keybinds, default layout, visibility toggles, widths, clipboard command — is an <b>option</b> in <code>cfg.Opts</code> (a deliberately long list). The kernel ("Core") knows no concrete feature by name.</p>
+<p>The app's own defaults are a <b>built-in Default Config</b>: an internal Go package that returns a <code>config.Config</code> using the <em>exact same</em> <code>{Opts, Plugins}</code> shape as an external config — compiled into the binary, not shipped to disk. The external user config is layered <b>on top, last-wins</b> (overrides Opts field-by-field, shadows/Disable plugins by name). The JSON/TOML <em>config</em> path, the hardcoded keymap, and the privileged component factory are <span class="del">deleted</span> — but TOML returns in one narrow role: an app-managed <b>dynamic-preferences store</b> for options opted in via <code>cfg.Dynamic</code>.</p>
+</div>
+
+<h2>2. Target architecture</h2>
+<p>Mirrors your diagram: <b>App = Core + Default Config</b>; it <b>reads</b> the external user Config, which <b>imports</b> the public packages.</p>
+<pre>                        ┌────────── APP (the plums binary) ──────────┐
+                        │                                            │
+  ┌── Default Config ──┐│  ┌──────────── CORE (kernel) ───────────┐  │
+  │ internal Go pkg    ││  │ • TUI runtime (term, screen, render) │  │
+  │ returns config.    ││  │ • capability interfaces (the floor)  │  │
+  │ Config{Opts,Plugins}││ │ • config evaluator + Opts merge      │  │
+  │ — SAME shape as a  ││  │ • plugin loader (Self.Init(host,opts))│ │
+  │ user config; built ││  │ • registry (last-wins, Disable, doctor)│ │
+  │ in, lowest priority ││ │ • dynamic-prefs store (TOML, cfg.Dynamic)│ │
+  └────────────────────┘│  └──────────────────────────────────────┘  │
+                        └──────────────────┬─────────────────────────┘
+                                           │ READ (last-wins over defaults)
+                                           ▼
+                        ┌──────── USER CONFIG  ~/.config/plums ───────┐
+                        │ config.go + plugins/   (auto-built on launch)│
+                        └──────────────────┬──────────────────────────┘
+                                           │ import
+                                           ▼
+        github.com/Ceinl/plums/<span class="g">config</span>        (Config, Opts[the long list], Plugin{Self,Opts}, Dynamic)  ← config.go imports THIS
+        github.com/Ceinl/plums/<span class="g">capabilities</span>  (interfaces + domain types + host services)        ← plugin authors import this
+        github.com/Ceinl/plums/<span class="g">plugins/*</span>     (the built-ins, as importable/forkable packages)</pre>
+<p>An external <code>config.go</code> only needs to import <code>plums/config</code> (plus whichever <code>plums/plugins/*</code> it uses). Plugin <em>authors</em> import <code>plums/capabilities</code>. Built-ins live in public, forkable <code>plums/plugins/&lt;name&gt;</code> packages; the built-in Default Config (an internal pkg) just lists them — your split-layout note generalized to everything.</p>
+
+<h2>3. The config you'll write</h2>
+<p>Resolved shape (your sketch, made idiomatic): a <code>Config()</code> function returning <code>config.Config{Opts, Plugins}</code>; each plugin is <code>{Self, Opts}</code> and the loader calls <code>Self.Init(host, opts)</code>.</p>
+<pre><span class="k">package</span> config
+
+<span class="k">import</span> (
+    cfg <span class="g">"github.com/Ceinl/plums/config"</span>
+    <span class="c">// built-ins are normal packages — import the ones you want, fork any of them</span>
+    <span class="g">"github.com/Ceinl/plums/plugins/split"</span>
+    <span class="g">"github.com/Ceinl/plums/plugins/opencode"</span>
+    <span class="g">"github.com/Ceinl/plums-user/plugins/github"</span>  <span class="c">// your own</span>
+)
+
+<span class="k">func</span> Config() cfg.Config {
+    <span class="k">return</span> cfg.Config{
+        Opts: cfg.Opts{
+            Backend:       cfg.<span class="y">Dynamic</span>,        <span class="c">// remembered at runtime in the TOML prefs store</span>
+            Model:         cfg.<span class="y">Dynamic</span>,
+            DefaultLayout: <span class="g">"split"</span>,          <span class="c">// pinned</span>
+            HideThinking:  cfg.True,
+            Theme:         mytheme.Dark(),     <span class="c">// theme is an OPTION, not a plugin</span>
+            Keybinds: []cfg.Keybind{           <span class="c">// keymap is an OPTION too</span>
+                {Key: <span class="g">"ctrl+p"</span>, Do: <span class="g">"palette.open"</span>},
+                {Key: <span class="g">"ctrl+s"</span>, Do: <span class="g">"prompt.submit"</span>},
+            },
+        },
+        Plugins: []cfg.Plugin{
+            {Self: &split.Plugin{},    Opts: split.Options{LeftWidth: 50}},
+            {Self: &opencode.Plugin{}, Opts: opencode.Options{ServerURL: <span class="g">"…"</span>}},
+            {Self: &github.Plugin{},   Opts: github.Options{Limit: 20}},
+        },
+    }
+}</pre>
+<div class="dec"><b>Decisions locked:</b> public <code>config</code> + <code>capabilities</code> packages; <code>Opts</code> passed to <code>Init</code>; minimal theme lives in the Default Config's <code>Opts.Theme</code>. <b>Backend-specific settings</b> (e.g. opencode server URL) live in that plugin's <code>Opts</code>, not in global <code>cfg.Opts</code>.</div>
+
+<h2>4. Opts — everything that isn't a plugin</h2>
+<p>Your rule: "everything that is not a plugin has to be an option." <code>cfg.Opts</code> is the catch-all — a long, typed struct. Representative (not exhaustive) fields:</p>
+<table>
+<tr><th>Area</th><th>Opts fields</th><th>Dynamic?</th></tr>
+<tr><td>Active selection</td><td><code>Backend</code>, <code>Model</code>, <code>DefaultLayout</code>, <code>Mode</code></td><td>yes — typical <code>cfg.Dynamic</code> candidates</td></tr>
+<tr><td>Appearance</td><td><code>Theme</code> (full token set + per-layout overrides)</td><td>no</td></tr>
+<tr><td>Input</td><td><code>Keybinds</code> (key→command), <code>ClipboardCommand</code></td><td>no</td></tr>
+<tr><td>Conversation</td><td><code>HideThinking</code> / <code>ThinkingVisibility</code>, <code>ToolCallVisibility</code></td><td>visibility: yes</td></tr>
+<tr><td>Split</td><td><code>SplitLeftWidth</code>, <code>OutputPercent</code></td><td>yes</td></tr>
+<tr><td>Sessions</td><td><code>ClearHistory</code></td><td>no</td></tr>
+<tr><td>Registry</td><td><code>Disable []RegistryKey</code></td><td>no</td></tr>
+<tr><td>Advanced</td><td>timeouts (health/question/list), spinner interval</td><td>no</td></tr>
+</table>
+<h3>Dynamic preferences (the TOML store)</h3>
+<p>A field set to <code>cfg.Dynamic</code> is <b>not fixed by config</b>: Core seeds it from a small app-managed TOML state file (e.g. <code>~/.config/plums/state.toml</code>) at startup, and <b>writes it back</b> when you change it at runtime (switch backend/model/layout in the palette). A fixed value (<code>"opencode"</code>) pins it and ignores the store. This is how the app "remembers preferences" without re-introducing user-authored TOML config.</p>
+<p class="sub"><b>Merge rule (last-wins, top-to-bottom):</b> Core starts from the Default Config's Opts, then overlays the external Opts — explicitly-set fields override, unset fall through. Fields whose zero value is meaningful (bools/ints) use sentinel/optional types (e.g. <code>cfg.True</code>/<code>cfg.False</code> tri-state) so "unset" is unambiguous. Finalised in Phase 0.</p>
+
+<h2>5. The capability model (plugins)</h2>
+<p>Capabilities are for <em>plugins</em> (behaviour). Theme and keybinds are NOT here — they're <code>Opts</code>. Two kinds:</p>
+<h3>Host services — Core provides, plugins/components consume</h3>
+<table>
+<tr><th>Capability</th><th>Replaces</th><th>Consumed by</th></tr>
+<tr><td><code>Palette</code> — open a list/command picker</td><td>cm-palette, OpenList</td><td>any command/component</td></tr>
+<tr><td><code>Clipboard</code> — copy/paste</td><td>kb-clip</td><td>components (editor, chat)</td></tr>
+<tr><td><code>Completion</code> — register @file / /slash sources</td><td>cm-at, cm-dropdown</td><td>components opt in to expose completions</td></tr>
+<tr><td><code>Mouse/Selection</code> — drag-select, wheel</td><td>kb-mouse</td><td>components via optional ifaces</td></tr>
+</table>
+<p class="sub">Keybinds (<code>Opts.Keybinds</code>) map keys to command names; the keymap is data the user owns, so plugins register <em>commands</em>, not bindings. Theme (<code>Opts.Theme</code>) is read by components through <code>RenderCtx.Theme()</code>.</p>
+<h3>Optional interfaces — implemented by plugins, discovered by type assertion</h3>
+<ul>
+  <li><b>Component:</b> <code>KeyHandler · MouseHandler · Scrollable · SelectionProvider · DirtyTracker · CompletionProvider</code> (the chat_output pattern, generalized).</li>
+  <li><b>Backend adapter:</b> <code>Sessions</code> (list/create/clear/reset) · <code>Models</code> (list/select) · <code>Skills</code> (list/load) · <code>Questions</code> (reply). Core backend contract stays minimal (health, send, stream); the rest are optional, so <code>/sessions /model /backend /skills</code> and question prompts become capability-driven plugins.</li>
+</ul>
+
+<h2>6. Phases (strangler — app runs after each)</h2>
+
+<div class="phase">
+<h3>Phase 0 — Public surface, Opts, Default Config, merge <span class="tag">foundation</span></h3>
+<ul>
+  <li>Create <code>plums/config</code> (<code>Config</code>, the long <code>Opts</code> incl. <code>Theme</code>+<code>Keybinds</code>, <code>Plugin{Self,Opts}</code>, <code>Config()</code> discovery, <code>cfg.Dynamic</code>/<code>cfg.True</code>/<code>cfg.False</code> sentinels) and <code>plums/capabilities</code> (move today's interfaces + domain types out of <code>plums</code>/<code>plums/layout</code>).</li>
+  <li>Build the <b>Default Config</b> as an internal pkg returning <code>config.Config</code> — same shape, compiled in, lowest priority.</li>
+  <li>Implement the <b>Opts merge</b> (default ← external, last-wins, field-by-field with sentinel tri-state for ambiguous zeros) and the loader (<code>Self.Init(host, opts)</code>).</li>
+  <li>Update <code>internal/build</code> main generator to call <code>config.Config()</code>; auto-build path unchanged.</li>
+</ul>
+<p class="exit">Exit: compiles &amp; runs identically; new import surface; Default Config drives defaults; external config overrides top-to-bottom; old <code>plums</code> pkg removed.</p>
+</div>
+
+<div class="phase">
+<h3>Phase 1 — Capability services in Core <span class="tag">enabler</span></h3>
+<ul>
+  <li>Define + wire host services: <code>Palette, Clipboard, Completion, Mouse</code> (interfaces in <code>capabilities</code>, implementations in Core, handed out via <code>Host</code>/<code>Ctx</code>). Theme + keybinds are <code>Opts</code>, not services.</li>
+  <li>Components read <code>Opts.Theme</code> via <code>RenderCtx.Theme()</code>; Core resolves <code>Opts.Keybinds</code> (key→command) centrally.</li>
+  <li>Built-ins keep working but now <em>route through</em> these services internally.</li>
+</ul>
+<p class="exit">Exit: capabilities exist and are exercised by current built-ins.</p>
+</div>
+
+<div class="phase">
+<h3>Phase 2 — All components become real plugins <span class="tag redo">cp-* redo · pl-dogfood</span></h3>
+<ul>
+  <li>Port every pane to a public <code>Component</code> (Surface/RenderCtx + optional ifaces), owning its own state: <code>editor, input_box, sessions, status_bar, info_tabs, info_view, command_palette_panel, separators, difflog</code>. (<code>chat_output</code> already done.)</li>
+  <li>Grow <code>RenderCtx</code> read accessors as each pane needs (server status, mode, model, sessions, tabs, diff).</li>
+  <li><span class="del">Delete</span> <code>pluginComponent</code>, <code>AppComponentFactory</code>, <code>ComponentFactoryProvider</code>, the factory registry. <span class="del">Cut</span> <code>fullscreen_view</code>; decide <code>text</code>.</li>
+</ul>
+<p class="exit">Exit: every pane is a public component; privileged path gone; <code>--doctor</code> shows all components owned by plugins.</p>
+</div>
+
+<div class="phase">
+<h3>Phase 3 — Layouts → Default Config plugins <span class="tag">ly-chat→cut-builtin · ly-zen/narrow redo</span></h3>
+<ul>
+  <li>Move <code>chat, zen, narrow_chat, narrow_split</code> (split already done) into <code>plums/plugins/*</code> as layout plugins; Core keeps only the div engine + layout capability.</li>
+  <li><span class="del">Cut</span> <code>fullscreen</code> layout. Improve layout switching (<code>ly-switch</code>).</li>
+</ul>
+<p class="exit">Exit: Core has zero builtin layouts; the Default Config provides the standard set.</p>
+</div>
+
+<div class="phase">
+<h3>Phase 4 — One command system <span class="tag redo">cm-slash · cm-actions redo</span></h3>
+<ul>
+  <li>Reimplement <code>/new /sessions /model /backend /skills /command</code> as plugins using <code>Command.Do</code> + the new capabilities (Palette, Sessions, Models).</li>
+  <li>Palette actions (mode/layout/visibility/output%) become commands.</li>
+  <li><span class="del">Delete</span> <code>commands.json</code>, <code>PaletteAction</code> enum, legacy trigger <code>command_registry</code>. <code>@</code>/slash completion move to the <code>Completion</code> capability.</li>
+</ul>
+<p class="exit">Exit: a single command path; no command JSON.</p>
+</div>
+
+<div class="phase">
+<h3>Phase 5 — Keybinds as Opts, kill config-TOML, add dynamic-prefs <span class="tag redo">kb-config · cf-init</span> <span class="tag cut">kb-default · cf-toml</span></h3>
+<ul>
+  <li><code>Opts.Keybinds</code> (key→command) is the keymap; the Default Config ships the default map as data. <span class="del">Cut</span> the 400-line <code>keyboard.go</code> mega-handler; Core just resolves key→command.</li>
+  <li><span class="del">Delete</span> TOML/JSON as a <em>user-config</em> format — the compiled config is the only authoring path.</li>
+  <li><b>Add</b> the dynamic-prefs store: Core reads/writes a small <code>state.toml</code> for <code>Opts</code> fields set to <code>cfg.Dynamic</code> (remembers backend/model/layout/visibility/output%).</li>
+  <li>First run auto-creates the user config (<code>cf-init</code> redo) instead of requiring <code>-init-config</code>.</li>
+</ul>
+<p class="exit">Exit: no user-authored JSON/TOML; keymap is Opts; runtime prefs persist via the dynamic store; first launch self-seeds.</p>
+</div>
+
+<div class="phase">
+<h3>Phase 6 — Backend-adjacent features as plugins/caps <span class="tag redo">be-switch · be-model · ss-list · sk-skills · qa-questions · ft-gitdiff redo</span></h3>
+<ul>
+  <li><code>/backend</code> switch and <code>/model</code> select → plugins over the Models/Backend capability.</li>
+  <li>Sessions (list/new/clear/reset) → backend-adapter <code>Sessions</code> capability + a sessions plugin; <code>reset</code> lives in the claude-mirror plugin (<code>ss-reset</code>).</li>
+  <li>Skills → plugin; Questions/permissions → default plugin with the required <code>Questions</code> capability; git-diff → plugin (<code>cp-diff</code> moves with it).</li>
+</ul>
+<p class="exit">Exit: backends expose optional capabilities; all side-features are plugins.</p>
+</div>
+
+<div class="phase">
+<h3>Phase 7 — Finalise Default Config + tmux plugin <span class="tag cut">kb-tmux cut→plugin</span> <span class="tag">in-theme · in-keys</span></h3>
+<ul>
+  <li>Finalise the built-in Default Config (internal pkg): full default <code>Opts</code> — including <code>Opts.Theme</code> (the minimal theme) and the default <code>Opts.Keybinds</code> — plus the bundled plugin list.</li>
+  <li>tmux extended-keys → a <code>tmux</code>/claude-mirror plugin. Expose the keyboard parser for plugins (<code>in-keys</code>).</li>
+</ul>
+<p class="exit">Exit: App = Core + Default Config, both expressed through the public API; theme &amp; keymap are Opts; total dogfooding; <code>--doctor</code> shows every feature owned by a plugin.</p>
+</div>
+
+<div class="phase">
+<h3>Phase 8 — Streaming UX redo <span class="tag redo">ft-stream</span> <span class="tag">parallel workstream</span></h3>
+<ul>
+  <li>Redesign the streaming render ("looks ass") — separate UX track; needs a visual direction pass. Can run alongside Phases 2–7 since chat_output is already a public component.</li>
+</ul>
+<p class="exit">Exit: streaming render you're happy with.</p>
+</div>
+
+<h2>7. Triage → phase coverage</h2>
+<table>
+<tr><th>Triage group</th><th>Decision</th><th>Where handled</th></tr>
+<tr><td>Backends ×4</td><td class="keep">keep</td><td>stay; gain optional capabilities in P6</td></tr>
+<tr><td>/backend, /model</td><td class="redo">redo→plugin</td><td>Phase 6</td></tr>
+<tr><td>Components (all) + adapter</td><td class="redo">redo→plugin</td><td>Phase 2</td></tr>
+<tr><td>Layouts (chat builtin→config, zen, narrow, fullscreen)</td><td class="redo">redo / <span class="cut">cut fullscreen</span></td><td>Phase 3</td></tr>
+<tr><td>div engine, layout switch</td><td class="keep">keep / improve</td><td>Core stays; P3 polish</td></tr>
+<tr><td>Palette, @-complete, slash-dropdown</td><td class="keep">keep→capability</td><td>Phases 1 &amp; 4</td></tr>
+<tr><td>Slash built-ins, palette actions</td><td class="redo">redo</td><td>Phase 4</td></tr>
+<tr><td>Keybinds, hardcoded keymap, config-TOML</td><td class="redo">→Opts.Keybinds / <span class="cut">cut</span></td><td>Phase 5 (+ dynamic-prefs TOML store)</td></tr>
+<tr><td>Mouse, clipboard, undo</td><td class="keep">keep→capability</td><td>Phases 1 &amp; 2</td></tr>
+<tr><td>tmux shim</td><td class="cut">cut→plugin</td><td>Phase 7</td></tr>
+<tr><td>Streaming</td><td class="redo">redo</td><td>Phase 8</td></tr>
+<tr><td>thinking/tool/markdown/hooks</td><td class="keep">keep</td><td>ride along in chat_output / Core</td></tr>
+<tr><td>git-diff</td><td class="redo">redo→plugin</td><td>Phase 6</td></tr>
+<tr><td>Sessions, clear, reset, skills, questions</td><td class="redo">redo→plugin/cap</td><td>Phase 6</td></tr>
+<tr><td>Config: global, compiled, build, auto, doctor</td><td class="keep">keep</td><td>Phase 0 surface; stays</td></tr>
+<tr><td>init-config first-run</td><td class="redo">redo</td><td>Phase 5</td></tr>
+<tr><td>Registry, caps, API floor</td><td class="keep">keep</td><td>becomes Core in P0–1</td></tr>
+<tr><td>Term, screen, keyboard parser</td><td class="keep">keep / expose</td><td>Core; exposed P7</td></tr>
+<tr><td>Theme, keybinds</td><td>→ <code>Opts</code> (not plugins)</td><td>Phase 0 types · Phase 7 defaults</td></tr>
+<tr><td>Dynamic preferences (remember backend/model/…)</td><td>add</td><td>Phase 0 sentinel · Phase 5 store</td></tr>
+<tr><td>Harness, permissions, AgentRegistry, mode-switch</td><td class="keep">keep (reserved)</td><td>untouched</td></tr>
+</table>
+
+<h2>8. Sequencing notes &amp; risks</h2>
+<ul>
+  <li><b>Order matters:</b> Phase 0–1 (surface + capabilities) must precede the rest — they define the contracts everything else targets.</li>
+  <li><b>RenderCtx growth:</b> Phase 2 will expand <code>RenderCtx</code> the most; freeze it only once 2–3 stateful panes are ported (status_bar, sessions, editor).</li>
+  <li><b>Biggest lift:</b> Phase 2 (components) and Phase 4 (commands) are the heavy ones; each is independently shippable.</li>
+  <li><b>Deletions are the point:</b> keymap mega-switch, commands.json, TOML, factory path, fullscreen — removing them is how the app stops feeling half-finished.</li>
+  <li><b>Reserved seams</b> (harness/agents/permissions) stay exactly as-is throughout.</li>
+</ul>
+
+<p class="sub" style="margin-top:30px">Confirm or adjust the phase order and I'll start at Phase 0.</p>
+</div>
+</body>
+</html>

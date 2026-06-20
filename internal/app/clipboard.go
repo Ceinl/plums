@@ -21,12 +21,6 @@ var writeClipboard = func(text, command string) error {
 	return cmd.Run()
 }
 
-// WriteClipboard writes text to the system clipboard using the configured
-// command. If the command fails, an error is returned.
-func WriteClipboard(text, command string) error {
-	return writeClipboard(text, command)
-}
-
 // DefaultClipboardCommand returns the default clipboard copy command for the
 // current platform.
 func DefaultClipboardCommand() string {

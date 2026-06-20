@@ -5,8 +5,6 @@ import (
 	"os"
 	"testing"
 	"time"
-
-	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
 func TestE2EManual(t *testing.T) {
@@ -16,7 +14,7 @@ func TestE2EManual(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
-	b := NewBackend()
+	b := NewClient()
 	session, err := b.CreateSession(ctx, dir)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -36,9 +34,7 @@ func TestE2EManual(t *testing.T) {
 	}
 
 	// ResetSession starts a fresh conversation in the same window via /clear.
-	reset, err := b.(interface {
-		ResetSession(context.Context, string) (*adapter.Session, error)
-	}).ResetSession(ctx, dir)
+	reset, err := b.ResetSession(ctx, dir)
 	if err != nil {
 		t.Fatalf("ResetSession: %v", err)
 	}

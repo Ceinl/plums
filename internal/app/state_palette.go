@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 
+	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/internal/ui/tui/components"
 )
 
@@ -26,6 +27,7 @@ const (
 	PaletteActionSelectBackend
 	PaletteActionLayoutsList
 	PaletteActionSelectLayout
+	PaletteActionSelectListItem
 )
 
 type PaletteView int
@@ -38,17 +40,19 @@ const (
 	PaletteViewQuestions
 	PaletteViewBackends
 	PaletteViewLayouts
+	PaletteViewList
 )
 
 type paletteCommandItem struct {
-	Title    string
-	Detail   string
-	Action   PaletteAction
-	Adjust   bool
-	Min      int
-	Max      int
-	Step     int
-	Disabled bool
+	Title       string
+	Detail      string
+	Action      PaletteAction
+	CommandName string
+	Adjust      bool
+	Min         int
+	Max         int
+	Step        int
+	Disabled    bool
 }
 
 type QuestionOptionItem struct {
@@ -79,6 +83,9 @@ func (s *State) OpenPalette() {
 }
 
 func (s *State) ClosePalette() {
+	if s.PaletteView == PaletteViewList {
+		s.clearRuntimeList()
+	}
 	s.PopupOpen = false
 	s.PaletteView = PaletteViewCommands
 	s.PaletteQuery = ""
@@ -106,6 +113,12 @@ func (s *State) PaletteTitle() string {
 	}
 	if s.PaletteView == PaletteViewLayouts {
 		return "Layouts"
+	}
+	if s.PaletteView == PaletteViewList {
+		if s.ListTitle != "" {
+			return s.ListTitle
+		}
+		return "List"
 	}
 	return s.commandConfig.Palette.Title
 }
@@ -201,6 +214,21 @@ func (s *State) PaletteItems() []components.PopupItem {
 				detail = "current - " + detail
 			}
 			items[i] = components.PopupItem{Title: layoutTitle(layoutType), Detail: detail}
+		}
+		return items
+	}
+	if s.PaletteView == PaletteViewList {
+		listItems := s.visibleRuntimeListItems()
+		if len(listItems) == 0 {
+			return []components.PopupItem{{Title: "No items", Detail: "", Disabled: true}}
+		}
+		items := make([]components.PopupItem, len(listItems))
+		for i, item := range listItems {
+			title := item.Label
+			if title == "" {
+				title = item.ID
+			}
+			items[i] = components.PopupItem{Title: title, Detail: item.Detail}
 		}
 		return items
 	}
@@ -363,11 +391,22 @@ func (s *State) SelectPaletteItem() {
 		s.PopupOpen = false
 		return
 	}
+	if s.PaletteView == PaletteViewList {
+		s.PendingAction = PaletteActionSelectListItem
+		s.PopupOpen = false
+		return
+	}
 	commands := s.visibleCommandItems()
 	if s.PaletteIndex < 0 || s.PaletteIndex >= len(commands) {
 		return
 	}
-	s.PendingAction = commands[s.PaletteIndex].Action
+	command := commands[s.PaletteIndex]
+	if command.CommandName != "" {
+		s.pendingCommand = command.CommandName
+		s.PopupOpen = false
+		return
+	}
+	s.PendingAction = command.Action
 	if s.PendingAction == PaletteActionNone {
 		return
 	}
@@ -448,6 +487,35 @@ func (s *State) SetBackendItems(items []BackendListItem) {
 	s.PopupOpen = true
 }
 
+func (s *State) SetRuntimeList(title string, items []capabilities.ListItem, onPick func(capabilities.ListItem)) {
+	s.ListTitle = title
+	s.ListItems = append([]capabilities.ListItem(nil), items...)
+	s.listOnPick = onPick
+	s.PaletteView = PaletteViewList
+	s.PaletteQuery = ""
+	s.PaletteIndex = 0
+	s.PopupOpen = true
+	s.ensurePaletteSelection()
+}
+
+func (s *State) ConsumePendingListPick() (capabilities.ListItem, func(capabilities.ListItem), bool) {
+	items := s.visibleRuntimeListItems()
+	if s.PaletteIndex < 0 || s.PaletteIndex >= len(items) {
+		s.clearRuntimeList()
+		return capabilities.ListItem{}, nil, false
+	}
+	item := items[s.PaletteIndex]
+	onPick := s.listOnPick
+	s.clearRuntimeList()
+	return item, onPick, true
+}
+
+func (s *State) clearRuntimeList() {
+	s.ListTitle = ""
+	s.ListItems = nil
+	s.listOnPick = nil
+}
+
 func (s *State) SetAvailableBackends(items []BackendListItem) {
 	s.BackendItems = items
 }
@@ -498,7 +566,35 @@ func (s *State) SelectedBackendID() string {
 }
 
 func (s *State) commandItems() []paletteCommandItem {
-	return s.commandConfig.commandItems(s)
+	items := s.commandConfig.commandItems(s)
+	if len(s.commands) == 0 {
+		return items
+	}
+	legacy := make(map[string]bool, len(s.commandConfig.SlashCommands))
+	for _, command := range s.commandConfig.SlashCommands {
+		legacy[command.Name] = true
+	}
+	for _, command := range s.commands {
+		if command.Name == "" || !strings.HasPrefix(command.Name, "/") {
+			continue
+		}
+		action := s.actionForSlashCommand(command.Name)
+		if legacy[command.Name] && command.Do == nil {
+			continue
+		}
+		item := paletteCommandItem{
+			Title:    command.Name,
+			Detail:   command.Detail,
+			Action:   action,
+			Disabled: action == PaletteActionNone && command.Do == nil,
+		}
+		if command.Do != nil {
+			item.CommandName = command.Name
+			item.Disabled = false
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 func (s *State) visibleCommandItems() []paletteCommandItem {
@@ -511,6 +607,19 @@ func (s *State) visibleCommandItems() []paletteCommandItem {
 	for _, command := range commands {
 		if paletteMatches(query, command.Title, command.Detail) {
 			items = append(items, command)
+		}
+	}
+	return items
+}
+
+func (s *State) visibleRuntimeListItems() []capabilities.ListItem {
+	if s.PaletteQuery == "" {
+		return s.ListItems
+	}
+	items := make([]capabilities.ListItem, 0, len(s.ListItems))
+	for _, item := range s.ListItems {
+		if paletteMatches(s.PaletteQuery, item.ID, item.Label, item.Detail) {
+			items = append(items, item)
 		}
 	}
 	return items

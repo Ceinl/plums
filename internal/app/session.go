@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
+	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/internal/debuglog"
 )
 
-func applySession(state *State, session *adapter.Session) {
+func applySession(state *State, session *capabilities.Session) {
 	if session == nil {
 		return
 	}
@@ -20,7 +20,7 @@ func applySession(state *State, session *adapter.Session) {
 	}
 }
 
-func applyRecentModel(ctx context.Context, state *State, client adapter.Backend, cfg RunConfig) {
+func applyRecentModel(ctx context.Context, state *State, client capabilities.Backend, cfg RunConfig) {
 	if state.ModelID != "" {
 		return
 	}
@@ -40,7 +40,7 @@ func applyRecentModel(ctx context.Context, state *State, client adapter.Backend,
 			return
 		}
 	}
-	var latest *adapter.Session
+	var latest *capabilities.Session
 	for i := range sessions {
 		session := &sessions[i]
 		if session.Model == nil || session.Directory != wd {
@@ -55,8 +55,8 @@ func applyRecentModel(ctx context.Context, state *State, client adapter.Backend,
 	}
 }
 
-func latestSessionForDirectory(sessions []adapter.Session, directory string) *adapter.Session {
-	var latest *adapter.Session
+func latestSessionForDirectory(sessions []capabilities.Session, directory string) *capabilities.Session {
+	var latest *capabilities.Session
 	for i := range sessions {
 		session := &sessions[i]
 		if session.Directory != directory {
@@ -69,7 +69,7 @@ func latestSessionForDirectory(sessions []adapter.Session, directory string) *ad
 	return latest
 }
 
-func sessionDisplayName(session *adapter.Session) string {
+func sessionDisplayName(session *capabilities.Session) string {
 	if session == nil || session.Title == "" {
 		if session == nil {
 			return ""
@@ -79,7 +79,7 @@ func sessionDisplayName(session *adapter.Session) string {
 	return session.Title
 }
 
-func refreshSessionModel(ctx context.Context, state *State, client adapter.Backend, cfg RunConfig) {
+func refreshSessionModel(ctx context.Context, state *State, client capabilities.Backend, cfg RunConfig) {
 	if state.SessionID == "" {
 		return
 	}
@@ -93,7 +93,7 @@ func refreshSessionModel(ctx context.Context, state *State, client adapter.Backe
 	applySession(state, session)
 }
 
-func ensureSession(ctx context.Context, state *State, client adapter.Backend, cfg RunConfig) error {
+func ensureSession(ctx context.Context, state *State, client capabilities.Backend, cfg RunConfig) error {
 	if state.SessionID != "" {
 		return nil
 	}

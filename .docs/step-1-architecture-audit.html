@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Step 1 — Architecture &amp; extensibility audit</title>
+<style>
+  :root{--bg:#16141b;--panel:#1f1d28;--panel2:#26232f;--ink:#e8e5f1;--mut:#9a98ac;--acc:#b9a3ff;--ok:#7fd6a0;--warn:#f0c674;--bad:#f08a8a;--line:#322f3f}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:940px;margin:0 auto;padding:40px 24px 110px}
+  a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
+  h1{font-size:27px;margin:0 0 4px;letter-spacing:-.02em}
+  h2{font-size:20px;margin:44px 0 12px;border-bottom:1px solid var(--line);padding-bottom:8px}
+  h3{font-size:16px;margin:26px 0 8px;color:var(--acc)}
+  .sub{color:var(--mut);margin:0 0 8px}
+  .back{font-size:13px}
+  p{margin:10px 0}
+  code{background:var(--panel2);padding:1px 6px;border-radius:6px;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  pre{background:#100e15;border:1px solid var(--line);border-radius:12px;padding:18px 20px;overflow:auto;font-size:12.5px;line-height:1.5;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfcbe0}
+  pre .c{color:#7d7a90}pre .k{color:var(--acc)}pre .g{color:var(--ok)}pre .y{color:var(--warn)}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600}
+  td.v{white-space:nowrap;font-weight:600}
+  .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--mut)}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:14px 0}
+  .legend{font-size:13px;color:var(--mut)}
+  ul{margin:8px 0;padding-left:22px}li{margin:4px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="back"><a href="index.html">← audit index</a></p>
+<h1>Step 1 — Architecture &amp; extensibility audit</h1>
+<p class="sub">Goal of this step: confirm the architecture matches the plugin-first target in <code>DESIGN.md</code>, and decide — per tool kind — whether a user could recreate it as an external plugin. No code was changed in this step; the deliverable is the map below.</p>
+
+<h2>1. Plan for this step</h2>
+<div class="box">
+<ol>
+  <li>Read the public API floor (<code>plums/</code>), the kernel (<code>internal/kernel</code>), and the wiring hub (<code>internal/api</code>).</li>
+  <li>Trace the load path: <em>config → kernel.Load → registry → app.Deps → render</em>.</li>
+  <li>Verify the two hard dependency-direction rules from DESIGN (public API never imports <code>internal/</code>; raw providers never import the port/bridge).</li>
+  <li>Produce a dependency tree and a per-kind extensibility verdict with the exact seam each plugin author would use.</li>
+</ol>
+</div>
+
+<h2>2. How plums boots (control flow)</h2>
+<p>A single hub, <code>internal/api.Run</code>, resolves config, loads the kernel, pulls typed entries out of the registry, and hands them to the TUI app as <code>app.Deps</code>.</p>
+<pre><span class="c">cmd/plums/main.go  ──►  plums/runtime.Main  ──►  internal/api.Run</span>
+
+internal/api.Run
+ ├─ resolveKernelConfig()            <span class="c">// TOML/flags → plums.Settings; or a compiled plums.Use() Config</span>
+ ├─ <span class="k">kernel.Load</span>(config, Defaults: <span class="k">builtin.DefaultPlugins</span>)
+ │     ├─ activate each default plugin   <span class="c">// core: 1 plugin/backend + components + layouts + commands</span>
+ │     ├─ activate config.Plugins()      <span class="c">// user plugins (last-wins over core)</span>
+ │     ├─ activate config capabilities   <span class="c">// config itself may add commands/components/…</span>
+ │     └─ registry.Disable(settings.Disable)
+ ├─ backendRegistrationsFromRegistry() ─► app.BackendRuntimesFromRegistrations()
+ ├─ commandsFromRegistry()             ─► []plums.Command
+ ├─ layoutsFromRegistry()              ─► []app.LayoutType   <span class="c">// public Node tree → internal layout</span>
+ ├─ componentFactoriesFromRegistry()   ─► map[name]ComponentFactory
+ └─ <span class="k">app.Run</span>(ctx, Deps{Layouts, Commands, Components, Backends, Hooks, Keybinds})</pre>
+<p>Every tool the running app uses is pulled <em>from the registry</em> in registration order — there is no hard-coded built-in list consumed past <code>builtin.DefaultPlugins</code>. That is the property that makes overriding real: a user plugin registered later with the same name shadows the default, and <code>plums doctor</code> / <code>--doctor</code> prints the resolved set with provenance.</p>
+
+<h2>3. Dependency tree</h2>
+<p class="legend">Layers top-to-bottom = high-level to low-level. An arrow means &ldquo;imports&rdquo;. The two <span class="ok">green</span> rules below are the architecture&rsquo;s load-bearing invariants and both currently hold.</p>
+<pre><span class="k">cmd/plums</span>
+  └─► plums/runtime ──► internal/api ──────────────────────────┐
+                                                               │ (the hub)
+  ┌───────────────────────── PUBLIC API FLOOR ────────────────┴──────────┐
+  │  plums            <span class="c">Plugin·Config·Host·Ctx·RenderCtx·Backend·Command·</span> │
+  │  plums/layout     <span class="c">Component·Surface·Node + capability interfaces</span>      │
+  │  plums/runtime    <span class="c">launcher shim (only this one bridges to internal)</span>   │
+  └──────────────────────────────────────────────────────────────────────┘
+        ▲ imported by everything below; <span class="g">imports NO internal/ pkg (verified)</span>
+
+  ┌───────────────────────── KERNEL (irreducible) ───────────┐
+  │  internal/kernel            registry · load · host         │
+  │  internal/kernel/builtin    the bundled "core" plugin set  │
+  └────────────────────────────────────────────────────────────┘
+        │ builtin imports ▼ the bridges and the app component defaults
+
+  ┌──────────────── BACKENDS  (3-layer anti-corruption stack) ─────────────┐
+  │  internal/core/backend/{opencode,codex,claudecode,claudemirror}        │
+  │     (bridge: native→domain, implements plums.Backend)                  │
+  │        └─► internal/core/provider/{...}  (raw SDK)                      │
+  │              <span class="g">raw providers import only internal/debuglog — no port (verified)</span> │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  ┌──────────────── TUI APP  (state store + render driver) ────────────────┐
+  │  internal/app          State, render loop, factories, runtimeCtx,      │
+  │                        public-component adapter, keybinds, hooks        │
+  │     └─► internal/ui/tui/{components,layout,screen,theme}                │
+  │     └─► internal/ui (terminal/tmux),  internal/keyboard                 │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  RESERVED (left untouched): internal/core/harness · internal/core/registry.go</pre>
+
+<h2>4. Does the architecture match DESIGN.md?</h2>
+<table>
+<tr><th>DESIGN principle</th><th>State</th><th>Evidence</th></tr>
+<tr><td>Everything is a plugin; kernel is tiny</td><td class="v ok">Holds</td><td>Kernel = registry + load + host only. Defaults ship as the <code>core</code> plugin set via <code>builtin.DefaultPlugins</code>.</td></tr>
+<tr><td>Small floor + optional capability interfaces by type assertion</td><td class="v ok">Holds</td><td><code>Plugin{Name,Init}</code> required; <code>CommandProvider</code>/<code>ComponentProvider</code>/<code>LayoutProvider</code>/<code>BackendProvider</code>/<code>OnMessage…</code> discovered in <code>activateCapabilities</code>.</td></tr>
+<tr><td>Last-wins override + fixed load order</td><td class="v ok">Holds</td><td><code>kernel.Registry.Register</code> records shadows; order = core → <code>Config.Plugins()</code> → config&rsquo;s own capabilities.</td></tr>
+<tr><td>Replace vs remove (<code>Settings.Disable</code>)</td><td class="v ok">Holds</td><td><code>registry.Disable(settings.Disable)</code> runs after load.</td></tr>
+<tr><td>Introspection (<code>plums doctor</code> + shadow log)</td><td class="v ok">Holds</td><td><code>--doctor</code> prints resolved backends/commands/components/layouts/hooks + shadows; <code>Logf</code> logs each shadow.</td></tr>
+<tr><td>Config = compiled Go program (<code>plums build</code>)</td><td class="v ok">Holds</td><td><code>internal/build</code> emits a temp module + generated <code>main.go</code>, <code>replace</code> directive, content-hash cache.</td></tr>
+<tr><td>Backend 3-layer ACL; deps point inward</td><td class="v ok">Holds</td><td>raw provider → bridge → <code>plums.Backend</code>; verified no inward leak. <code>DefaultBaseURL</code> now lives in the opencode layer, not the port.</td></tr>
+<tr><td>Public API never imports <code>internal/</code></td><td class="v ok">Holds</td><td><code>go list -deps ./plums</code> and <code>./plums/layout</code> are internal-free; only the <code>plums/runtime</code> launcher bridges in (by design).</td></tr>
+<tr><td>State = central store + read-only <code>RenderCtx</code> + hook bus</td><td class="v ok">Holds</td><td><code>State</code> is canonical; components read via <code>RenderCtx</code>; <code>OnMessage/OnToolCall/OnSessionStart</code> dispatched off the loop.</td></tr>
+<tr><td>Dogfooding: built-ins expressed through the public API</td><td class="v warn">Partial</td><td>Backends, layouts, hooks: yes. <strong>Components &amp; commands: not yet</strong> — see Step 3. This is the one real gap.</td></tr>
+</table>
+
+<h2>5. Per-tool extensibility verdict</h2>
+<p class="legend">&ldquo;Can a user recreate this as an external plugin today?&rdquo; — the core question from the goal.</p>
+<table>
+<tr><th>Tool</th><th>Verdict</th><th>Public seam a plugin author uses</th><th>Caveat</th></tr>
+<tr><td>Providers / backends</td><td class="v ok">Yes — full</td><td><code>BackendProvider.Backends() []BackendRegistration</code> (<code>Name</code>,<code>Label</code>,<code>Backend</code>,<code>Startup</code>)</td><td>Optional <code>ServerProcess</code> etc. by interface. Fully dogfooded by the 4 bundled backends.</td></tr>
+<tr><td>Layouts</td><td class="v ok">Yes — full</td><td><code>LayoutProvider.Layouts()</code> via <code>plums/layout</code> builder or <code>layout.FromJSON</code></td><td>Built-ins (chat/split/zen/…) are authored through the <em>same</em> public builder. Strong dogfooding.</td></tr>
+<tr><td>Commands</td><td class="v warn">Yes for new; built-ins not dogfooded</td><td><code>CommandProvider.Commands()</code> with <code>Command.Do(ctx, plums.Ctx)</code></td><td>User commands with <code>Do</code> run through <code>runtimeCtx</code> fully. But the 6 built-in slash commands carry no <code>Do</code> — they resolve through a legacy <code>commands.json</code>/<code>PaletteAction</code> path. Two systems coexist. See Step 3.</td></tr>
+<tr><td>Components</td><td class="v warn">New: yes (render+input). Built-ins: privileged</td><td><code>ComponentProvider.Components()</code>; render via <code>Render(RenderCtx, Surface)</code>; input via optional <code>KeyHandler/MouseHandler/Scrollable/SelectionProvider</code></td><td>Only <code>chat_output</code> is a true public component. The rest are <code>pluginComponent</code> stubs exposing an internal <code>AppComponentFactory()</code> that reaches into <code>*State</code>. A third party cannot yet reproduce <code>sessions</code>/<code>editor</code>/<code>status_bar</code> because <code>RenderCtx</code> doesn&rsquo;t expose what they read. See Step 3.</td></tr>
+<tr><td>Hooks</td><td class="v ok">Yes — full</td><td>Implement <code>OnMessage</code> / <code>OnToolCall</code> / <code>OnSessionStart</code> on a plugin</td><td>Dispatched off the event loop with a thread-safe <code>Ctx</code>.</td></tr>
+<tr><td>Keybinds</td><td class="v ok">Yes</td><td><code>Settings.Keybinds []Keybind{Key,Do}</code></td><td><code>Do</code> can be a <code>/command</code> or a built-in action name.</td></tr>
+<tr><td>Theme / settings</td><td class="v ok">Yes</td><td><code>Config.Settings()</code></td><td>Typed; merged over TOML fallback.</td></tr>
+</table>
+
+<h2>6. Findings carried into later steps</h2>
+<div class="box">
+<ul>
+  <li><span class="pill">Step 2</span> Dead code exists: ~9 unreachable functions (clipboard, skills, two provider helpers each in opencode/codex, two markdown helpers). Removed in Step 2.</li>
+  <li><span class="pill">Step 3</span> <b>Component dogfooding gap</b> — the highest-value architectural item. Built-in panes bypass the public <code>Component</code>/<code>RenderCtx</code> contract via <code>ComponentFactoryProvider</code>. The public path is proven only by <code>chat_output</code>. Until a second non-trivial built-in (e.g. <code>status_bar</code>) is ported, <code>RenderCtx</code> completeness is unverified — exactly DESIGN open-question&nbsp;#3.</li>
+  <li><span class="pill">Step 3</span> <b>Command dual-system</b> — <code>commands.json</code> + <code>PaletteAction</code> enum runs in parallel with public <code>Command.Do</code>. Built-ins should migrate onto <code>Do</code> so there is one path.</li>
+  <li><span class="pill">note</span> <code>internal/core/registry.go</code> (AgentRegistry, fake outputs) and <code>internal/core/harness</code> are reserved seams — correctly excluded from all cleanup.</li>
+</ul>
+</div>
+
+<p class="sub" style="margin-top:34px">Next: <a href="step-2-dead-code.html">Step 2 — Dead code removal →</a></p>
+</div>
+</body>
+</html>

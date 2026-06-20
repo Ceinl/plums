@@ -22,11 +22,13 @@ func Render(state *State, cfg *RenderConfig) {
 	// Swap in the active layout's palette (global Default unless the layout
 	// overrides it) and refresh component colour caches so every surface —
 	// chat, sessions, popups, status bar — recolours to match.
-	theme.Apply(paletteForLayout(state.EffectiveLayout()))
+	theme.Apply(paletteForState(state))
 	components.RefreshColors()
 
+	state.BeginPublicComponentFrame()
 	root, err := buildLayout(state, cfg, layoutName(state.EffectiveLayout()))
 	if err != nil {
+		state.BeginPublicComponentFrame()
 		root = fallbackLayout(state)
 	}
 
@@ -53,6 +55,19 @@ func Render(state *State, cfg *RenderConfig) {
 	cx, cy := state.Editor.CursorScreenPos()
 	scr.SetCursor(cx, cy)
 	scr.ShowCursor()
+}
+
+// paletteForState selects the active colour palette. An explicit configured
+// theme wins; otherwise the current layout can select a layout-specific palette.
+func paletteForState(state *State) theme.Palette {
+	switch state.ThemeName() {
+	case "default":
+		return theme.Default
+	case "zen":
+		return theme.Zen
+	default:
+		return paletteForLayout(state.EffectiveLayout())
+	}
 }
 
 // paletteForLayout maps a layout to its colour palette. Default is the global

@@ -6,17 +6,17 @@ import (
 	"os"
 	"sort"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
+	"github.com/Ceinl/plums/capabilities"
 )
 
 // sessionResetter is implemented by backends whose "new session" cannot create
 // anything (e.g. claude-mirror, which attaches to a running window) and instead
 // starts a fresh conversation in place.
 type sessionResetter interface {
-	ResetSession(ctx context.Context, directory string) (*adapter.Session, error)
+	ResetSession(ctx context.Context, directory string) (*capabilities.Session, error)
 }
 
-func listSessionItems(ctx context.Context, state *State, client adapter.Backend, cfg RunConfig) ([]SessionListItem, error) {
+func listSessionItems(ctx context.Context, state *State, client capabilities.Backend, cfg RunConfig) ([]SessionListItem, error) {
 	listCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
 	defer cancel()
 	sessions, err := client.ListSessions(listCtx)
@@ -45,7 +45,7 @@ func listSessionItems(ctx context.Context, state *State, client adapter.Backend,
 	return items, nil
 }
 
-func handlePaletteAction(ctx context.Context, state *State, client adapter.Backend, action PaletteAction, cfg RunConfig) {
+func handlePaletteAction(ctx context.Context, state *State, client capabilities.Backend, action PaletteAction, cfg RunConfig) {
 	switch action {
 	case PaletteActionOpenPalette:
 		state.OpenPalette()
@@ -171,7 +171,7 @@ func handlePaletteAction(ctx context.Context, state *State, client adapter.Backe
 	}
 }
 
-func modelItemsFromProviders(providers []adapter.Provider, connected []string, currentProvider, currentModel string) []ModelListItem {
+func modelItemsFromProviders(providers []capabilities.Provider, connected []string, currentProvider, currentModel string) []ModelListItem {
 	connectedSet := make(map[string]bool, len(connected))
 	for _, providerID := range connected {
 		connectedSet[providerID] = true

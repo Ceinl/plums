@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/Ceinl/plums/internal/app/defaults"
-	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
 // InitGlobalConfig creates the default config files in ~/.config/plums/config.
@@ -28,29 +27,23 @@ func InitGlobalConfig() (string, error) {
 	return dir, nil
 }
 
-// InitLocalConfigFiles creates the default config files in ./.agents/plums/config.
-func InitLocalConfigFiles() (string, error) {
-	dir := filepath.Join(".", ".agents", "plums", "config")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	if err := defaults.WriteAll(dir); err != nil {
-		return "", err
-	}
-	return dir, nil
-}
-
-// ResolveConfigPath picks the layout config path based on CLI flags. Global is
-// the default so zero-value callers behave like passing --config-global/-cg.
-func ResolveConfigPath(global, local bool) (string, error) {
-	if local {
-		return "./.agents/plums/config/layout.json", nil
-	}
+// ResolveConfigPath returns the global layout config path,
+// ~/.config/plums/config/layout.json. plums is global-only (neovim style):
+// there is no project-local config. When the file does not exist, "" is
+// returned so callers fall back to the embedded defaults (works out of box).
+func ResolveConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "plums", "config", "layout.json"), nil
+	path := filepath.Join(home, ".config", "plums", "config", "layout.json")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return path, nil
 }
 
 // ResolveCommandsConfigPath derives the commands config path from the layout
@@ -73,7 +66,7 @@ func ResolveCommandsConfigPath(layoutConfigPath string) (string, error) {
 // layout config path.
 func ResolveOpencodeConfigPath(layoutConfigPath string) string {
 	if layoutConfigPath == "" {
-		return ".agents/plums/config/config.toml"
+		return ""
 	}
 	return filepath.Join(filepath.Dir(layoutConfigPath), "config.toml")
 }
@@ -83,7 +76,7 @@ func ResolveOpencodeConfigPath(layoutConfigPath string) string {
 // but the key is missing, fallback is also returned.
 func LoadOpencodeServerURL(path, fallback string) (string, error) {
 	if fallback == "" {
-		fallback = adapter.DefaultBaseURL
+		fallback = "http://127.0.0.1:4096"
 	}
 	file, err := os.Open(path)
 	if err != nil {

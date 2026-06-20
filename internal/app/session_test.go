@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
+	"github.com/Ceinl/plums/capabilities"
 )
 
 type sessionTestBackend struct {
-	sessions      []adapter.Session
+	sessions      []capabilities.Session
 	listErr       error
-	created       *adapter.Session
+	created       *capabilities.Session
 	createCalls   int
 	createDir     string
 	listProviders int
@@ -20,37 +20,37 @@ type sessionTestBackend struct {
 
 func (b *sessionTestBackend) Health(ctx context.Context) error { return nil }
 
-func (b *sessionTestBackend) CreateSession(ctx context.Context, directory string) (*adapter.Session, error) {
+func (b *sessionTestBackend) CreateSession(ctx context.Context, directory string) (*capabilities.Session, error) {
 	b.createCalls++
 	b.createDir = directory
 	if b.created != nil {
 		return b.created, nil
 	}
-	return &adapter.Session{ID: "created", Directory: directory}, nil
+	return &capabilities.Session{ID: "created", Directory: directory}, nil
 }
 
-func (b *sessionTestBackend) ListSessions(ctx context.Context) ([]adapter.Session, error) {
+func (b *sessionTestBackend) ListSessions(ctx context.Context) ([]capabilities.Session, error) {
 	if b.listErr != nil {
 		return nil, b.listErr
 	}
 	return b.sessions, nil
 }
 
-func (b *sessionTestBackend) GetSession(ctx context.Context, sessionID string) (*adapter.Session, error) {
+func (b *sessionTestBackend) GetSession(ctx context.Context, sessionID string) (*capabilities.Session, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (b *sessionTestBackend) ListMessages(ctx context.Context, sessionID string) ([]adapter.MessageResponse, error) {
+func (b *sessionTestBackend) ListMessages(ctx context.Context, sessionID string) ([]capabilities.MessageResponse, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (b *sessionTestBackend) ListProviders(ctx context.Context) ([]adapter.Provider, []string, error) {
+func (b *sessionTestBackend) ListProviders(ctx context.Context) ([]capabilities.Provider, []string, error) {
 	b.listProviders++
 	return nil, nil, errors.New("not implemented")
 }
 
-func (b *sessionTestBackend) SendMessageEvents(ctx context.Context, sessionID, text, providerID, modelID, agent string) <-chan adapter.StreamEvent {
-	ch := make(chan adapter.StreamEvent)
+func (b *sessionTestBackend) SendMessageEvents(ctx context.Context, sessionID, text, providerID, modelID, agent string) <-chan capabilities.StreamEvent {
+	ch := make(chan capabilities.StreamEvent)
 	close(ch)
 	return ch
 }
@@ -59,13 +59,11 @@ func (b *sessionTestBackend) ReplyQuestion(ctx context.Context, requestID string
 	return nil
 }
 
-func (b *sessionTestBackend) BaseURL() string { return "" }
-
 func TestEnsureSessionReusesLatestSessionForWorkingDirectory(t *testing.T) {
-	backend := &sessionTestBackend{sessions: []adapter.Session{
-		{ID: "other", Directory: "/tmp/other", Time: adapter.SessionTime{Updated: 300}},
-		{ID: "old", Title: "Old", Directory: "/tmp/project", Time: adapter.SessionTime{Updated: 100}},
-		{ID: "new", Title: "New", Directory: "/tmp/project", Model: &adapter.ModelRef{ProviderID: "openai", ID: "gpt"}, Time: adapter.SessionTime{Updated: 200}},
+	backend := &sessionTestBackend{sessions: []capabilities.Session{
+		{ID: "other", Directory: "/tmp/other", Time: capabilities.SessionTime{Updated: 300}},
+		{ID: "old", Title: "Old", Directory: "/tmp/project", Time: capabilities.SessionTime{Updated: 100}},
+		{ID: "new", Title: "New", Directory: "/tmp/project", Model: &capabilities.ModelRef{ProviderID: "openai", ID: "gpt"}, Time: capabilities.SessionTime{Updated: 200}},
 	}}
 	state := NewState(80, 24)
 	cfg := RunConfig{WorkingDirectory: "/tmp/project", ListTimeout: time.Second, RecentModelTimeout: time.Second}
@@ -85,7 +83,7 @@ func TestEnsureSessionReusesLatestSessionForWorkingDirectory(t *testing.T) {
 }
 
 func TestEnsureSessionCreatesWhenNoWorkingDirectoryMatch(t *testing.T) {
-	backend := &sessionTestBackend{sessions: []adapter.Session{{ID: "other", Directory: "/tmp/other"}}}
+	backend := &sessionTestBackend{sessions: []capabilities.Session{{ID: "other", Directory: "/tmp/other"}}}
 	state := NewState(80, 24)
 	cfg := RunConfig{WorkingDirectory: "/tmp/project", ListTimeout: time.Second, RecentModelTimeout: time.Second}
 
@@ -101,8 +99,8 @@ func TestEnsureSessionCreatesWhenNoWorkingDirectoryMatch(t *testing.T) {
 }
 
 func TestEnsureSessionClearHistorySkipsExistingSessions(t *testing.T) {
-	backend := &sessionTestBackend{sessions: []adapter.Session{
-		{ID: "old", Title: "Old", Directory: "/tmp/project", Time: adapter.SessionTime{Updated: 100}},
+	backend := &sessionTestBackend{sessions: []capabilities.Session{
+		{ID: "old", Title: "Old", Directory: "/tmp/project", Time: capabilities.SessionTime{Updated: 100}},
 	}}
 	state := NewState(80, 24)
 	cfg := RunConfig{WorkingDirectory: "/tmp/project", ListTimeout: time.Second, RecentModelTimeout: time.Second, ClearHistory: true}
@@ -119,9 +117,9 @@ func TestEnsureSessionClearHistorySkipsExistingSessions(t *testing.T) {
 }
 
 func TestListSessionItemsClearHistoryFiltersToRunSessions(t *testing.T) {
-	backend := &sessionTestBackend{sessions: []adapter.Session{
-		{ID: "old", Title: "Old", Directory: "/tmp/project", Time: adapter.SessionTime{Updated: 100}},
-		{ID: "mine", Title: "Mine", Directory: "/tmp/project", Time: adapter.SessionTime{Updated: 200}},
+	backend := &sessionTestBackend{sessions: []capabilities.Session{
+		{ID: "old", Title: "Old", Directory: "/tmp/project", Time: capabilities.SessionTime{Updated: 100}},
+		{ID: "mine", Title: "Mine", Directory: "/tmp/project", Time: capabilities.SessionTime{Updated: 200}},
 	}}
 	state := NewState(80, 24)
 	state.MarkRunSession("mine")

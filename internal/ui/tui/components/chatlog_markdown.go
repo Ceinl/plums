@@ -71,14 +71,6 @@ func (cl *ChatLog) buildMarkdownLines(content, fg, bg string) []renderLine {
 	return compactBlankLines(lines)
 }
 
-func parseThinkingSpans(text, fg string, inThinking bool, mode ThinkingVisibility) ([]textSpan, bool, bool) {
-	lines, nextThinking, hasMarkup := parseThinkingSpanLines(text, fg, inThinking, mode)
-	if len(lines) == 0 {
-		return nil, nextThinking, hasMarkup
-	}
-	return lines[0].spans, nextThinking, hasMarkup
-}
-
 func parseThinkingSpanLines(text, fg string, inThinking bool, mode ThinkingVisibility) ([]spanLine, bool, bool) {
 	var spans []textSpan
 	var lines []spanLine
@@ -273,18 +265,6 @@ func inlineDecor(base string, bold bool) string {
 }
 
 // ── Text wrapping ─────────────────────────────────────────────────────────────
-
-// wrapText breaks text at word boundaries, preserving newlines.
-func wrapText(text string, width int) []string {
-	if width <= 0 {
-		return []string{text}
-	}
-	var out []string
-	for _, para := range strings.Split(text, "\n") {
-		out = append(out, wrapParagraph(para, width)...)
-	}
-	return out
-}
 
 // wrapParagraph wraps a single line of text (no embedded newlines) at word
 // boundaries. Words longer than width are hard-split.

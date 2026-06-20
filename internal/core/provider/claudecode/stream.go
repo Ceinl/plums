@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/debuglog"
 )
 
@@ -66,7 +65,7 @@ func (c *Client) buildArgs(sessionID, modelID string) []string {
 
 // runTurn executes one conversation turn and emits stream events. It returns
 // the accumulated assistant text for history recording.
-func (c *Client) runTurn(ctx context.Context, out chan<- adapter.StreamEvent, sessionID, text, modelID string) (string, error) {
+func (c *Client) runTurn(ctx context.Context, out chan<- StreamEvent, sessionID, text, modelID string) (string, error) {
 	cmd := exec.CommandContext(ctx, "claude", c.buildArgs(sessionID, modelID)...)
 	if dir := c.sessionDirectory(sessionID); dir != "" {
 		cmd.Dir = dir
@@ -107,12 +106,12 @@ func (c *Client) runTurn(ctx context.Context, out chan<- adapter.StreamEvent, se
 				if line.Event.Delta.Text != "" {
 					sawDeltas = true
 					assistantText += line.Event.Delta.Text
-					emit(ctx, out, adapter.StreamEvent{Text: line.Event.Delta.Text})
+					emit(ctx, out, StreamEvent{Text: line.Event.Delta.Text})
 				}
 			case "thinking_delta":
 				if line.Event.Delta.Thinking != "" {
 					sawDeltas = true
-					emit(ctx, out, adapter.StreamEvent{Text: "<thinking>" + line.Event.Delta.Thinking + "</thinking>"})
+					emit(ctx, out, StreamEvent{Text: "<thinking>" + line.Event.Delta.Thinking + "</thinking>"})
 				}
 			}
 		case "assistant":
@@ -122,10 +121,10 @@ func (c *Client) runTurn(ctx context.Context, out chan<- adapter.StreamEvent, se
 					// Without partial-message support text arrives only here.
 					if !sawDeltas && block.Text != "" {
 						assistantText += block.Text
-						emit(ctx, out, adapter.StreamEvent{Text: block.Text})
+						emit(ctx, out, StreamEvent{Text: block.Text})
 					}
 				case "tool_use":
-					emit(ctx, out, adapter.StreamEvent{Tool: &adapter.ToolEvent{
+					emit(ctx, out, StreamEvent{Tool: &ToolEvent{
 						ID:    block.ID,
 						Name:  block.Name,
 						Input: string(block.Input),
@@ -137,18 +136,18 @@ func (c *Client) runTurn(ctx context.Context, out chan<- adapter.StreamEvent, se
 				if block.Type != "tool_result" {
 					continue
 				}
-				tool := &adapter.ToolEvent{ID: block.ToolUseID}
+				tool := &ToolEvent{ID: block.ToolUseID}
 				output := toolResultText(block.Content)
 				if block.IsError {
 					tool.Error = output
 				} else {
 					tool.Output = output
 				}
-				emit(ctx, out, adapter.StreamEvent{Tool: tool})
+				emit(ctx, out, StreamEvent{Tool: tool})
 			}
 		case "result":
 			if line.IsError && line.Result != "" {
-				emit(ctx, out, adapter.StreamEvent{Text: fmt.Sprintf("\nClaude error: %s\n", line.Result)})
+				emit(ctx, out, StreamEvent{Text: fmt.Sprintf("\nClaude error: %s\n", line.Result)})
 			}
 		}
 	}

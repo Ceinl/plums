@@ -28,23 +28,25 @@ Useful flags:
 - `-provider opencode|codex`
 - `-server-url URL`
 - `-init-config`
-- `-init-config-local`
-- `-config-global` / `-cg`
-- `-config-local` / `-cl`
+- `-doctor`
 
 ## Config
 
-Create local config:
+plums is global-only, neovim style. Seed the default config:
 
 ```bash
-plums -init-config-local
+plums -init-config
 ```
 
-Config files are written to `.agents/plums/config`:
+Config files are written to `~/.config/plums/config`:
 
-- `config.toml`
-- `layout.json`
-- `commands.json`
+- `config.go` — the compiled Go config (`plums.Use`); edit this to reshape plums.
+  Launching `plums` auto-compiles it (cached) and runs the result; `plums build`
+  builds it explicitly.
+- `config.toml`, `layout.json`, `commands.json` — runtime data defaults for a stock binary.
+
+`split` ships as a user plugin in `config.go` (not a builtin) — run `plums -doctor`
+to see it registered as `split (split-layout)`.
 
 ## Development
 

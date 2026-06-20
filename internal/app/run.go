@@ -7,8 +7,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/internal/core"
-	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/debuglog"
 	"github.com/Ceinl/plums/internal/keyboard"
 	"github.com/Ceinl/plums/internal/ui"
@@ -63,36 +63,33 @@ type RunConfig struct {
 	WorkingDirectory     string
 	ConfigTomlPath       string
 	DefaultLayout        string
+	Theme                capabilities.Theme
 	HideThinking         bool
 	SplitLeftWidth       int
 	// ClearHistory hides backend sessions that were not created in this run.
 	ClearHistory bool
 }
 
-// ServerProcess abstracts the lifecycle of a managed backend server.
-type ServerProcess interface {
-	Stop()
-	Done() <-chan struct{}
-}
-
 // serverProcessExtractor lets run.go stop lazily-started processes (e.g. codex
 // app-server) even when they were not available during initial startup.
 type serverProcessExtractor interface {
-	ServerProcess() interface {
-		Stop()
-		Done() <-chan struct{}
-	}
+	ServerProcess() capabilities.ServerProcess
 }
 
 // Deps bundles all wired dependencies needed by the event loop.
 type Deps struct {
 	Terminal      *ui.Terminal
 	Keyboard      <-chan keyboard.Event
-	Backend       adapter.Backend
-	Startup       func(ctx context.Context, backend adapter.Backend, out chan<- StartupResult)
+	Backend       capabilities.Backend
+	Startup       func(ctx context.Context, backend capabilities.Backend) (*capabilities.StartupResult, error)
 	Backends      []BackendRuntime
 	RenderConfig  *RenderConfig
+	Layouts       []LayoutType
 	CommandConfig *CommandConfig
+	Commands      []capabilities.Command
+	Keybinds      []capabilities.Keybind
+	Components    map[string]ComponentFactory
+	Hooks         Hooks
 	Registry      *core.AgentRegistry
 }
 
@@ -100,26 +97,33 @@ type Deps struct {
 type BackendRuntime struct {
 	ID      string
 	Name    string
-	Backend adapter.Backend
-	Startup func(ctx context.Context, backend adapter.Backend, out chan<- StartupResult)
+	Backend capabilities.Backend
+	Startup func(ctx context.Context, backend capabilities.Backend) (*capabilities.StartupResult, error)
 }
 
 // StartupResult is delivered on the startup channel once the backend is ready.
 type StartupResult struct {
 	BackendID string
-	Session   *adapter.Session
-	Server    ServerProcess
+	Session   *capabilities.Session
+	Server    capabilities.ServerProcess
 	Err       error
 }
 
 // Run executes the main event loop. It returns the server process (if any)
 // so the caller can perform final cleanup.
-func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
+func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProcess, error) {
 	state := NewState(deps.Terminal.W, deps.Terminal.H)
-	state.SetAvailableLayouts(deps.RenderConfig.AvailableLayoutTypes())
+	if len(deps.Layouts) > 0 {
+		state.SetAvailableLayouts(deps.Layouts)
+	} else {
+		state.SetAvailableLayouts(deps.RenderConfig.AvailableLayoutTypes())
+	}
 	state.SetCommandConfig(deps.CommandConfig)
+	state.SetCommands(deps.Commands)
+	state.SetComponentFactories(deps.Components)
 	// Apply remembered config values (always override NewState's hardcoded default).
 	state.Layout = LayoutTypeFromString(cfg.DefaultLayout)
+	state.SetTheme(cfg.Theme)
 	if cfg.HideThinking {
 		state.ThinkingMode = components.ThinkingVisibilityHidden
 	} else {
@@ -148,10 +152,22 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 		state.SetServerStarting(true)
 		state.SetServerReady(false)
 		go func() {
-			ch := make(chan StartupResult, 1)
-			rt.Startup(ctx, rt.Backend, ch)
-			result := <-ch
-			result.BackendID = rt.ID
+			result := StartupResult{BackendID: rt.ID}
+			if rt.Startup == nil {
+				result.Err = nil
+				startupCh <- result
+				return
+			}
+			started, err := rt.Startup(ctx, rt.Backend)
+			if err != nil {
+				result.Err = err
+				startupCh <- result
+				return
+			}
+			if started != nil {
+				result.Session = started.Session
+				result.Server = started.Server
+			}
 			startupCh <- result
 		}()
 	}
@@ -166,15 +182,36 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 	spinTicker := time.NewTicker(spinInterval)
 	defer spinTicker.Stop()
 
-	var aiStream <-chan adapter.StreamEvent
+	var aiStream <-chan capabilities.StreamEvent
 	var cancelStream context.CancelFunc
-	var pendingQuestion *adapter.QuestionRequest
-	var serverProc ServerProcess
+	var pendingQuestion *capabilities.QuestionRequest
+	var serverProc capabilities.ServerProcess
 	emittedTools := make(map[string]bool)
 	// pendingStreamRender marks streamed output that has been appended but not yet
 	// drawn; the spinner tick flushes it so render rate is decoupled from token rate.
 	var pendingStreamRender bool
 	var escStopper doubleEscapeStopper
+	mutations := make(chan stateMutation, 64)
+	promptRequests := make(chan string, 64)
+	newHookCtx := func() *runtimeCtx {
+		return newRuntimeCtx(state, cfg, mutations, promptRequests)
+	}
+	emitMessageHook := func(role, text string) {
+		if text == "" {
+			return
+		}
+		runMessageHooks(ctx, deps.Hooks.OnMessage, newHookCtx(), capabilities.Message{Role: role, Content: text})
+	}
+	emitSessionStartHook := func() {
+		session := newHookCtx().Session()
+		if session.ID == "" {
+			return
+		}
+		runSessionStartHooks(ctx, deps.Hooks.OnSessionStart, newHookCtx(), session)
+	}
+	emitToolCallHook := func(tool capabilities.ToolCall) {
+		runToolCallHooks(ctx, deps.Hooks.OnToolCall, newHookCtx(), tool)
+	}
 
 	type savedConfigValues struct {
 		layout       string
@@ -205,7 +242,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 		lastSaved = current
 	}
 
-	resolveServerProc := func() ServerProcess {
+	resolveServerProc := func() capabilities.ServerProcess {
 		if serverProc != nil {
 			return serverProc
 		}
@@ -239,8 +276,72 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 			cancelStream = nil
 		}
 		aiStream = nil
-		state.FinalizeAiOutput()
+		if output := state.FinalizeAiOutput(); output != "" {
+			emitMessageHook("ai", output)
+		}
 		escStopper.Reset()
+	}
+	resolveAgent := func() string {
+		if deps.Registry == nil {
+			return state.Mode
+		}
+		return deps.Registry.ResolveAgent(state.Mode)
+	}
+	submitConsumedPrompt := func(input string) {
+		if input == "" {
+			return
+		}
+		if pendingQuestion != nil {
+			answers := parseQuestionAnswers(input, pendingQuestion)
+			if replyQuestion(ctx, state, backend, pendingQuestion.ID, answers, cfg.QuestionReplyTimeout) {
+				pendingQuestion = nil
+			}
+			return
+		}
+		hadSession := state.SessionID != ""
+		if state.SessionID == "" {
+			if err := ensureSession(ctx, state, backend, cfg); err != nil {
+				state.AddMessage("system", err.Error())
+				return
+			}
+		}
+		if state.SessionID == "" {
+			state.AddMessage("system", "no active session for backend provider "+runtime.ID)
+			return
+		}
+		if !hadSession {
+			emitSessionStartHook()
+		}
+		if cancelStream != nil {
+			cancelStream()
+		}
+		var sctx context.Context
+		sctx, cancelStream = context.WithCancel(ctx)
+		state.SetStreaming(true)
+		state.ClearAiOutput()
+		escStopper.Reset()
+		emittedTools = make(map[string]bool)
+		aiStream = backend.SendMessageEvents(sctx, state.SessionID, input, state.ModelProvider, state.ModelID, resolveAgent())
+	}
+	submitPrompt := func(input string) {
+		if state.SubmitPrompt(input) == "" {
+			return
+		}
+		raw := state.ConsumeSubmittedMessage()
+		expanded := state.ConsumeSubmittedInput()
+		emitMessageHook("user", raw)
+		submitConsumedPrompt(expanded)
+	}
+	runCommand := func(command capabilities.Command) {
+		if command.Do == nil {
+			return
+		}
+		commandCtx := newRuntimeCtx(state, cfg, mutations, promptRequests)
+		go func() {
+			if err := command.Do(ctx, commandCtx); err != nil {
+				commandCtx.Chat("system", err.Error())
+			}
+		}()
 	}
 
 	for {
@@ -252,7 +353,14 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 				}
 				return resolveServerProc(), nil
 			}
-			handled, quit := HandleKey(state, ev, cfg.ClipboardCommand)
+			handled := HandleConfiguredKeybind(state, ev, deps.Keybinds)
+			quit := false
+			if !handled {
+				handled = HandlePublicComponentEvent(state, ev, newHookCtx())
+			}
+			if !handled {
+				handled, quit = HandleKey(state, ev, cfg.ClipboardCommand)
+			}
 			if quit {
 				if cancelStream != nil {
 					cancelStream()
@@ -271,6 +379,10 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 								pendingQuestion = nil
 							}
 						}
+					}
+				} else if action == PaletteActionSelectListItem {
+					if item, onPick, ok := state.ConsumePendingListPick(); ok && onPick != nil {
+						go onPick(item)
 					}
 				} else if action == PaletteActionBackendList {
 					state.SetBackendItems(backendItemsFromRuntimes(runtimes, runtime.ID))
@@ -299,51 +411,32 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 					handlePaletteAction(ctx, state, backend, action, cfg)
 				}
 			}
+			if command, ok := state.ConsumePendingCommand(); ok {
+				runCommand(command)
+			}
 			if handled {
 				if ev.Type == keyboard.KeyEnter {
 					// In split layout Shift+Enter submits; in chat/fullscreen Enter submits.
 					isSubmit := (!ev.Shift && state.EffectiveLayout() != LayoutSplit) || (ev.Shift && state.EffectiveLayout() == LayoutSplit)
 					if isSubmit {
-						input := state.ConsumeSubmittedInput()
-						if input != "" {
-							if pendingQuestion != nil {
-								answers := parseQuestionAnswers(input, pendingQuestion)
-								if replyQuestion(ctx, state, backend, pendingQuestion.ID, answers, cfg.QuestionReplyTimeout) {
-									pendingQuestion = nil
-								}
-								Render(state, deps.RenderConfig)
-								continue
-							}
-							if state.SessionID == "" {
-								if err := ensureSession(ctx, state, backend, cfg); err != nil {
-									state.AddMessage("system", err.Error())
-									Render(state, deps.RenderConfig)
-									continue
-								}
-							}
-							if state.SessionID != "" {
-								if cancelStream != nil {
-									cancelStream()
-								}
-								var sctx context.Context
-								sctx, cancelStream = context.WithCancel(ctx)
-								state.SetStreaming(true)
-								state.ClearAiOutput()
-								escStopper.Reset()
-								emittedTools = make(map[string]bool)
-								agent := deps.Registry.ResolveAgent(state.Mode)
-								aiStream = backend.SendMessageEvents(sctx, state.SessionID, input, state.ModelProvider, state.ModelID, agent)
-							} else {
-								state.AddMessage("system", "no active session for backend provider "+runtime.ID)
-							}
-						}
+						raw := state.ConsumeSubmittedMessage()
+						expanded := state.ConsumeSubmittedInput()
+						emitMessageHook("user", raw)
+						submitConsumedPrompt(expanded)
 					}
 				}
 				Render(state, deps.RenderConfig)
 				saveConfigIfChanged()
 			}
+		case input := <-promptRequests:
+			submitPrompt(input)
+			Render(state, deps.RenderConfig)
+			saveConfigIfChanged()
 		case event, ok := <-aiStream:
 			if ok {
+				if event.Tool != nil {
+					emitToolCallHook(*event.Tool)
+				}
 				if event.Question != nil {
 					pendingQuestion = event.Question
 					state.SetStreaming(false)
@@ -361,7 +454,9 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 				}
 			} else {
 				pendingStreamRender = false
-				state.FinalizeAiOutput()
+				if output := state.FinalizeAiOutput(); output != "" {
+					emitMessageHook("ai", output)
+				}
 				refreshSessionModel(ctx, state, backend, cfg)
 				aiStream = nil
 				cancelStream = nil
@@ -383,13 +478,23 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (ServerProcess, error) {
 			} else {
 				serverProc = result.Server
 				state.SetServerReady(true)
+				beforeSession := state.SessionID
 				applySession(state, result.Session)
+				if beforeSession == "" && state.SessionID != "" {
+					emitSessionStartHook()
+				}
 				applyRecentModel(ctx, state, backend, cfg)
 				if items, err := listSessionItems(ctx, state, backend, cfg); err == nil {
 					state.SessionItems = items
 				}
 			}
 			Render(state, deps.RenderConfig)
+		case mutation := <-mutations:
+			if mutation != nil {
+				mutation(state)
+				Render(state, deps.RenderConfig)
+				saveConfigIfChanged()
+			}
 		case <-sigCh:
 			if err := deps.Terminal.RefreshSize(); err == nil {
 				state.Resize(deps.Terminal.W, deps.Terminal.H)

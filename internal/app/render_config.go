@@ -38,6 +38,12 @@ type LayoutNode struct {
 	Children      []LayoutNode      `json:"children"`
 	WhenPopupOpen *LayoutNode       `json:"when_popup_open"`
 	Variants      map[string]string `json:"variants"`
+
+	// slotID is the component's position in the layout tree (e.g. "/0/2"). It is
+	// assigned during traversal, not deserialized, and identifies a stateful
+	// public component instance so the same component used in two slots keeps
+	// independent state.
+	slotID string
 }
 
 type SizeNode struct {
@@ -189,6 +195,7 @@ func buildLayout(state *State, cfg *RenderConfig, name string) (layout.Component
 	if node.MinWidth == "MinSplitLayoutWidth" && state.width < MinSplitLayoutWidth && node.Fallback != "" {
 		return buildLayout(state, cfg, node.Fallback)
 	}
+	node.slotID = ""
 	return buildNode(state, node)
 }
 
@@ -202,13 +209,15 @@ func buildNode(state *State, node LayoutNode) (layout.Component, error) {
 		if isEmptyStyle(replacement.Style) {
 			replacement.Style = node.Style
 		}
+		replacement.slotID = node.slotID
 		node = replacement
 	}
 
 	if node.Type == "div" || len(node.Children) > 0 {
 		div := components.NewDiv()
 		applyNodeProperties(state, div, node)
-		for _, childNode := range node.Children {
+		for i, childNode := range node.Children {
+			childNode.slotID = node.slotID + "/" + strconv.Itoa(i)
 			child, err := buildNode(state, childNode)
 			if err != nil {
 				return nil, err
@@ -232,62 +241,7 @@ func buildNode(state *State, node LayoutNode) (layout.Component, error) {
 }
 
 func buildComponent(state *State, node LayoutNode) (layout.Component, error) {
-	switch node.Component {
-	case "chat_output":
-		return newChatLog(state), nil
-	case "status_separator", "vertical_status_separator":
-		sep := components.NewSeparator()
-		sep.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
-		return sep, nil
-	case "editor", "editor_or_palette":
-		return state.Editor, nil
-	case "input_box", "text_box":
-		box := components.NewInputBox(state.Editor)
-		box.SetStatusSegments(chatStatusSegments(state))
-		return box, nil
-	case "command_palette_panel":
-		popup := components.NewPopup()
-		popup.SetPanel(true)
-		popup.SetTitle(state.PaletteTitle())
-		popup.SetQuery(state.PaletteSearch())
-		popup.SetItems(state.PaletteItems(), state.PaletteIndex)
-		return popup, nil
-	case "info_tabs":
-		tabs := components.NewInfoTabs()
-		tabs.SetTabs([]components.InfoTab{
-			{Label: "AI output", Active: state.InfoView == InfoViewAI},
-			{Label: "Git diff", Active: state.InfoView == InfoViewGitDiff},
-		})
-		return tabs, nil
-	case "sessions", "sessions_vertical":
-		return newSessions(state, components.SessionsVertical), nil
-	case "sessions_horizontal":
-		return newSessions(state, components.SessionsHorizontal), nil
-	case "info_view":
-		if state.InfoView == InfoViewGitDiff && node.Variants["git_diff"] == "git_diff_log" {
-			return newGitDiffLog(state), nil
-		}
-		return newChatLog(state), nil
-	case "fullscreen_view":
-		return newFullscreenView(state), nil
-	case "split_status_bar":
-		bar := components.NewStatusBar()
-		bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
-		bar.SetSession(state.SessionTitle)
-		bar.SetMode(state.Mode)
-		bar.SetModel(state.ModelProvider, state.ModelID)
-		return bar, nil
-	case "status_bar":
-		bar := components.NewStatusBar()
-		bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
-		bar.SetSession(state.SessionTitle)
-		bar.SetMode(state.Mode)
-		bar.SetModel(state.ModelProvider, state.ModelID)
-		bar.SetShowSession(false)
-		return bar, nil
-	default:
-		return nil, fmt.Errorf("unknown component %q", node.Component)
-	}
+	return buildRegisteredComponent(state, node)
 }
 
 func applyNodeProperties(state *State, div *components.Div, node LayoutNode) {

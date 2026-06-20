@@ -1,13 +1,17 @@
 package app
 
 import (
+	"context"
 	"strings"
+
+	"github.com/Ceinl/plums/capabilities"
 )
 
 type SlashCommand struct {
 	Name   string
 	Detail string
 	Action PaletteAction
+	Do     func(context.Context, capabilities.Ctx) error
 }
 
 type FileCommandSuggestion struct {
@@ -38,6 +42,10 @@ func (s *State) SetCommandConfig(cfg *CommandConfig) {
 		cfg = DefaultCommandConfig()
 	}
 	s.commandConfig = cfg
+}
+
+func (s *State) SetCommands(commands []capabilities.Command) {
+	s.commands = append([]capabilities.Command(nil), commands...)
 }
 
 func (s *State) EditorDropdownOpen() bool {
@@ -79,7 +87,7 @@ func (s *State) SubmitExactSlashCommand() bool {
 	if input == "" || strings.Contains(input, "\n") {
 		return false
 	}
-	for _, command := range s.commandConfig.SlashCommands {
+	for _, command := range s.allSlashCommands() {
 		if input == command.Name {
 			return s.runSlashCommand(strings.TrimPrefix(command.Name, "/"))
 		}
@@ -118,13 +126,41 @@ func (s *State) SlashCommands() []SlashCommand {
 	}
 	input := "/" + ctx.Query
 
-	items := make([]SlashCommand, 0, len(s.commandConfig.SlashCommands))
-	for _, command := range s.commandConfig.SlashCommands {
+	commands := s.allSlashCommands()
+	items := make([]SlashCommand, 0, len(commands))
+	for _, command := range commands {
 		if strings.HasPrefix(command.Name, input) {
-			items = append(items, SlashCommand{Name: command.Name, Detail: command.Detail, Action: s.commandConfig.actionFor(command.Action)})
+			items = append(items, command)
 		}
 	}
 	return items
+}
+
+func (s *State) allSlashCommands() []SlashCommand {
+	if len(s.commands) == 0 {
+		items := make([]SlashCommand, 0, len(s.commandConfig.SlashCommands))
+		for _, command := range s.commandConfig.SlashCommands {
+			items = append(items, SlashCommand{Name: command.Name, Detail: command.Detail, Action: s.commandConfig.actionFor(command.Action)})
+		}
+		return items
+	}
+	items := make([]SlashCommand, 0, len(s.commands))
+	for _, command := range s.commands {
+		if command.Name == "" || !strings.HasPrefix(command.Name, "/") {
+			continue
+		}
+		items = append(items, SlashCommand{Name: command.Name, Detail: command.Detail, Action: s.actionForSlashCommand(command.Name), Do: command.Do})
+	}
+	return items
+}
+
+func (s *State) actionForSlashCommand(name string) PaletteAction {
+	for _, command := range s.commandConfig.SlashCommands {
+		if command.Name == name {
+			return s.commandConfig.actionFor(command.Action)
+		}
+	}
+	return PaletteActionNone
 }
 
 func (s *State) editorDropdownItems() (editorDropdownKind, []editorDropdownItem) {
@@ -250,29 +286,51 @@ func (s *State) runSlashCommand(command string) bool {
 		s.Editor.SetContent("")
 		return true
 	case "command":
-		s.Editor.SetContent("")
-		s.OpenPalette()
-		return true
-	case "skills":
-		s.Editor.SetContent("")
-		s.PendingAction = PaletteActionSkillsList
-		return true
-	default:
-		for _, slashCommand := range s.SlashCommands() {
-			if strings.TrimPrefix(slashCommand.Name, "/") != command {
-				continue
-			}
+		if len(s.commands) == 0 {
 			s.Editor.SetContent("")
-			if slashCommand.Action == PaletteActionOpenPalette {
-				s.OpenPalette()
-				return true
-			}
-			if slashCommand.Action == PaletteActionNone {
-				return true
-			}
-			s.PendingAction = slashCommand.Action
+			s.OpenPalette()
 			return true
 		}
-		return false
+	case "skills":
+		if len(s.commands) == 0 {
+			s.Editor.SetContent("")
+			s.PendingAction = PaletteActionSkillsList
+			return true
+		}
+	default:
 	}
+	for _, slashCommand := range s.allSlashCommands() {
+		if strings.TrimPrefix(slashCommand.Name, "/") != command {
+			continue
+		}
+		s.Editor.SetContent("")
+		if slashCommand.Do != nil {
+			s.pendingCommand = slashCommand.Name
+			return true
+		}
+		if slashCommand.Action == PaletteActionOpenPalette {
+			s.OpenPalette()
+			return true
+		}
+		if slashCommand.Action == PaletteActionNone {
+			return true
+		}
+		s.PendingAction = slashCommand.Action
+		return true
+	}
+	return false
+}
+
+func (s *State) ConsumePendingCommand() (capabilities.Command, bool) {
+	name := s.pendingCommand
+	s.pendingCommand = ""
+	if name == "" {
+		return capabilities.Command{}, false
+	}
+	for _, command := range s.commands {
+		if command.Name == name {
+			return command, true
+		}
+	}
+	return capabilities.Command{}, false
 }

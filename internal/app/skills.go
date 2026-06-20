@@ -162,10 +162,6 @@ func validSkillMetadata(name, description, dirName string) bool {
 	return name == dirName && len(name) >= 1 && len(name) <= 64 && skillNamePattern.MatchString(name) && len(description) >= 1 && len(description) <= 1024
 }
 
-func SkillPrompt(skill SkillListItem, input string) string {
-	return fmt.Sprintf("Use the `%s` skill for this request.\n\n<skill_content name=\"%s\">\n%s\n</skill_content>\n\nUser request:\n%s", skill.Name, skill.Name, skill.Content, input)
-}
-
 func ExpandSkillMarkers(input string, skills []SkillListItem) string {
 	matches := skillDirectivePattern.FindAllStringSubmatch(input, -1)
 	if len(matches) == 0 {

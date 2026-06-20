@@ -1,11 +1,14 @@
 package app
 
 import (
-	"github.com/Ceinl/plums/internal/ui/tui/components"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Ceinl/plums/capabilities"
+	"github.com/Ceinl/plums/internal/ui/tui/components"
 )
 
 func TestClampOutputScroll(t *testing.T) {
@@ -204,6 +207,91 @@ func TestDefaultCommandConfigIncludesBackendCommand(t *testing.T) {
 	}
 }
 
+func TestRegistryCommandsControlSlashCommands(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetCommands([]capabilities.Command{
+		{Name: "/command", Detail: "Open from registry"},
+	})
+	state.Editor.SetContent("/command")
+	state.SubmitInput()
+
+	if !state.PopupOpen {
+		t.Fatalf("expected registry /command slash command to open palette")
+	}
+
+	state = NewState(80, 24)
+	state.SetCommands([]capabilities.Command{
+		{Name: "/backend", Detail: "Switch backend"},
+	})
+	state.Editor.SetContent("/skills")
+	state.SubmitInput()
+	if got := state.ConsumePendingAction(); got != PaletteActionNone {
+		t.Fatalf("expected /skills to be disabled by registry command set, got %v", got)
+	}
+}
+
+func TestRegistrySlashCommandDropdownUsesRegistryDetails(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetCommands([]capabilities.Command{
+		{Name: "/custom", Detail: "Custom registry command"},
+	})
+	state.Editor.SetContent("/cu")
+
+	commands := state.SlashCommands()
+	if len(commands) != 1 || commands[0].Name != "/custom" || commands[0].Detail != "Custom registry command" {
+		t.Fatalf("slash commands = %#v", commands)
+	}
+}
+
+func TestRegistrySlashCommandWithDoSetsPendingCommand(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetCommands([]capabilities.Command{
+		{
+			Name: "/custom",
+			Do: func(context.Context, capabilities.Ctx) error {
+				return nil
+			},
+		},
+	})
+	state.Editor.SetContent("/custom")
+	state.SubmitInput()
+
+	command, ok := state.ConsumePendingCommand()
+	if !ok || command.Name != "/custom" || command.Do == nil {
+		t.Fatalf("pending command = %+v ok=%v", command, ok)
+	}
+}
+
+func TestRegistryCommandWithDoAppearsInPalette(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetCommands([]capabilities.Command{
+		{
+			Name:   "/custom",
+			Detail: "Custom registry command",
+			Do: func(context.Context, capabilities.Ctx) error {
+				return nil
+			},
+		},
+	})
+	state.OpenPalette()
+	state.PaletteQuery = "custom"
+	state.SelectPaletteItem()
+
+	if got := state.ConsumePendingAction(); got != PaletteActionNone {
+		t.Fatalf("pending action = %v, want none", got)
+	}
+	command, ok := state.ConsumePendingCommand()
+	if !ok {
+		t.Fatal("expected pending registry command")
+	}
+	if command.Name != "/custom" {
+		t.Fatalf("pending command = %+v", command)
+	}
+	if state.PopupOpen {
+		t.Fatal("palette should close after selecting registry command")
+	}
+}
+
 func TestBackendPaletteSelection(t *testing.T) {
 	state := NewState(80, 24)
 	state.SetBackendProvider("opencode")
@@ -301,6 +389,44 @@ func TestSkillMarkerExpandsSubmittedPrompt(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected submitted input to contain %q, got %q", want, got)
 		}
+	}
+}
+
+func TestSubmitPromptUsesSameSubmissionStateAsEditorInput(t *testing.T) {
+	state := NewState(80, 24)
+	state.SetSkillItems([]SkillListItem{{Name: "demo-skill", Content: "Use demo behavior."}})
+	state.Editor.SetContent("draft")
+
+	state.SubmitPrompt("/skill demo-skill\ndo the work")
+
+	messages := state.Messages()
+	if len(messages) != 1 || messages[0].Role != "user" || messages[0].Content != "/skill demo-skill\ndo the work" {
+		t.Fatalf("messages = %+v", messages)
+	}
+	if got := state.Editor.GetContent(); got != "" {
+		t.Fatalf("editor content = %q, want cleared", got)
+	}
+	if got := state.ConsumeSubmittedInput(); !strings.Contains(got, "Use demo behavior.") {
+		t.Fatalf("submitted input = %q, want expanded skill content", got)
+	}
+	if got := state.ConsumeSubmittedMessage(); got != "/skill demo-skill\ndo the work" {
+		t.Fatalf("submitted message = %q, want raw prompt", got)
+	}
+}
+
+func TestFinalizeAiOutputReturnsCommittedMessage(t *testing.T) {
+	state := NewState(80, 24)
+	state.AppendAiOutput("answer")
+
+	if got := state.FinalizeAiOutput(); got != "answer" {
+		t.Fatalf("FinalizeAiOutput() = %q, want answer", got)
+	}
+	messages := state.Messages()
+	if len(messages) != 1 || messages[0].Role != "ai" || messages[0].Content != "answer" {
+		t.Fatalf("messages = %+v", messages)
+	}
+	if got := state.FinalizeAiOutput(); got != "" {
+		t.Fatalf("second FinalizeAiOutput() = %q, want empty", got)
 	}
 }
 

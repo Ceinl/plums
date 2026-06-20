@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
+	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/internal/debuglog"
 )
 
-func replyQuestion(ctx context.Context, state *State, client adapter.Backend, requestID string, answers [][]string, timeout time.Duration) bool {
+func replyQuestion(ctx context.Context, state *State, client capabilities.Backend, requestID string, answers [][]string, timeout time.Duration) bool {
 	replyCtx, cancelReply := context.WithTimeout(ctx, timeout)
 	err := client.ReplyQuestion(replyCtx, requestID, answers)
 	cancelReply()
@@ -23,7 +23,7 @@ func replyQuestion(ctx context.Context, state *State, client adapter.Backend, re
 	return true
 }
 
-func questionTitle(req *adapter.QuestionRequest) string {
+func questionTitle(req *capabilities.QuestionRequest) string {
 	if req == nil || len(req.Questions) == 0 {
 		return "Question"
 	}
@@ -34,7 +34,7 @@ func questionTitle(req *adapter.QuestionRequest) string {
 	return q.Question
 }
 
-func questionOptionItems(req *adapter.QuestionRequest) []QuestionOptionItem {
+func questionOptionItems(req *capabilities.QuestionRequest) []QuestionOptionItem {
 	if req == nil || len(req.Questions) == 0 {
 		return nil
 	}
@@ -46,7 +46,7 @@ func questionOptionItems(req *adapter.QuestionRequest) []QuestionOptionItem {
 	return items
 }
 
-func parseQuestionAnswers(input string, req *adapter.QuestionRequest) [][]string {
+func parseQuestionAnswers(input string, req *capabilities.QuestionRequest) [][]string {
 	if req == nil || len(req.Questions) == 0 {
 		return [][]string{{strings.TrimSpace(input)}}
 	}

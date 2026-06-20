@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>plums — functionality inventory &amp; triage</title>
+<style>
+  :root{--bg:#16141b;--panel:#1f1d28;--panel2:#26232f;--ink:#e8e5f1;--mut:#9a98ac;--acc:#b9a3ff;
+    --keep:#7fd6a0;--redo:#f0c674;--cut:#f08a8a;--line:#322f3f;
+    --solid:#7fd6a0;--works:#86b8f0;--rough:#f0c674;--stub:#9a98ac}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:36px 22px 140px}
+  a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
+  h1{font-size:27px;margin:0 0 4px;letter-spacing:-.02em}
+  .sub{color:var(--mut);margin:0 0 18px}
+  h2{font-size:18px;margin:34px 0 6px;display:flex;align-items:baseline;gap:10px}
+  h2 .n{color:var(--mut);font-size:13px;font-weight:400}
+  code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px;font-family:ui-monospace,Menlo,monospace}
+  .intro{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:8px 0 6px}
+  .intro p{margin:6px 0}
+  /* sticky summary */
+  .bar{position:sticky;top:0;z-index:5;background:rgba(22,20,27,.92);backdrop-filter:blur(8px);
+    border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:14px 0 6px;display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+  .bar b{font-size:17px}
+  .chip{font-size:12.5px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--mut)}
+  .chip.keep{color:var(--keep);border-color:#2f5a40}
+  .chip.redo{color:var(--redo);border-color:#5a4d2a}
+  .chip.cut{color:var(--cut);border-color:#5a2f2f}
+  .bar .spacer{flex:1}
+  button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 11px;font-size:12.5px;cursor:pointer}
+  button:hover{border-color:var(--acc)}
+  .filters{display:flex;gap:7px;flex-wrap:wrap;margin:6px 0 0}
+  .filters button.on{border-color:var(--acc);color:var(--acc)}
+  /* item */
+  .item{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:13px 15px;margin:9px 0;display:grid;
+    grid-template-columns:1fr auto;gap:8px 14px;align-items:start}
+  .item.d-keep{border-left:3px solid var(--keep)}
+  .item.d-redo{border-left:3px solid var(--redo)}
+  .item.d-cut{border-left:3px solid var(--cut);opacity:.72}
+  .name{font-weight:600;font-size:15px}
+  .mat{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;padding:1px 7px;border-radius:999px;border:1px solid var(--line);margin-left:8px;vertical-align:middle}
+  .mat.solid{color:var(--solid);border-color:#2f5a40}
+  .mat.works{color:var(--works);border-color:#2c466a}
+  .mat.rough{color:var(--rough);border-color:#5a4d2a}
+  .mat.stub{color:var(--stub)}
+  .desc{color:#d6d3e3;margin:3px 0}
+  .meta{color:var(--mut);font-size:12px;margin-top:3px}
+  .rec{color:var(--mut);font-size:12.5px;margin-top:5px;font-style:italic}
+  .rec b{font-style:normal;color:#ccb6ff}
+  .controls{display:flex;flex-direction:column;gap:6px;align-items:flex-end;min-width:188px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg label{padding:5px 11px;font-size:12.5px;cursor:pointer;color:var(--mut);user-select:none}
+  .seg label:not(:last-child){border-right:1px solid var(--line)}
+  .seg input{display:none}
+  .seg label.keep.sel{background:rgba(127,214,160,.16);color:var(--keep)}
+  .seg label.redo.sel{background:rgba(240,198,116,.16);color:var(--redo)}
+  .seg label.cut.sel{background:rgba(240,138,138,.16);color:var(--cut)}
+  .note{width:188px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;color:var(--ink);
+    padding:5px 8px;font-size:12px;font-family:inherit}
+  .note::placeholder{color:#6c6a7c}
+  .legend{color:var(--mut);font-size:12.5px;margin:2px 0 0}
+  .legend span{margin-right:14px}
+  footer{color:var(--mut);font-size:12.5px;margin-top:40px;border-top:1px solid var(--line);padding-top:14px}
+  @media (max-width:720px){.item{grid-template-columns:1fr}.controls{align-items:flex-start}.note,.controls{min-width:0;width:100%}}
+  @media print{.bar,.filters,.intro button{display:none}.item{break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>plums — functionality inventory &amp; triage</h1>
+<p class="sub">Every capability the app ships today, grouped so you can decide <b style="color:var(--keep)">keep</b> / <b style="color:var(--redo)">redo</b> / <b style="color:var(--cut)">cut</b>. Branch <code>global-rewrite</code> · 2026-06-20. See also the <a href="index.html">architecture audit</a>.</p>
+
+<div class="intro">
+  <p>Click <b>Keep / Redo / Cut</b> on each item; add a note. Choices save in this browser (localStorage) and survive reload. The summary bar tallies them; <b>Export</b> dumps your decisions as JSON; <b>Print</b> makes a clean PDF.</p>
+  <p class="legend"><b>Maturity:</b>
+    <span class="mat solid">solid</span> works well
+    <span class="mat works">works</span> functional, rough edges
+    <span class="mat rough">rough</span> works but a structural problem (e.g. not dogfooded, dual system)
+    <span class="mat stub">stub</span> placeholder / reserved / incomplete</p>
+  <p class="rec">Italic <b>take:</b> lines are my opinion to react against — they are not decisions.</p>
+</div>
+
+<div class="bar" id="bar">
+  <b id="count">0/0 decided</b>
+  <span class="chip keep" id="c-keep">keep 0</span>
+  <span class="chip redo" id="c-redo">redo 0</span>
+  <span class="chip cut" id="c-cut">cut 0</span>
+  <span class="spacer"></span>
+  <div class="filters" id="filters">
+    <button data-f="all" class="on">all</button>
+    <button data-f="undecided">undecided</button>
+    <button data-f="keep">keep</button>
+    <button data-f="redo">redo</button>
+    <button data-f="cut">cut</button>
+  </div>
+  <button onclick="exportJSON()">Export</button>
+  <button onclick="window.print()">Print</button>
+  <button onclick="resetAll()">Reset</button>
+</div>
+
+<div id="root"></div>
+
+<footer>
+  Reserved seams (harness agent modes/permissions, <code>internal/core/registry.go</code>) are listed in their own section and marked <span class="mat stub">stub</span> — they are the author's future-agent work, not part of this triage unless you say otherwise.
+</footer>
+</div>
+
+<script>
+const DATA = [
+ ["Backends &amp; providers", [
+  ["be-opencode","opencode backend","solid","Default backend. Sessions, SSE streaming, provider/model discovery, permission→question prompts, abort, and a managed <code>opencode serve</code> with a per-directory port so worktrees don't collide.","internal/core/backend/opencode, internal/core/provider/opencode","Keep — the most complete backend and the reference for the bridge pattern."],
+  ["be-codex","codex backend","works","Codex app-server protocol: sessions, streaming, exchange recording.","internal/core/backend/codex, internal/core/provider/codex","Keep, but confirm you still want Codex as a first-class target."],
+  ["be-claude","claude-code backend","works","Claude Code CLI in headless stream-json mode (bypassPermissions).","internal/core/backend/claudecode, internal/core/provider/claudecode","Keep — cheap to maintain, high value."],
+  ["be-mirror","claude-mirror backend","rough","Attaches to a LIVE Claude Code session over tmux: transcript discovery, keystroke injection, session reset. Powerful but the most complex/fragile and platform-bound (tmux, darwin birthtime).","internal/core/backend/claudemirror, internal/core/provider/claudemirror","Decide: high-maintenance. Keep only if attach-to-live is a core selling point; otherwise cut to shrink surface."],
+  ["be-runtime","Backend runtime + startup lifecycle","solid","Registration → runtime with optional Startup + ServerProcess (stop/done). Clean port.","internal/app/backend_runtime.go, plums/backend.go","Keep."],
+  ["be-switch","Runtime backend switching (/backend)","works","Swap provider live from the palette.","internal/app/state_palette.go","Keep."],
+  ["be-model","Model selection + recent model (/model)","works","Pick provider/model; remembers a recent model.","internal/app/state_palette.go","Keep."],
+ ]],
+ ["Layouts", [
+  ["ly-chat","chat layout","solid","Sessions sidebar + chat + input. Builtin; the new stock default.","internal/kernel/builtin/layouts.go","Keep."],
+  ["ly-split","split layout (now a USER PLUGIN)","solid","Editor/palette pane + tabs + AI/diff view + status. Moved out of builtins into config.go to prove user layouts.","internal/app/defaults/config.go.tmpl","Keep — also your dogfood proof."],
+  ["ly-zen","zen layout","solid","Minimal centered chat + input.","internal/kernel/builtin/layouts.go","Keep."],
+  ["ly-full","fullscreen layout (editor/AI/diff tabs)","works","Tab-cycled single pane.","internal/kernel/builtin/layouts.go","Keep or fold into chat if redundant."],
+  ["ly-narrow","narrow_chat / narrow_split fallbacks","works","Auto-swap when the terminal is too narrow (MinWidth+Fallback).","internal/kernel/builtin/layouts.go","Keep — good UX detail."],
+  ["ly-engine","div layout engine","solid","Custom flex-like row/column with %/grow/min-width/fallback/padding/style/variants, addressed by component name.","internal/ui/tui/layout","Keep — it's the backbone. Big custom code though; redo only if you want a simpler model."],
+  ["ly-switch","Layout switching + per-layout palettes","works","Cycle layouts; palette items adapt per layout.","internal/app/state_layout.go","Keep."],
+ ]],
+ ["Components / panes", [
+  ["cp-chat","chat_output (the only true public component)","solid","Markdown, streaming, tool-call folding, thinking spans, selection, scroll — renders via the public Surface/RenderCtx. Reference implementation.","internal/app/component_chat_output.go, internal/ui/tui/components/chatlog*","Keep."],
+  ["cp-editor","editor","solid","Multiline edit, selection, undo, readline word-nav, mouse, slash/@ dropdown autocomplete.","internal/ui/tui/components/editor*","Keep — rich and central."],
+  ["cp-input","input_box","works","Editor wrapped with status segments.","internal/ui/tui/components/input_box.go","Keep."],
+  ["cp-sessions","sessions (vertical/horizontal)","works","Session list with mouse selection.","internal/ui/tui/components/sessions.go","Keep."],
+  ["cp-status","status_bar / split_status_bar","works","Server status, session title, mode, model.","internal/ui/tui/components/statusbar.go","Keep; consolidate the two variants?"],
+  ["cp-tabs","info_tabs + info_view","works","AI-output / git-diff tab strip and the variant view it switches.","internal/ui/tui/components/infotabs.go","Keep."],
+  ["cp-palette","command_palette_panel","works","Renders the palette as an in-layout pane (split).","internal/ui/tui/components/popup.go","Keep."],
+  ["cp-diff","difflog (git diff render)","works","Renders git diff in the diff view.","internal/ui/tui/components/difflog.go","Keep if git-diff stays (see ft-gitdiff)."],
+  ["cp-sep","separators (status / vertical)","stub","Trivial 1-cell separators.","internal/ui/tui/components/separator.go","Keep (cheap)."],
+  ["cp-text","text component","stub","Unused in production — only a factory-override test references it.","internal/ui/tui/components/text.go","Cut, or wire it up as a real <code>text</code>/<code>label</code> built-in."],
+  ["cp-adapter","public-component adapter + privileged factory","rough","Bridges public Components in, but every built-in except chat_output uses an internal <code>AppComponentFactory()</code> that reads <code>*State</code> directly — so the public component API is unproven.","internal/app/public_component.go, component_registry.go, plugin_component.go","Redo — port one stateful built-in (status_bar) to the public path, then retire the privileged factory."],
+ ]],
+ ["Commands &amp; palette", [
+  ["cm-palette","Command palette (fuzzy search, templated titles)","works","Searchable actions with <code>{mode}</code>/<code>{layout}</code> etc. template expansion.","internal/app/state_palette.go, commands.go","Keep the UX."],
+  ["cm-slash","Built-in slash commands (/new /command /backend /skills /sessions /model)","rough","Resolve through a legacy <code>commands.json</code> → PaletteAction enum, NOT the public <code>Command.Do</code> path. Two command systems coexist.","internal/app/defaults/commands.json, command_registry.go","Redo — migrate built-ins onto <code>Command.Do</code>; delete the JSON/enum once empty."],
+  ["cm-do","Public Command.Do path (user commands)","works","User plugin commands run through Ctx (Send/Chat/Shell/OpenList/SetLayout/Copy).","plums/command.go, internal/app/runtime_ctx.go","Keep."],
+  ["cm-at","@ file-path autocomplete","works","Suggests project files after <code>@</code>.","internal/app/command_registry.go","Keep."],
+  ["cm-dropdown","Editor slash-command dropdown","works","Inline autocomplete for slash commands while typing.","internal/app/state_editor.go","Keep."],
+  ["cm-actions","Palette actions (mode/layout/visibility/output% …)","works","switch_mode, switch_layout, cycle thinking/toolcall, adjust output %, sessions/skills lists.","internal/app/commands.go","Keep (but switch_mode depends on reserved agents — see rs-mode)."],
+ ]],
+ ["Keybinds &amp; input", [
+  ["kb-config","Configurable keybinds (Settings.Keybinds)","works","Map a key to a /command or built-in action from config.","internal/app/keybinds.go","Keep."],
+  ["kb-default","Hardcoded default keymap","works","Large hand-written map: submit/newline rules per layout, palette nav, copy, undo, word-nav, scroll, home/end.","internal/app/keyboard.go","Keep behavior, but consider expressing defaults as data/keybinds so it isn't a 400-line switch."],
+  ["kb-mouse","Mouse selection + wheel scroll + click","works","Drag-select in editor and output, wheel scroll routed to the pane under the cursor.","internal/app/keyboard.go, state_scroll.go","Keep."],
+  ["kb-clip","Clipboard copy","works","cmd+c / ctrl+c / select-to-copy, configurable copy command per OS.","internal/app/clipboard.go","Keep."],
+  ["kb-tmux","tmux extended-keys shim","works","Enables Shift+Enter inside tmux for split-layout submit, restores after.","internal/ui/tmux.go","Keep (niche but needed)."],
+  ["kb-undo","Undo","works","Single editor undo (cmd+z / ctrl+z).","internal/ui/tui/components/editor_edit.go","Keep; multi-level later?"],
+ ]],
+ ["Conversation / streaming", [
+  ["ft-stream","Streaming AI output + spinner","solid","Incremental token render with a spinner while the backend streams.","internal/app/stream.go","Keep."],
+  ["ft-think","Thinking visibility (full/title/hidden)","solid","Cycle how reasoning blocks render.","internal/app/state.go, chatlog_markdown.go","Keep."],
+  ["ft-tool","Tool-call visibility (full/collapse/hidden)","solid","Cycle how tool calls render/fold.","internal/app/chatlog* ","Keep."],
+  ["ft-md","Markdown + syntax highlight + tables","solid","Chroma-highlighted code, table layout, blocks.","internal/ui/tui/components/chatlog_markdown.go, chatlog_table.go","Keep."],
+  ["ft-hooks","Hooks (OnMessage / OnToolCall / OnSessionStart)","works","Plugin event bus, dispatched off the event loop.","internal/app/hooks.go","Keep."],
+  ["ft-gitdiff","Git diff view","works","Refresh + render working-tree diff in a tab.","internal/app/render.go (RefreshGitDiff), components/difflog.go","Decide: nice but is an AI UI the place for it? Keep or cut to focus."],
+ ]],
+ ["Sessions / skills / questions", [
+  ["ss-list","Session list + switch + new (/sessions, /new)","works","Browse and resume backend sessions; start fresh.","internal/app/session.go, sessions_test.go","Keep."],
+  ["ss-clear","clear-history","works","Hide pre-existing sessions; show only this run's.","internal/app/session.go","Keep (small)."],
+  ["ss-reset","Reset backend session","works","Used by claude-mirror to reset the attached session.","internal/app/state.go (ResetBackendSession)","Keep iff claude-mirror stays."],
+  ["sk-skills","Skills (/skills) + markers + suggestions","works","Load an opencode skill for the next prompt; <code>@skill</code> markers expand inline.","internal/app/skills.go","Decide: opencode-specific. Keep or generalize."],
+  ["qa-questions","Agent questions / permission prompts","works","Interactive answer UI when the backend asks (opencode permissions).","internal/app/question.go","Keep — important for opencode."],
+ ]],
+ ["Config &amp; build", [
+  ["cf-global","Global-only config (~/.config/plums)","solid","Neovim-style single location; local/project config removed.","internal/app/config.go","Keep (just decided)."],
+  ["cf-compiled","Compiled Go config (plums.Use / config.go)","solid","Typed Settings + Plugins as a compiled program (xmonad model).","plums/config.go, internal/app/defaults/config.go.tmpl","Keep — the core thesis."],
+  ["cf-build","plums build (temp module, replace, hash cache)","solid","Compiles config+plugins into a personal binary; content-hash cached.","internal/build/build.go","Keep."],
+  ["cf-auto","Auto build &amp; run on launch","works","Stock plums compiles ~/.config/plums/config.go and execs it. Needs the plums module to resolve (vX release or -plums-dir in dev).","plums/runtime/runtime.go","Keep; harden the dev/module-resolution story."],
+  ["cf-init","init-config (idempotent)","works","Seeds/repairs the global config; adds only missing files.","internal/app/defaults/defaults.go","Keep."],
+  ["cf-toml","TOML runtime settings (legacy data path)","rough","default_layout, hide_thinking, clear_history, backend.provider, server URL, split.left_width — parallel to the compiled Settings.","internal/app/config.go","Decide: keep as the no-toolchain fallback, or cut to make compiled config the only path."],
+  ["cf-doctor","doctor (resolved registry + provenance)","solid","<code>--doctor</code> prints backends/commands/components/layouts/hooks + shadows by owner.","internal/api/api.go","Keep."],
+ ]],
+ ["Plugin / kernel", [
+  ["pl-reg","Kernel registry (last-wins, shadow log, Disable)","solid","(kind,name)→value with override + removal + shadow logging.","internal/kernel/registry.go, load.go","Keep."],
+  ["pl-caps","Capability interfaces (Command/Component/Layout/Backend/Hook providers)","solid","Tiny required Plugin floor + optional capabilities by type assertion.","plums/plugin.go","Keep."],
+  ["pl-api","Public API floor (plums, plums/layout)","solid","Internal-free public surface; the override seam.","plums, plums/layout","Keep."],
+  ["pl-dogfood","Component &amp; command dogfooding","rough","Built-ins mostly bypass the public Component/Command contracts (see cp-adapter, cm-slash). The public API's completeness is only partly proven.","internal/api/api.go, internal/app/*","Redo — this is the gap that makes the architecture feel half-finished."],
+ ]],
+ ["TUI infrastructure", [
+  ["in-term","Terminal raw mode + alt screen","solid","Enter/exit raw mode, alternate screen.","internal/ui/terminal.go","Keep."],
+  ["in-screen","Screen / render driver + dirty tracking","solid","Cell buffer, diffed redraw, cursor.","internal/ui/tui/screen/screen.go","Keep."],
+  ["in-theme","Theme / palette (per-layout)","works","Color palettes, per-layout overrides.","internal/ui/tui/theme","Keep; expose more via public Theme later."],
+  ["in-keys","Keyboard listener/parser","solid","CSI / mouse / paste / extended-key parsing.","internal/keyboard/keyboard.go","Keep."],
+ ]],
+ ["Reserved (author's future-agent seam — not for triage unless you say so)", [
+  ["rs-harness","Harness agent modes (build/plan/explore/rogue)","stub","Mode types + agents with SystemPrompt = TODO.","internal/core/harness/agent.go","Reserved — leave."],
+  ["rs-perm","Permissions model","stub","Allow/deny scaffolding for agents.","internal/core/harness/permissions.go","Reserved — leave."],
+  ["rs-agentreg","AgentRegistry (fake outputs)","stub","Placeholder registry returning canned values.","internal/core/registry.go","Reserved — leave."],
+  ["rs-mode","Mode switch UI (switch_mode)","rough","Palette can switch build/plan, but the agents behind it are TODO, so it changes a label more than behavior.","internal/app/commands.go + harness","Decide once you build real agents; today it's mostly cosmetic."],
+ ]],
+];
+
+const KEY="plums_triage_v1";
+let store=JSON.parse(localStorage.getItem(KEY)||"{}");
+let filter="all";
+
+function save(){localStorage.setItem(KEY,JSON.stringify(store));}
+function decisionOf(id){return (store[id]||{}).d||"";}
+function noteOf(id){return (store[id]||{}).n||"";}
+
+function render(){
+  const root=document.getElementById("root");root.innerHTML="";
+  let total=0;
+  DATA.forEach(([section,items],si)=>{
+    const visible=items.filter(it=>{
+      const d=decisionOf(it[0]);
+      if(filter==="all")return true;
+      if(filter==="undecided")return !d;
+      return d===filter;
+    });
+    if(!visible.length)return;
+    const h=document.createElement("h2");
+    h.innerHTML=section+' <span class="n">'+visible.length+' item'+(visible.length>1?'s':'')+'</span>';
+    root.appendChild(h);
+    visible.forEach(it=>{
+      total++;
+      const [id,name,mat,desc,files,rec]=it;
+      const d=decisionOf(id);
+      const el=document.createElement("div");
+      el.className="item"+(d?(" d-"+d):"");
+      el.innerHTML=
+        '<div>'+
+          '<div class="name">'+name+'<span class="mat '+mat+'">'+mat+'</span></div>'+
+          '<div class="desc">'+desc+'</div>'+
+          '<div class="meta">'+files+'</div>'+
+          '<div class="rec"><b>take:</b> '+rec+'</div>'+
+        '</div>'+
+        '<div class="controls">'+
+          '<div class="seg">'+
+            seg(id,"keep",d)+seg(id,"redo",d)+seg(id,"cut",d)+
+          '</div>'+
+          '<input class="note" placeholder="note…" value="'+esc(noteOf(id))+'" oninput="setNote(\''+id+'\',this.value)">'+
+        '</div>';
+      root.appendChild(el);
+    });
+  });
+  updateBar();
+}
+function seg(id,val,cur){
+  return '<label class="'+val+(cur===val?' sel':'')+'" onclick="setDecision(\''+id+'\',\''+val+'\')">'+val+'</label>';
+}
+function esc(s){return (s||"").replace(/"/g,'&quot;');}
+function setDecision(id,val){
+  store[id]=store[id]||{};
+  store[id].d = store[id].d===val ? "" : val; // click again to clear
+  save();render();
+}
+function setNote(id,v){store[id]=store[id]||{};store[id].n=v;save();updateBar();}
+function updateBar(){
+  let k=0,r=0,c=0,decided=0,all=0;
+  DATA.forEach(([,items])=>items.forEach(it=>{all++;const d=decisionOf(it[0]);if(d)decided++;if(d==="keep")k++;if(d==="redo")r++;if(d==="cut")c++;}));
+  document.getElementById("count").textContent=decided+"/"+all+" decided";
+  document.getElementById("c-keep").textContent="keep "+k;
+  document.getElementById("c-redo").textContent="redo "+r;
+  document.getElementById("c-cut").textContent="cut "+c;
+}
+function exportJSON(){
+  const out={};
+  DATA.forEach(([section,items])=>items.forEach(it=>{
+    const d=decisionOf(it[0]);if(d||noteOf(it[0]))out[it[0]]={name:it[1],section,decision:d||"",note:noteOf(it[0])};
+  }));
+  const blob=new Blob([JSON.stringify(out,null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="plums-triage.json";a.click();
+}
+function resetAll(){if(confirm("Clear all keep/redo/cut decisions?")){store={};save();render();}}
+document.getElementById("filters").addEventListener("click",e=>{
+  if(e.target.tagName!=="BUTTON")return;
+  filter=e.target.dataset.f;
+  [...document.querySelectorAll("#filters button")].forEach(b=>b.classList.toggle("on",b===e.target));
+  render();
+});
+render();
+</script>
+</body>
+</html>

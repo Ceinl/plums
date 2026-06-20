@@ -136,7 +136,7 @@ func TestConfiguredChatLayoutsSessionsActions(t *testing.T) {
 }
 
 func TestActiveConfiguredChatLayoutsSessionsActions(t *testing.T) {
-	cfg, err := LoadRenderConfig("../../.agents/plums/config/layout.json")
+	cfg, err := LoadRenderConfig("") // embedded defaults (single source of truth)
 	if err != nil {
 		t.Fatalf("load active render config: %v", err)
 	}

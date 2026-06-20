@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Step 3 — Per-tool extensibility deep dive</title>
+<style>
+  :root{--bg:#16141b;--panel:#1f1d28;--panel2:#26232f;--ink:#e8e5f1;--mut:#9a98ac;--acc:#b9a3ff;--ok:#7fd6a0;--warn:#f0c674;--bad:#f08a8a;--line:#322f3f}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:940px;margin:0 auto;padding:40px 24px 110px}
+  a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
+  h1{font-size:27px;margin:0 0 4px;letter-spacing:-.02em}
+  h2{font-size:20px;margin:44px 0 12px;border-bottom:1px solid var(--line);padding-bottom:8px}
+  h3{font-size:16px;margin:24px 0 8px;color:var(--acc)}
+  .sub{color:var(--mut);margin:0 0 8px}.back{font-size:13px}
+  p{margin:10px 0}
+  code{background:var(--panel2);padding:1px 6px;border-radius:6px;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  pre{background:#100e15;border:1px solid var(--line);border-radius:12px;padding:18px 20px;overflow:auto;font-size:12.5px;line-height:1.5;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfcbe0}
+  pre .c{color:#7d7a90}pre .k{color:var(--acc)}pre .g{color:var(--ok)}pre .y{color:var(--warn)}pre .r{color:var(--bad)}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600}
+  td.v{white-space:nowrap;font-weight:600}
+  .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:14px 0}
+  .gap{border-left:3px solid var(--warn)}
+  ul{margin:8px 0;padding-left:22px}li{margin:5px 0}
+  ol{margin:8px 0;padding-left:22px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="back"><a href="index.html">← audit index</a> · <a href="step-1-architecture-audit.html">Step 1</a> · <a href="step-2-dead-code.html">Step 2</a></p>
+<h1>Step 3 — Per-tool extensibility deep dive</h1>
+<p class="sub">Prove, per tool kind, that a user can author it as an external plugin — and where they can&rsquo;t yet, pin the exact missing seam and the remediation. No risky rewrites were performed: the two open items below are DESIGN-level decisions (open questions #1–#3) reserved for the author.</p>
+
+<h2>1. Plan for this step</h2>
+<div class="box">
+<ol>
+  <li>For each kind, write the minimal plugin a user would author and confirm it flows end-to-end through the kernel registry into the running app.</li>
+  <li>Where a built-in does <em>not</em> use that same path, cite the code that proves the divergence.</li>
+  <li>Give an ordered remediation that closes the gap without breaking the strangler migration.</li>
+</ol>
+</div>
+
+<h2>2. Fully extensible today ✓</h2>
+
+<h3>Backend / provider</h3>
+<p>A plugin returns <code>BackendRegistration</code>s; the kernel registers them by name; <code>api.backendRegistrationsFromRegistry</code> reads them back in order. The 4 bundled backends use the identical path (one plugin each, named <code>backend/&lt;name&gt;</code>), so last-wins lets a user shadow <code>backend/opencode</code> or <code>Disable</code> <code>backend/codex</code>.</p>
+<pre><span class="k">func</span> (p myPlugin) Backends() []plums.BackendRegistration {
+  <span class="k">return</span> []plums.BackendRegistration{{
+    Name: <span class="g">"acp"</span>, Label: <span class="g">"My ACP agent"</span>, Backend: myBridge{},
+    Startup: <span class="k">func</span>(ctx context.Context, b plums.Backend) (*plums.StartupResult, error) { … },
+  }}
+}</pre>
+
+<h3>Layout</h3>
+<p>Built-in layouts (<code>chat</code>,<code>split</code>,<code>zen</code>,<code>fullscreen</code>,…) are authored with the <em>public</em> <code>plums/layout</code> builder in <code>internal/kernel/builtin/layouts.go</code> — the same API a user calls. Full dogfooding.</p>
+<pre><span class="k">func</span> (p myPlugin) Layouts() []plums.Layout {
+  <span class="k">return</span> []plums.Layout{ layout.Named(<span class="g">"focus"</span>,
+    layout.Column(layout.Chat().Height(<span class="g">"grow"</span>), layout.InputBox().Height(7))) }
+}</pre>
+
+<h3>Hooks &amp; keybinds</h3>
+<p>Implement <code>OnMessage</code>/<code>OnToolCall</code>/<code>OnSessionStart</code> — dispatched off the loop with a thread-safe <code>Ctx</code>. Keybinds are declared in <code>Settings.Keybinds</code> and routed by <code>HandleConfiguredKeybind</code>.</p>
+
+<h2>3. Gaps — the two items blocking full dogfooding</h2>
+
+<div class="box gap">
+<h3 style="margin-top:0">Gap A — Components: built-ins use a privileged factory, not the public contract</h3>
+<p><b>What works:</b> a user&rsquo;s public component renders through <code>ComponentFactoryForPublic</code> → <code>publicComponentAdapter</code>, receives a <code>RenderCtx</code> + <code>Surface</code>, and gets input via optional <code>KeyHandler</code>/<code>MouseHandler</code>/<code>Scrollable</code>/<code>SelectionProvider</code>. <code>chat_output</code> proves the full path.</p>
+<p><b>What doesn&rsquo;t:</b> every other built-in (<code>editor</code>, <code>sessions</code>, <code>status_bar</code>, <code>input_box</code>, <code>info_tabs</code>, …) is a <code>pluginComponent</code> whose <code>Arrange</code>/<code>Render</code> are empty stubs and which instead exposes an internal escape hatch:</p>
+<pre><span class="c">// internal/app/plugin_component.go</span>
+<span class="k">func</span> (c pluginComponent) Render(plums.RenderCtx, plums.Surface) {} <span class="r">// stub</span>
+<span class="k">func</span> (c pluginComponent) AppComponentFactory() ComponentFactory { <span class="k">return</span> c.factory }
+
+<span class="c">// internal/api/api.go — the kernel prefers the privileged factory when present</span>
+factory := app.ComponentFactoryForPublic(component)
+<span class="k">if</span> provider, ok := component.(app.ComponentFactoryProvider); ok {
+  factory = provider.AppComponentFactory() <span class="r">// reaches into *State, returns internal layout.Component</span>
+}</pre>
+<p><b>Consequence:</b> a third party <em>cannot</em> reproduce <code>status_bar</code> as a public component, because the data it needs (server-lifecycle flags, agent mode) is not on <code>RenderCtx</code> — it&rsquo;s read directly from <code>*State</code> inside the factory. So the public component API&rsquo;s completeness is unproven beyond <code>chat_output</code>. This is exactly DESIGN open-question&nbsp;#2/#3.</p>
+<p><b>Remediation (ordered, low-risk):</b></p>
+<ol>
+  <li>Port one non-trivial built-in — <code>status_bar</code> — to a real public <code>Component</code>. It needs only a few read accessors on <code>RenderCtx</code>: <code>ServerStarting()</code>, <code>ServerReady()</code>, <code>Mode()</code> (it already has <code>Session()</code>/<code>Streaming()</code>). Add those accessors; that accretion <em>is</em> the API being driven to completeness by its own defaults (DESIGN §6).</li>
+  <li>Delete that name from the <code>DefaultPluginComponents</code> factory list. If it renders identically, the public path is proven for a second, stateful component.</li>
+  <li>Repeat for <code>sessions</code>/<code>input_box</code>; retire <code>ComponentFactoryProvider</code> once the list is empty. Keep <code>chat_output</code>&rsquo;s pattern as the template.</li>
+</ol>
+</div>
+
+<div class="box gap">
+<h3 style="margin-top:0">Gap B — Commands: a legacy JSON/enum system runs parallel to <code>Command.Do</code></h3>
+<p><b>What works:</b> a user command with a <code>Do</code> func executes through <code>runtimeCtx</code> (<code>Send</code>/<code>Chat</code>/<code>Shell</code>/<code>OpenList</code>/<code>SetLayout</code>/<code>Copy</code>) and appears in the palette. <code>state_palette.go</code> merges registry commands that carry a <code>Do</code>.</p>
+<p><b>What doesn&rsquo;t:</b> the 6 built-in slash commands carry <em>no</em> <code>Do</code> — they are name+detail only (<code>builtin/core.go: DefaultCommands</code>), and their behavior is resolved by a second system: <code>commands.json</code> → <code>ActionSpec</code> → <code>PaletteAction</code> enum → <code>runSlashCommand</code>. <code>commandItems</code> explicitly skips a registry command when a legacy entry of the same name exists and <code>Do == nil</code>:</p>
+<pre><span class="c">// internal/app/state_palette.go</span>
+<span class="k">if</span> legacy[command.Name] &amp;&amp; command.Do == nil { <span class="k">continue</span> } <span class="r">// built-ins fall back to the enum path</span></pre>
+<p><b>Consequence:</b> two command systems coexist; built-ins don&rsquo;t dogfood the public <code>Do</code> contract, so it&rsquo;s unproven that <code>Ctx</code>&rsquo;s verb set is sufficient to express them (DESIGN open-question&nbsp;#1).</p>
+<p><b>Remediation:</b> migrate built-ins onto <code>Do</code> one at a time. <code>/new</code> and <code>/sessions</code> are tractable with today&rsquo;s <code>Ctx</code> (<code>OpenList</code> + a session verb). <code>/model</code>, <code>/backend</code>, <code>/command</code> need new <code>Ctx</code> verbs (open palette / list models / switch backend) — add them as the migration demands, then retire the matching <code>ActionSpec</code>. The legacy <code>commands.json</code> shrinks to empty and is deleted last.</p>
+</div>
+
+<h2>4. Why these were not auto-fixed in this pass</h2>
+<p>Both gaps require <em>freezing new public API surface</em> (<code>RenderCtx</code> accessors, <code>Ctx</code> verbs) — DESIGN lists them as explicit open questions, and project memory records that component/command shape is an author-owned design decision, not an autonomous edit. The safe, completed work (audit + dead-code removal) is shipped; the gap closures are specified above ready to implement behind a decision.</p>
+
+<h2>5. Current dependency tree — component &amp; command subsystem</h2>
+<pre>internal/api.Run
+ ├─ componentFactoriesFromRegistry(registry)
+ │    └─ for each RegistryComponent entry:
+ │         ├─ <span class="g">ComponentFactoryForPublic</span>  ──► publicComponentAdapter ──► plums.RenderCtx/Surface  <span class="g">[public path ✓ chat_output]</span>
+ │         └─ <span class="y">AppComponentFactory()</span>     ──► internal ComponentFactory(*State) ──► layout.Component  <span class="y">[privileged, all other built-ins]</span>
+ ├─ commandsFromRegistry(registry) ──► []plums.Command
+ │    └─ app.State.commandItems()
+ │         ├─ <span class="g">command.Do != nil</span>  ──► runtimeCtx (Send/Chat/Shell/OpenList/SetLayout)  <span class="g">[public path ✓ user cmds]</span>
+ │         └─ <span class="y">legacy name</span>       ──► commands.json → PaletteAction enum → runSlashCommand  <span class="y">[6 built-ins]</span>
+ └─ app.Run(Deps{Components, Commands, Layouts, Backends, Hooks, Keybinds})
+
+PUBLIC SEAMS (plums/): Component·RenderCtx·Surface·KeyHandler·MouseHandler·Scrollable·
+                       SelectionProvider·DirtyTracker · Command·Ctx · Layout·Node · Backend</pre>
+
+<h2>6. Final extensibility scorecard</h2>
+<table>
+<tr><th>Tool</th><th>User can add new</th><th>Built-ins dogfood the seam</th><th>Net</th></tr>
+<tr><td>Provider / backend</td><td class="ok">Yes</td><td class="ok">Yes (4/4)</td><td class="v ok">Complete</td></tr>
+<tr><td>Layout</td><td class="ok">Yes</td><td class="ok">Yes (all)</td><td class="v ok">Complete</td></tr>
+<tr><td>Hook</td><td class="ok">Yes</td><td class="ok">n/a</td><td class="v ok">Complete</td></tr>
+<tr><td>Keybind / settings / theme</td><td class="ok">Yes</td><td class="ok">Yes</td><td class="v ok">Complete</td></tr>
+<tr><td>Component</td><td class="ok">Yes (render+input)</td><td class="warn">1 of ~15</td><td class="v warn">Path proven, dogfooding pending (Gap A)</td></tr>
+<tr><td>Command</td><td class="ok">Yes (with <code>Do</code>)</td><td class="warn">0 of 6</td><td class="v warn">Path proven, built-ins on legacy (Gap B)</td></tr>
+</table>
+
+<div class="box">
+<b>Bottom line.</b> The plugin architecture is sound and matches DESIGN: a tiny kernel, a clean public floor with verified one-way dependencies, last-wins override, <code>Disable</code>, doctor introspection, and a working compiled-config build. Providers, layouts, hooks, keybinds and settings are fully user-recreatable and dogfooded. Components and commands are user-recreatable for <em>new</em> additions; only the built-ins still ride a privileged/legacy path, and closing that is a bounded, well-specified task (Gaps A &amp; B) gated on two small public-API decisions the author reserved.
+</div>
+
+<p class="sub" style="margin-top:34px"><a href="index.html">← back to index</a></p>
+</div>
+</body>
+</html>

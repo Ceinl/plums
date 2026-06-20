@@ -1,4 +1,6 @@
-default_layout = "split"
+# Stock fallback layout. `split` is provided by the user plugin in config.go;
+# the compiled config selects it, so this only applies to a stock binary.
+default_layout = "chat"
 hide_thinking = true
 # Hide pre-existing backend sessions; only sessions created in this run are shown.
 clear_history = false

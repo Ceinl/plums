@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/debuglog"
 )
 
@@ -64,7 +63,7 @@ func StartServer(ctx context.Context, baseURL, directory string) (*ServerProcess
 func serverCommandArgs(baseURL string) ([]string, error) {
 	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
-		baseURL = adapter.DefaultBaseURL
+		baseURL = DefaultBaseURL
 	}
 	u, err := url.Parse(baseURL)
 	if err != nil || u.Hostname() == "" {
@@ -132,15 +131,14 @@ func (p *ServerProcess) exitError(err error) error {
 	return fmt.Errorf("opencode serve exited: %w: %s", err, stderr)
 }
 
-// WaitForHealth polls the opencode health endpoint until it is ready or the
-// timeout expires.
-func WaitForHealth(ctx context.Context, client adapter.Backend, timeout time.Duration) error {
-	return WaitForHealthOrExit(ctx, client, nil, timeout)
+// healthClient is the minimal client surface the health poller needs.
+type healthClient interface {
+	Health(context.Context) error
 }
 
 // WaitForHealthOrExit polls health until ready, timeout, cancellation, or the
 // managed opencode process exits before becoming ready.
-func WaitForHealthOrExit(ctx context.Context, client adapter.Backend, proc *ServerProcess, timeout time.Duration) error {
+func WaitForHealthOrExit(ctx context.Context, client healthClient, proc *ServerProcess, timeout time.Duration) error {
 	debuglog.Printf("server: waiting for health timeout=%s", timeout)
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
