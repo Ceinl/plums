@@ -274,6 +274,54 @@ type RenderCtx interface {
 	ToolCallVisibility() int
 	Session() Session
 	Input() EditorView
+
+	// Server/runtime status, read by the status bar and separator panes.
+	ServerStarting() bool
+	ServerReady() bool
+	Mode() string
+	SpinnerFrame() int
+
+	// Sessions pane state.
+	Sessions() []SessionItem
+	SelectedSession() string
+
+	// Info pane state (chat vs git diff tabs).
+	InfoView() string
+	InfoTabs() []InfoTabItem
+	GitDiff() string
+
+	// Split geometry percentages.
+	SplitLeftPercent() int
+	OutputPercent() int
+
+	// Command palette panel state.
+	PaletteTitle() string
+	PaletteQuery() string
+	PaletteItems() []PaletteItem
+	PaletteIndex() int
+}
+
+// SessionItem is the read-only view of a session row handed to the sessions
+// pane through RenderCtx.
+type SessionItem struct {
+	ID        string
+	Title     string
+	Directory string
+	Updated   int64
+	Current   bool
+}
+
+// InfoTabItem is one tab in the info pane header (e.g. "AI output", "Git diff").
+type InfoTabItem struct {
+	Label  string
+	Active bool
+}
+
+// PaletteItem is one row in the command palette panel.
+type PaletteItem struct {
+	Title    string
+	Detail   string
+	Disabled bool
 }
 
 type EditorView interface {

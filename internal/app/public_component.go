@@ -248,6 +248,18 @@ type renderCtx struct {
 	background string
 }
 
+// appState exposes the in-tree *State to ported display components that reuse a
+// State-owned widget instance (chat log, diff log, sessions). Reusing the shared
+// instance keeps the central mouse/scroll routing in keyboard.go targeting the
+// same widget the public component renders, so behavior is unchanged. Only
+// app-package components can reach this; external public components see the
+// RenderCtx accessors only.
+type appStateProvider interface {
+	appState() *State
+}
+
+func (c renderCtx) appState() *State { return c.state }
+
 func (c renderCtx) Rect() capabilities.Rect {
 	return c.rect
 }
@@ -334,4 +346,135 @@ type renderEditorView struct {
 
 func (v renderEditorView) Text() string {
 	return v.text
+}
+
+func (c renderCtx) ServerStarting() bool {
+	return c.state != nil && c.state.ServerStarting
+}
+
+func (c renderCtx) ServerReady() bool {
+	return c.state != nil && c.state.ServerReady
+}
+
+func (c renderCtx) Mode() string {
+	if c.state == nil {
+		return ""
+	}
+	return c.state.Mode
+}
+
+func (c renderCtx) SpinnerFrame() int {
+	if c.state == nil {
+		return 0
+	}
+	return c.state.spinnerFrame
+}
+
+func (c renderCtx) Sessions() []capabilities.SessionItem {
+	if c.state == nil {
+		return nil
+	}
+	items := make([]capabilities.SessionItem, 0, len(c.state.SessionItems)+1)
+	foundCurrent := false
+	for _, item := range c.state.SessionItems {
+		current := item.Current || item.ID == c.state.SessionID
+		if current {
+			foundCurrent = true
+		}
+		items = append(items, capabilities.SessionItem{
+			ID:        item.ID,
+			Title:     item.Title,
+			Directory: item.Directory,
+			Updated:   item.Updated,
+			Current:   current,
+		})
+	}
+	if !foundCurrent && (c.state.SessionID != "" || c.state.SessionTitle != "") {
+		items = append([]capabilities.SessionItem{{
+			ID:      c.state.SessionID,
+			Title:   c.state.SessionTitle,
+			Current: true,
+		}}, items...)
+	}
+	return items
+}
+
+func (c renderCtx) SelectedSession() string {
+	if c.state == nil {
+		return ""
+	}
+	return c.state.SessionID
+}
+
+func (c renderCtx) InfoView() string {
+	if c.state != nil && c.state.InfoView == InfoViewGitDiff {
+		return "git_diff"
+	}
+	return "chat"
+}
+
+func (c renderCtx) InfoTabs() []capabilities.InfoTabItem {
+	active := c.InfoView()
+	return []capabilities.InfoTabItem{
+		{Label: "AI output", Active: active == "chat"},
+		{Label: "Git diff", Active: active == "git_diff"},
+	}
+}
+
+func (c renderCtx) GitDiff() string {
+	if c.state == nil {
+		return ""
+	}
+	return c.state.GitDiff
+}
+
+func (c renderCtx) SplitLeftPercent() int {
+	if c.state == nil {
+		return 0
+	}
+	return c.state.SplitLeftPercent()
+}
+
+func (c renderCtx) OutputPercent() int {
+	if c.state == nil {
+		return 0
+	}
+	return c.state.SplitOutputPercent()
+}
+
+func (c renderCtx) PaletteTitle() string {
+	if c.state == nil {
+		return ""
+	}
+	return c.state.PaletteTitle()
+}
+
+func (c renderCtx) PaletteQuery() string {
+	if c.state == nil {
+		return ""
+	}
+	return c.state.PaletteSearch()
+}
+
+func (c renderCtx) PaletteItems() []capabilities.PaletteItem {
+	if c.state == nil {
+		return nil
+	}
+	popupItems := c.state.PaletteItems()
+	items := make([]capabilities.PaletteItem, len(popupItems))
+	for i, item := range popupItems {
+		items[i] = capabilities.PaletteItem{
+			Title:    item.Title,
+			Detail:   item.Detail,
+			Disabled: item.Disabled,
+		}
+	}
+	return items
+}
+
+func (c renderCtx) PaletteIndex() int {
+	if c.state == nil {
+		return 0
+	}
+	return c.state.PaletteIndex
 }

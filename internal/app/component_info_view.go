@@ -1,0 +1,69 @@
+package app
+
+import (
+	"github.com/Ceinl/plums/capabilities"
+	"github.com/Ceinl/plums/internal/ui/tui/components"
+	"github.com/Ceinl/plums/internal/ui/tui/screen"
+)
+
+// infoViewComponent is the public info_view pane used by the split layout: it
+// shows the chat log or the git diff log depending on the active info tab. Both
+// bodies are the State-owned widgets, so the central scroll/selection routing in
+// keyboard.go keeps targeting the rendered instance.
+type infoViewComponent struct {
+	rect capabilities.Rect
+}
+
+func NewInfoViewComponent() capabilities.Component {
+	return &infoViewComponent{}
+}
+
+func (c *infoViewComponent) Name() string { return "info_view" }
+
+func (c *infoViewComponent) Arrange(rect capabilities.Rect) { c.rect = rect }
+
+func (c *infoViewComponent) Render(rctx capabilities.RenderCtx, surface capabilities.Surface) {
+	scr, ok := surface.(*screen.Screen)
+	if !ok {
+		return
+	}
+	provider, ok := rctx.(appStateProvider)
+	if !ok {
+		return
+	}
+	state := provider.appState()
+	if state == nil {
+		return
+	}
+
+	if rctx.InfoView() == "git_diff" {
+		diff := state.DiffLog()
+		diff.SetContent(rctx.GitDiff())
+		diff.SetScrollOffset(state.OutputScroll())
+		diff.Layout(c.rect.X, c.rect.Y, c.rect.W, c.rect.H)
+		diff.Render(scr)
+		return
+	}
+
+	renderStateChatLog(rctx, state, c.rect, scr)
+}
+
+// renderStateChatLog draws the State-owned chat log with the message/streaming
+// data from RenderCtx and the central scroll offset, mirroring the legacy
+// newChatLog factory.
+func renderStateChatLog(rctx capabilities.RenderCtx, state *State, rect capabilities.Rect, scr *screen.Screen) {
+	log := state.ChatLog()
+	msgs := rctx.Messages()
+	chatMessages := make([]components.ChatMessage, len(msgs))
+	for i, m := range msgs {
+		chatMessages[i] = components.ChatMessage{Role: m.Role, Content: m.Content}
+	}
+	log.SetMessages(chatMessages)
+	log.SetAiOutput(rctx.StreamingText())
+	log.SetStreaming(rctx.Streaming())
+	log.SetThinkingVisibility(components.ThinkingVisibility(rctx.ThinkingVisibility()))
+	log.SetToolCallVisibility(components.ToolCallVisibility(rctx.ToolCallVisibility()))
+	log.SetScrollOffset(state.OutputScroll())
+	log.Layout(rect.X, rect.Y, rect.W, rect.H)
+	log.RenderSurface(scr)
+}
