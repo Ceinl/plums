@@ -34,6 +34,7 @@ type Hooks struct {
 	OnMessage      []capabilities.OnMessage
 	OnSessionStart []capabilities.OnSessionStart
 	OnToolCall     []capabilities.OnToolCall
+	OnShutdown     []capabilities.OnShutdown
 }
 
 func Load(cfg cfgpkg.Config, opts LoadOptions) (*Loaded, error) {
@@ -156,6 +157,9 @@ func activateCapabilities(value any, owner string, loaded *Loaded) error {
 	}
 	if hook, ok := value.(capabilities.OnToolCall); ok {
 		loaded.Hooks.OnToolCall = append(loaded.Hooks.OnToolCall, hook)
+	}
+	if hook, ok := value.(capabilities.OnShutdown); ok {
+		loaded.Hooks.OnShutdown = append(loaded.Hooks.OnShutdown, hook)
 	}
 	return nil
 }

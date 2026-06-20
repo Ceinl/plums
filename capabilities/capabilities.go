@@ -154,6 +154,10 @@ type OnToolCall interface {
 	OnToolCall(Ctx, ToolCall)
 }
 
+type OnShutdown interface {
+	OnShutdown()
+}
+
 type SkillProvider interface {
 	Skills(ctx context.Context, cwd string) ([]Skill, error)
 	Expand(input string, skills []Skill) string

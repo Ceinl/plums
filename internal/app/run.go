@@ -112,6 +112,8 @@ type StartupResult struct {
 // Run executes the main event loop. It returns the server process (if any)
 // so the caller can perform final cleanup.
 func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProcess, error) {
+	defer runShutdownHooks(deps.Hooks.OnShutdown)
+
 	state := NewState(deps.Terminal.W, deps.Terminal.H)
 	if len(deps.Layouts) > 0 {
 		state.SetAvailableLayouts(deps.Layouts)

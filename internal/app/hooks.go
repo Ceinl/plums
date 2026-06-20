@@ -10,6 +10,7 @@ type Hooks struct {
 	OnMessage      []capabilities.OnMessage
 	OnSessionStart []capabilities.OnSessionStart
 	OnToolCall     []capabilities.OnToolCall
+	OnShutdown     []capabilities.OnShutdown
 }
 
 func runMessageHooks(ctx context.Context, hooks []capabilities.OnMessage, runtime *runtimeCtx, message capabilities.Message) {
@@ -48,5 +49,14 @@ func runToolCallHooks(ctx context.Context, hooks []capabilities.OnToolCall, runt
 		}
 		hook := hook
 		go hook.OnToolCall(runtime, tool)
+	}
+}
+
+func runShutdownHooks(hooks []capabilities.OnShutdown) {
+	for _, hook := range hooks {
+		if hook == nil {
+			continue
+		}
+		hook.OnShutdown()
 	}
 }

@@ -182,11 +182,6 @@ func Run(cfg *Config) error {
 	}
 	defer t.Exit()
 
-	// Inside tmux, Shift+Enter only reaches the app when extended-keys is on;
-	// enable it for this run so split-layout submit works, then restore it.
-	tmuxKeys := ui.EnableTmuxExtendedKeys()
-	defer tmuxKeys.Restore()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -277,6 +272,7 @@ func Run(cfg *Config) error {
 			OnMessage:      loaded.Hooks.OnMessage,
 			OnSessionStart: loaded.Hooks.OnSessionStart,
 			OnToolCall:     loaded.Hooks.OnToolCall,
+			OnShutdown:     loaded.Hooks.OnShutdown,
 		},
 		Registry: registry,
 		Backends: backendRuntimes,
@@ -372,6 +368,7 @@ func formatDoctor(loaded *kernel.Loaded) string {
 	fmt.Fprintf(&b, "  on_message: %d\n", len(loaded.Hooks.OnMessage))
 	fmt.Fprintf(&b, "  on_session_start: %d\n", len(loaded.Hooks.OnSessionStart))
 	fmt.Fprintf(&b, "  on_tool_call: %d\n", len(loaded.Hooks.OnToolCall))
+	fmt.Fprintf(&b, "  on_shutdown: %d\n", len(loaded.Hooks.OnShutdown))
 	writeRegistryKind(&b, loaded.Registry, capabilities.RegistryBackend, "backends")
 	writeRegistryKind(&b, loaded.Registry, capabilities.RegistryCommand, "commands")
 	writeRegistryKind(&b, loaded.Registry, capabilities.RegistryComponent, "components")

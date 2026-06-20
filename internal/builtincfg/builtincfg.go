@@ -19,6 +19,7 @@ import (
 	"github.com/Ceinl/plums/plugins/questions"
 	"github.com/Ceinl/plums/plugins/sessions"
 	"github.com/Ceinl/plums/plugins/skills"
+	"github.com/Ceinl/plums/plugins/tmux"
 )
 
 // RuntimeParams carries the launch-time values the bundled backend plugins need
@@ -83,6 +84,7 @@ func Config(params RuntimeParams) cfgpkg.Config {
 		cfgpkg.Plugin{Self: &skills.Plugin{}},
 		cfgpkg.Plugin{Self: &questions.Plugin{}},
 		cfgpkg.Plugin{Self: &gitdiff.Plugin{}},
+		cfgpkg.Plugin{Self: &tmux.Plugin{}},
 	)
 	return cfgpkg.Config{
 		Opts:    Opts(),
