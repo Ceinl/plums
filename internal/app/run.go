@@ -401,8 +401,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 		if command.Do == nil {
 			return
 		}
-		commandCtx := newRuntimeCtx(state, cfg, mutations, promptRequests)
-		commandCtx.completion = completion
+		commandCtx := newHookCtx()
 		go func() {
 			if err := command.Do(ctx, commandCtx); err != nil {
 				commandCtx.Chat("system", err.Error())
