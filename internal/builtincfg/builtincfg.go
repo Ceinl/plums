@@ -46,11 +46,13 @@ func Defaults() cfgpkg.SettingsDefaults {
 // expressed in the sentinel types.
 func Opts() cfgpkg.Opts {
 	return cfgpkg.Opts{
-		Backend:        "opencode",
-		DefaultLayout:  "chat",
-		HideThinking:   cfgpkg.True,
-		SplitLeftWidth: cfgpkg.Int(50),
-		Keybinds:       DefaultKeybinds(),
+		Backend:          "opencode",
+		DefaultLayout:    "chat",
+		Theme:            cfgpkg.Theme{Name: "default"},
+		Keybinds:         DefaultKeybinds(),
+		ClipboardCommand: "pbcopy",
+		HideThinking:     cfgpkg.True,
+		SplitLeftWidth:   cfgpkg.Int(50),
 	}
 }
 

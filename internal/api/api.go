@@ -28,7 +28,6 @@ type Config struct {
 
 	OpencodeServerURL string
 	BackendProvider   string
-	ClipboardCommand  string
 
 	InitConfig   bool
 	ClearHistory bool
@@ -38,7 +37,6 @@ type Config struct {
 
 type runtimeDefaults struct {
 	AppVersion           string
-	ClipboardCommand     string
 	SpinnerInterval      time.Duration
 	HealthTimeout        time.Duration
 	QuestionReplyTimeout time.Duration
@@ -49,7 +47,6 @@ type runtimeDefaults struct {
 func defaultRuntimeDefaults() runtimeDefaults {
 	return runtimeDefaults{
 		AppVersion:           "0.1.0-dev",
-		ClipboardCommand:     "pbcopy",
 		SpinnerInterval:      80 * time.Millisecond,
 		HealthTimeout:        10 * time.Second,
 		QuestionReplyTimeout: 5 * time.Second,
@@ -128,11 +125,10 @@ func layoutNameFromSettings(settings capabilities.Settings) string {
 func DefaultConfig() *Config {
 	defs := defaultRuntimeDefaults()
 	return &Config{
-		Version:          defs.AppVersion,
-		Commit:           "unknown",
-		BuildDate:        "unknown",
-		BackendProvider:  "opencode",
-		ClipboardCommand: defs.ClipboardCommand,
+		Version:         defs.AppVersion,
+		Commit:          "unknown",
+		BuildDate:       "unknown",
+		BackendProvider: "opencode",
 	}
 }
 
@@ -218,7 +214,7 @@ func Run(cfg *Config) error {
 
 	runCfg := app.RunConfig{
 		BackendProvider:      settings.Backend,
-		ClipboardCommand:     cfg.ClipboardCommand,
+		ClipboardCommand:     settings.ClipboardCommand,
 		SpinnerInterval:      defs.SpinnerInterval,
 		HealthTimeout:        defs.HealthTimeout,
 		QuestionReplyTimeout: defs.QuestionReplyTimeout,

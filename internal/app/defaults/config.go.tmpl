@@ -17,10 +17,12 @@ func init() { cfg.Use(Config) }
 func Config() cfg.Config {
 	return cfg.Config{
 		Opts: cfg.Opts{
-			Backend:        "opencode",
-			DefaultLayout:  "split",
-			HideThinking:   cfg.True,
-			SplitLeftWidth: cfg.Int(50),
+			Backend:          "opencode",
+			DefaultLayout:    "split",
+			Theme:            cfg.Theme{Name: "default"},
+			ClipboardCommand: "pbcopy",
+			HideThinking:     cfg.True,
+			SplitLeftWidth:   cfg.Int(50),
 			Keybinds: []cfg.Keybind{
 				{Key: "ctrl+p", Do: "palette.open"},
 				{Key: "ctrl+s", Do: "prompt.submit"},

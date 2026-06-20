@@ -22,9 +22,6 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.OpencodeServerURL != "" {
 		t.Errorf("OpencodeServerURL = %q, want empty CLI override", cfg.OpencodeServerURL)
 	}
-	if cfg.ClipboardCommand == "" {
-		t.Error("ClipboardCommand must have a default")
-	}
 	if cfg.ShowVersion || cfg.ShowDoctor || cfg.InitConfig {
 		t.Error("action flags must default to false")
 	}

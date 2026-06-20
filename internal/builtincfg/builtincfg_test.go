@@ -14,3 +14,13 @@ func TestOptsIncludesDefaultKeybinds(t *testing.T) {
 		}
 	}
 }
+
+func TestOptsIncludesThemeAndClipboardDefaults(t *testing.T) {
+	opts := Opts()
+	if opts.Theme.Name != "default" {
+		t.Fatalf("theme = %+v, want default", opts.Theme)
+	}
+	if opts.ClipboardCommand != "pbcopy" {
+		t.Fatalf("clipboard command = %q, want pbcopy", opts.ClipboardCommand)
+	}
+}
