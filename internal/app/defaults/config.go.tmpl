@@ -21,7 +21,10 @@ func Config() cfg.Config {
 			DefaultLayout:  "split",
 			HideThinking:   cfg.True,
 			SplitLeftWidth: cfg.Int(50),
-			Keybinds:       []cfg.Keybind{{Key: "ctrl+p", Do: "open_palette"}},
+			Keybinds: []cfg.Keybind{
+				{Key: "ctrl+p", Do: "palette.open"},
+				{Key: "ctrl+s", Do: "prompt.submit"},
+			},
 		},
 		Plugins: []cfg.Plugin{
 			{Self: &SplitLayoutPlugin{}},

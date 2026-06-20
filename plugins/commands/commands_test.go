@@ -23,6 +23,7 @@ func TestCommandsIncludeSlashAndPaletteActions(t *testing.T) {
 		names = append(names, c.Name)
 	}
 	want := []string{
+		"palette.open", "prompt.submit",
 		"/new", "/command", "/backend", "/skills", "/sessions", "/model",
 		"Change model", "Backend provider", "Start new session", "Switch mode",
 		"Layouts", "Thinking visibility", "Tool call visibility", "Output percentage",
@@ -41,8 +42,10 @@ func TestCommandsIncludeSlashAndPaletteActions(t *testing.T) {
 // recordCtx records command verb invocations.
 type recordCtx struct {
 	capabilities.Ctx
-	calls []string
-	state capabilities.CommandState
+	calls     []string
+	state     capabilities.CommandState
+	inputText string
+	sent      string
 }
 
 func (c *recordCtx) NewSession()                      { c.calls = append(c.calls, "NewSession") }
@@ -56,6 +59,15 @@ func (c *recordCtx) SwitchLayout()                    { c.calls = append(c.calls
 func (c *recordCtx) CycleThinkingVisibility()         { c.calls = append(c.calls, "CycleThinkingVisibility") }
 func (c *recordCtx) CycleToolCallVisibility()         { c.calls = append(c.calls, "CycleToolCallVisibility") }
 func (c *recordCtx) State() capabilities.CommandState { return c.state }
+func (c *recordCtx) Input() capabilities.Editor       { return &recordEditor{text: c.inputText} }
+func (c *recordCtx) Send(text string)                 { c.sent = text }
+
+type recordEditor struct {
+	text string
+}
+
+func (e *recordEditor) Text() string     { return e.text }
+func (e *recordEditor) SetText(v string) { e.text = v }
 
 func TestSlashNewCallsNewSession(t *testing.T) {
 	var cmd capabilities.Command
@@ -70,6 +82,38 @@ func TestSlashNewCallsNewSession(t *testing.T) {
 	}
 	if len(ctx.calls) != 1 || ctx.calls[0] != "NewSession" {
 		t.Fatalf("calls = %v, want [NewSession]", ctx.calls)
+	}
+}
+
+func TestPaletteOpenCommandCallsOpenCommandPalette(t *testing.T) {
+	var cmd capabilities.Command
+	for _, c := range (&Plugin{}).Commands() {
+		if c.Name == "palette.open" {
+			cmd = c
+		}
+	}
+	ctx := &recordCtx{}
+	if err := cmd.Do(context.Background(), ctx); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if len(ctx.calls) != 1 || ctx.calls[0] != "OpenCommandPalette" {
+		t.Fatalf("calls = %v, want [OpenCommandPalette]", ctx.calls)
+	}
+}
+
+func TestPromptSubmitCommandSendsInputText(t *testing.T) {
+	var cmd capabilities.Command
+	for _, c := range (&Plugin{}).Commands() {
+		if c.Name == "prompt.submit" {
+			cmd = c
+		}
+	}
+	ctx := &recordCtx{inputText: "ship it"}
+	if err := cmd.Do(context.Background(), ctx); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if ctx.sent != "ship it" {
+		t.Fatalf("sent = %q, want ship it", ctx.sent)
 	}
 }
 
@@ -103,11 +147,11 @@ func TestDynamicTitlesReflectState(t *testing.T) {
 	}
 }
 
-func TestSlashCommandsAreHiddenFromPalette(t *testing.T) {
+func TestNonPaletteCommandsAreHiddenFromPalette(t *testing.T) {
 	for _, c := range (&Plugin{}).Commands() {
-		if c.Name == "/new" || c.Name == "/model" {
+		if c.Name == "palette.open" || c.Name == "prompt.submit" || c.Name == "/new" || c.Name == "/model" {
 			if label := c.Title(capabilities.CommandState{}); !label.Disabled {
-				t.Fatalf("slash command %q should be palette-disabled", c.Name)
+				t.Fatalf("command %q should be palette-disabled", c.Name)
 			}
 		}
 	}

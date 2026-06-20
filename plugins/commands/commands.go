@@ -30,6 +30,21 @@ const (
 
 func (*Plugin) Commands() []capabilities.Command {
 	return []capabilities.Command{
+		// Keybind targets. These are real commands so the stock keymap and user
+		// keymaps go through the same registry path, but they are hidden from the
+		// command palette and slash dropdown.
+		hidden("palette.open", "Open the command palette", func(_ context.Context, ctx capabilities.Ctx) error {
+			ctx.OpenCommandPalette()
+			return nil
+		}),
+		hidden("prompt.submit", "Submit the prompt", func(_ context.Context, ctx capabilities.Ctx) error {
+			input := ctx.Input()
+			if input != nil {
+				ctx.Send(input.Text())
+			}
+			return nil
+		}),
+
 		// Slash commands. These appear in the editor's "/" dropdown and run their
 		// Do when submitted. They are palette-hidden (Title returns disabled) so the
 		// richer palette rows below are the ones shown in the command palette.
@@ -138,6 +153,19 @@ func (*Plugin) Commands() []capabilities.Command {
 			Name:   "Sessions list",
 			Detail: "Open existing opencode sessions",
 			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.OpenSessions(); return nil },
+		},
+	}
+}
+
+// hidden builds a command that can be run by name (usually from a keybind) but
+// does not appear in the command palette.
+func hidden(name, detail string, do func(context.Context, capabilities.Ctx) error) capabilities.Command {
+	return capabilities.Command{
+		Name:   name,
+		Detail: detail,
+		Do:     do,
+		Title: func(capabilities.CommandState) capabilities.PaletteLabel {
+			return capabilities.PaletteLabel{Title: name, Detail: detail, Disabled: true}
 		},
 	}
 }

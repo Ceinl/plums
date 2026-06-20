@@ -41,19 +41,29 @@ func HandleConfiguredKeybind(state *State, ev keyboard.Event, keybinds []capabil
 }
 
 // RunKeybindAction resolves a keybind's Do string against the registered
-// commands. A slash name ("/new") runs that command; the legacy action keywords
-// ("open_palette", "change_model", ...) map to their equivalent slash command so
-// existing keymaps keep working. The bare "open_palette" opens the palette
-// directly even when no command matches.
+// commands. Exact command names win first ("palette.open", "prompt.submit",
+// "/new"). Legacy action keywords ("open_palette", "change_model", ...) map to
+// the equivalent registered command or slash command so existing keymaps keep
+// working. The bare "open_palette" still opens the palette directly when no
+// command registry is installed, which keeps low-level state tests usable.
 func (s *State) RunKeybindAction(action string) bool {
 	action = strings.TrimSpace(action)
 	if action == "" {
 		return false
 	}
+	if s.queueCommandByName(action) {
+		return true
+	}
 	if strings.HasPrefix(action, "/") {
 		return s.runSlashCommand(strings.TrimPrefix(action, "/"))
 	}
 	if name, ok := keybindActionAliases[action]; ok {
+		if s.queueCommandByName(name) {
+			return true
+		}
+		if strings.HasPrefix(name, "/") {
+			return s.runSlashCommand(strings.TrimPrefix(name, "/"))
+		}
 		if s.runSlashCommand(name) {
 			return true
 		}
@@ -66,16 +76,30 @@ func (s *State) RunKeybindAction(action string) bool {
 	return s.runSlashCommand(action)
 }
 
-// keybindActionAliases maps the legacy action keywords (commands.json action
-// names) to the slash command that performs the same effect, so a keybind
-// `Do: "open_palette"` still works after the unification.
+// queueCommandByName queues an exact registered command name for the run loop.
+// The command executes later through the same path as palette and slash command
+// picks, keeping keybind handling free of feature-specific behavior.
+func (s *State) queueCommandByName(name string) bool {
+	for _, command := range s.commands {
+		if command.Name != name || command.Do == nil {
+			continue
+		}
+		s.pendingCommand = command.Name
+		return true
+	}
+	return false
+}
+
+// keybindActionAliases maps the legacy action keywords (the old commands.json
+// action names) to registered command names. These aliases are compatibility
+// only; the Default Config uses the canonical command names directly.
 var keybindActionAliases = map[string]string{
-	"open_palette":  "command",
-	"new_session":   "new",
-	"change_model":  "model",
-	"backend_list":  "backend",
-	"skills_list":   "skills",
-	"sessions_list": "sessions",
+	"open_palette":  "palette.open",
+	"new_session":   "/new",
+	"change_model":  "/model",
+	"backend_list":  "/backend",
+	"skills_list":   "/skills",
+	"sessions_list": "/sessions",
 }
 
 func parseKeybindSpec(key string) (keybindSpec, bool) {

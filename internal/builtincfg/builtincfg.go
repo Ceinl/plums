@@ -45,6 +45,17 @@ func Opts() cfgpkg.Opts {
 		DefaultLayout:  "chat",
 		HideThinking:   cfgpkg.True,
 		SplitLeftWidth: cfgpkg.Int(50),
+		Keybinds:       DefaultKeybinds(),
+	}
+}
+
+// DefaultKeybinds is the stock keymap expressed as Default Config data. These
+// bindings target registered command names; legacy aliases remain accepted only
+// for existing user configs.
+func DefaultKeybinds() []cfgpkg.Keybind {
+	return []cfgpkg.Keybind{
+		{Key: "ctrl+p", Do: "palette.open"},
+		{Key: "ctrl+s", Do: "prompt.submit"},
 	}
 }
 

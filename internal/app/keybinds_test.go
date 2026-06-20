@@ -36,6 +36,20 @@ func TestConfiguredKeybindRunsSlashAction(t *testing.T) {
 	}
 }
 
+func TestConfiguredKeybindRunsNamedCommand(t *testing.T) {
+	state := stateWithBuiltinCommands(80, 24)
+	handled := HandleConfiguredKeybind(state, keyboard.Event{Type: keyboard.KeyRune, Ch: 'p', Ctrl: true}, []capabilities.Keybind{
+		{Key: "ctrl+p", Do: "palette.open"},
+	})
+
+	if !handled {
+		t.Fatal("expected configured keybind to be handled")
+	}
+	if got := runPending(state); !got.called("OpenCommandPalette") {
+		t.Fatalf("expected palette.open keybind to call OpenCommandPalette, got %v", got.calls)
+	}
+}
+
 func TestConfiguredKeybindQueuesRegistryCommand(t *testing.T) {
 	state := NewState(80, 24)
 	state.SetCommands([]capabilities.Command{
