@@ -121,12 +121,22 @@ func (cl *ChatLog) buildStreamingLines() []renderLine {
 	if len(cl.messages) > 0 {
 		lines = append(lines, renderLine{kind: lineKindBlank})
 	}
+	if cl.isStreaming {
+		status := []textSpan{
+			{text: "● ", fg: fgToolIndicator},
+			{text: "responding", fg: fgContent, decor: decorBold},
+		}
+		if cl.aioutput == "" {
+			status = append(status, textSpan{text: " waiting for output ▌", fg: fgThinking})
+		}
+		lines = append(lines, renderLine{kind: lineKindContent, spans: status, contentFg: fgContent, contentBg: ""})
+	}
 	if cl.aioutput != "" {
 		content := cl.aioutput
 		if cl.isStreaming {
-			content += "▌"
+			content += " ▌"
 		}
-		lines = append(lines, cl.buildContentLines(content, fgContent, "")...)
+		lines = append(lines, withAccent(cl.buildContentLines(content, fgContent, ""), fgCursor)...)
 	}
 	return lines
 }
