@@ -87,6 +87,13 @@ func handleEditorKey(state *State, ctx capabilities.Ctx, ev capabilities.KeyEven
 
 	ed := state.Editor
 	switch ev.Key {
+	case "paste":
+		if ev.Text == "" {
+			return false
+		}
+		state.ShowEditorDropdown()
+		ed.InsertString(ev.Text)
+		return true
 	case "enter":
 		if state.EffectiveLayout() == LayoutSplit {
 			if ev.Shift {
@@ -255,4 +262,29 @@ func handleEditorKey(state *State, ctx capabilities.Ctx, ev capabilities.KeyEven
 		return true
 	}
 	return false
+}
+
+func handleEditorMouse(state *State, ev capabilities.MouseEvent) bool {
+	if state == nil || state.Editor == nil {
+		return false
+	}
+	if state.PopupOpen {
+		if ev.Action == capabilities.MousePress {
+			state.ClosePalette()
+			return true
+		}
+		return false
+	}
+	switch ev.Action {
+	case capabilities.MousePress:
+		return state.Editor.MouseDown(ev.X, ev.Y)
+	case capabilities.MouseDrag:
+		return state.Editor.MouseDrag(ev.X, ev.Y)
+	case capabilities.MouseRelease:
+		return state.Editor.MouseUp(ev.X, ev.Y)
+	case capabilities.MouseWheel:
+		return state.Editor.Scroll(ev.Delta)
+	default:
+		return false
+	}
 }

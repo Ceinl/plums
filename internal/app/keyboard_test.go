@@ -3,24 +3,30 @@ package app
 import (
 	"testing"
 
+	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/internal/keyboard"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
 )
 
 func handleKeyThroughInputComponent(t *testing.T, state *State, ev keyboard.Event) (handled bool, quit bool) {
 	t.Helper()
-	state.BeginPublicComponentFrame()
-	factory := ComponentFactoryForPublic(NewInputBoxComponent())
-	component, err := factory(state, LayoutNode{Component: "input_box", slotID: "/test/input"})
-	if err != nil {
-		t.Fatalf("component factory: %v", err)
-	}
-	component.Layout(0, 0, state.width, state.height)
-	component.Render(screen.NewScreen(state.width, state.height))
+	renderPublicComponentForTest(t, state, NewInputBoxComponent())
 	if HandlePublicComponentEvent(state, ev, &fakeCtx{}) {
 		return true, false
 	}
 	return HandleKey(state, ev, DefaultClipboardCommand())
+}
+
+func renderPublicComponentForTest(t *testing.T, state *State, publicComponent capabilities.Component) {
+	t.Helper()
+	state.BeginPublicComponentFrame()
+	factory := ComponentFactoryForPublic(publicComponent)
+	built, err := factory(state, LayoutNode{Component: publicComponent.Name(), slotID: "/test/" + publicComponent.Name()})
+	if err != nil {
+		t.Fatalf("component factory: %v", err)
+	}
+	built.Layout(0, 0, state.width, state.height)
+	built.Render(screen.NewScreen(state.width, state.height))
 }
 
 func TestPlainEnterSubmitsInputInChat(t *testing.T) {
@@ -129,7 +135,7 @@ func TestCtrlZUndoesPastedTextAsOneChange(t *testing.T) {
 	state := NewState(80, 24)
 	state.Editor.SetContent("before ")
 
-	handled, quit := HandleKey(state, keyboard.Event{Type: keyboard.KeyPaste, Text: "one\ntwo"}, DefaultClipboardCommand())
+	handled, quit := handleKeyThroughInputComponent(t, state, keyboard.Event{Type: keyboard.KeyPaste, Text: "one\ntwo"})
 	if !handled || quit {
 		t.Fatalf("expected paste handled without quit, handled=%v quit=%v", handled, quit)
 	}
@@ -292,30 +298,20 @@ func TestMouseDragCopiesOutputSelection(t *testing.T) {
 	state.Layout = LayoutDefault
 	state.AppendAiOutput("hello world")
 
-	root := CreateDefaultLayout(state)
-	root.Layout(0, 0, 80, 24)
-	root.Render(screen.NewScreen(80, 24))
-
-	var copied string
-	oldWriteClipboard := writeClipboard
-	writeClipboard = func(text, command string) error {
-		copied = text
-		return nil
-	}
-	t.Cleanup(func() { writeClipboard = oldWriteClipboard })
+	renderPublicComponentForTest(t, state, NewChatOutputComponent())
+	ctx := &fakeCtx{}
 
 	for _, ev := range []keyboard.Event{
-		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 4},
-		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 4},
-		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 4},
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 0, MouseY: 0},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 5, MouseY: 0},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 5, MouseY: 0},
 	} {
-		handled, quit := HandleKey(state, ev, DefaultClipboardCommand())
-		if !handled || quit {
-			t.Fatalf("expected mouse event handled without quit, event=%#v handled=%v quit=%v", ev, handled, quit)
+		if !HandlePublicComponentEvent(state, ev, ctx) {
+			t.Fatalf("expected mouse event handled, event=%#v", ev)
 		}
 	}
-	if copied != "hello" {
-		t.Fatalf("expected output selection copied, got %q", copied)
+	if ctx.copied != "hello" {
+		t.Fatalf("expected output selection copied, got %q", ctx.copied)
 	}
 }
 
@@ -324,30 +320,20 @@ func TestOutputMouseSelectionCopiesWhenReleasedOutsideOutput(t *testing.T) {
 	state.Layout = LayoutDefault
 	state.AppendAiOutput("hello world")
 
-	root := CreateDefaultLayout(state)
-	root.Layout(0, 0, 80, 24)
-	root.Render(screen.NewScreen(80, 24))
-
-	var copied string
-	oldWriteClipboard := writeClipboard
-	writeClipboard = func(text, command string) error {
-		copied = text
-		return nil
-	}
-	t.Cleanup(func() { writeClipboard = oldWriteClipboard })
+	renderPublicComponentForTest(t, state, NewChatOutputComponent())
+	ctx := &fakeCtx{}
 
 	for _, ev := range []keyboard.Event{
-		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 2, MouseY: 4},
-		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 7, MouseY: 22},
-		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 7, MouseY: 22},
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 0, MouseY: 0},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 11, MouseY: 22},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 11, MouseY: 22},
 	} {
-		handled, quit := HandleKey(state, ev, DefaultClipboardCommand())
-		if !handled || quit {
-			t.Fatalf("expected mouse event handled without quit, event=%#v handled=%v quit=%v", ev, handled, quit)
+		if !HandlePublicComponentEvent(state, ev, ctx) {
+			t.Fatalf("expected mouse event handled, event=%#v", ev)
 		}
 	}
-	if copied != "hello world" {
-		t.Fatalf("expected output selection copied after outside release, got %q", copied)
+	if ctx.copied != "hello world" {
+		t.Fatalf("expected output selection copied after outside release, got %q", ctx.copied)
 	}
 }
 
@@ -356,18 +342,15 @@ func TestMouseDragSelectsEditorTextThroughKeyHandling(t *testing.T) {
 	state.Layout = LayoutDefault
 	state.Editor.SetContent("hello world")
 
-	root := CreateDefaultLayout(state)
-	root.Layout(0, 0, 80, 24)
-	root.Render(screen.NewScreen(80, 24))
+	renderPublicComponentForTest(t, state, NewEditorComponent())
 
 	for _, ev := range []keyboard.Event{
-		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 12, MouseY: 20},
-		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 17, MouseY: 20},
-		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 17, MouseY: 20},
+		{Type: keyboard.KeyMouseLeftDown, Mouse: true, MouseX: 4, MouseY: 0},
+		{Type: keyboard.KeyMouseLeftDrag, Mouse: true, MouseX: 9, MouseY: 0},
+		{Type: keyboard.KeyMouseLeftUp, Mouse: true, MouseX: 9, MouseY: 0},
 	} {
-		handled, quit := HandleKey(state, ev, DefaultClipboardCommand())
-		if !handled || quit {
-			t.Fatalf("expected mouse event handled without quit, event=%#v handled=%v quit=%v", ev, handled, quit)
+		if !HandlePublicComponentEvent(state, ev, &fakeCtx{}) {
+			t.Fatalf("expected mouse event handled, event=%#v", ev)
 		}
 	}
 	if got := state.Editor.SelectedText(); got != "hello" {

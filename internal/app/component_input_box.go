@@ -64,3 +64,11 @@ func (c *inputBoxComponent) HandleKey(ctx capabilities.Ctx, ev capabilities.KeyE
 	}
 	return handleEditorKey(c.state, ctx, ev)
 }
+
+func (c *inputBoxComponent) HandleMouse(_ capabilities.Ctx, ev capabilities.MouseEvent) bool {
+	return handleEditorMouse(c.state, ev)
+}
+
+func (c *inputBoxComponent) Scroll(delta int) bool {
+	return handleEditorMouse(c.state, capabilities.MouseEvent{Action: capabilities.MouseWheel, Delta: delta})
+}

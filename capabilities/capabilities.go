@@ -380,6 +380,7 @@ type EditorView interface {
 type KeyEvent struct {
 	Key   string
 	Rune  rune
+	Text  string
 	Ctrl  bool
 	Alt   bool
 	Shift bool
@@ -402,6 +403,7 @@ const (
 	MouseRelease
 	MouseDrag
 	MouseMove
+	MouseWheel
 )
 
 type MouseEvent struct {
@@ -409,6 +411,7 @@ type MouseEvent struct {
 	Y      int
 	Button MouseButton
 	Action MouseAction
+	Delta  int
 }
 
 // --- Registry ---

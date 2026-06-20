@@ -140,6 +140,22 @@ func handlePublicComponentMouse(state *State, ev keyboard.Event, ctx capabilitie
 	if !ok {
 		return false
 	}
+	if event.Action == capabilities.MouseWheel {
+		for i := len(state.publicComponents) - 1; i >= 0; i-- {
+			component := state.publicComponents[i]
+			if !component.contains(event.X, event.Y) {
+				continue
+			}
+			if sc, ok := component.component.(capabilities.Scrollable); ok {
+				return sc.Scroll(event.Delta)
+			}
+			if handler, ok := component.component.(capabilities.MouseHandler); ok {
+				return handler.HandleMouse(ctx, event)
+			}
+			return false
+		}
+		return false
+	}
 	// While a drag is in progress, route every event to the component that
 	// captured the press so selection continues past the pane's bounds.
 	if state.mouseCapture != nil {
@@ -172,6 +188,9 @@ func handlePublicComponentMouse(state *State, ev keyboard.Event, ctx capabilitie
 
 func publicKeyEvent(ev keyboard.Event) (capabilities.KeyEvent, bool) {
 	ev = normalizeKeybindEvent(ev)
+	if ev.Type == keyboard.KeyPaste {
+		return capabilities.KeyEvent{Key: "paste", Text: ev.Text}, true
+	}
 	key := publicKeyName(ev)
 	if key == "" {
 		return capabilities.KeyEvent{}, false
@@ -236,6 +255,14 @@ func publicMouseEvent(ev keyboard.Event) (capabilities.MouseEvent, bool) {
 	case keyboard.KeyMouseLeftUp:
 		event.Button = capabilities.MouseButtonLeft
 		event.Action = capabilities.MouseRelease
+	case keyboard.KeyMouseWheelUp:
+		event.Button = capabilities.MouseButtonNone
+		event.Action = capabilities.MouseWheel
+		event.Delta = 3
+	case keyboard.KeyMouseWheelDown:
+		event.Button = capabilities.MouseButtonNone
+		event.Action = capabilities.MouseWheel
+		event.Delta = -3
 	default:
 		return capabilities.MouseEvent{}, false
 	}

@@ -65,3 +65,11 @@ func (c *palettePanelComponent) Render(rctx capabilities.RenderCtx, surface capa
 func (c *palettePanelComponent) HandleKey(_ capabilities.Ctx, ev capabilities.KeyEvent) bool {
 	return handlePaletteKey(c.state, ev)
 }
+
+func (c *palettePanelComponent) HandleMouse(_ capabilities.Ctx, ev capabilities.MouseEvent) bool {
+	if c.state == nil || ev.Action != capabilities.MousePress {
+		return false
+	}
+	c.state.ClosePalette()
+	return true
+}

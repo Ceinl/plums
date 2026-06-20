@@ -24,7 +24,8 @@ func stateWithBuiltinCommands(w, h int) *State {
 // fakeCtx records which command verbs a command's Do invoked, so a test can run
 // a pending command and assert the effect without the live run loop.
 type fakeCtx struct {
-	calls []string
+	calls  []string
+	copied string
 }
 
 func (c *fakeCtx) record(name string) { c.calls = append(c.calls, name) }
@@ -42,7 +43,7 @@ func (c *fakeCtx) Input() capabilities.Editor    { return nil }
 func (c *fakeCtx) Selection() string             { return "" }
 func (c *fakeCtx) Send(string)                   {}
 func (c *fakeCtx) Chat(string, string)           {}
-func (c *fakeCtx) Copy(string)                   {}
+func (c *fakeCtx) Copy(text string)              { c.copied = text }
 func (c *fakeCtx) Shell(context.Context, string, ...string) (string, error) {
 	return "", nil
 }

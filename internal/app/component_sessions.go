@@ -14,6 +14,7 @@ type sessionsComponent struct {
 	name        string
 	orientation components.SessionsOrientation
 	rect        capabilities.Rect
+	state       *State
 }
 
 func NewSessionsComponent() capabilities.Component {
@@ -49,6 +50,7 @@ func (c *sessionsComponent) Render(rctx capabilities.RenderCtx, surface capabili
 	if state == nil {
 		return
 	}
+	c.state = state
 
 	sessions := state.Sessions()
 	if c.orientation == components.SessionsHorizontal {
@@ -70,4 +72,21 @@ func (c *sessionsComponent) Render(rctx capabilities.RenderCtx, surface capabili
 	sessions.SetItems(widgetItems)
 	sessions.Layout(c.rect.X, c.rect.Y, c.rect.W, c.rect.H)
 	sessions.Render(scr)
+}
+
+func (c *sessionsComponent) HandleMouse(_ capabilities.Ctx, ev capabilities.MouseEvent) bool {
+	if c.state == nil || ev.Action != capabilities.MousePress {
+		return false
+	}
+	return c.state.SessionMouseDown(ev.X, ev.Y)
+}
+
+func (c *sessionsComponent) Scroll(delta int) bool {
+	if c.state == nil {
+		return false
+	}
+	if c.orientation == components.SessionsHorizontal {
+		return c.state.SessionsHorizontal().Scroll(delta)
+	}
+	return c.state.Sessions().Scroll(delta)
 }

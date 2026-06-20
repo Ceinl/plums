@@ -48,6 +48,14 @@ func (c *editorComponent) HandleKey(ctx capabilities.Ctx, ev capabilities.KeyEve
 	return handleEditorKey(c.state, ctx, ev)
 }
 
+func (c *editorComponent) HandleMouse(_ capabilities.Ctx, ev capabilities.MouseEvent) bool {
+	return handleEditorMouse(c.state, ev)
+}
+
+func (c *editorComponent) Scroll(delta int) bool {
+	return handleEditorMouse(c.state, capabilities.MouseEvent{Action: capabilities.MouseWheel, Delta: delta})
+}
+
 // renderStateEditor draws the State-owned editor widget with the editor pane's
 // themed background/foreground, mirroring the legacy bare-editor factory whose
 // parent div carried the same BgPanel/Text style.

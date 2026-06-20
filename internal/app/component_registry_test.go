@@ -92,13 +92,15 @@ func (c *publicComponentRecorder) Render(ctx capabilities.RenderCtx, surface cap
 
 type publicCapabilityRecorder struct {
 	publicComponentRecorder
-	dirty        bool
-	clearedDirty bool
-	selection    string
-	key          capabilities.KeyEvent
-	mouse        capabilities.MouseEvent
-	keyHandled   bool
-	mouseHandled bool
+	dirty         bool
+	clearedDirty  bool
+	selection     string
+	key           capabilities.KeyEvent
+	mouse         capabilities.MouseEvent
+	keyHandled    bool
+	mouseHandled  bool
+	scrollDelta   int
+	scrollHandled bool
 }
 
 func (c *publicCapabilityRecorder) IsDirty() bool {
@@ -122,6 +124,15 @@ func (c *publicCapabilityRecorder) HandleKey(ctx capabilities.Ctx, event capabil
 func (c *publicCapabilityRecorder) HandleMouse(ctx capabilities.Ctx, event capabilities.MouseEvent) bool {
 	c.mouse = event
 	return c.mouseHandled
+}
+
+func (c *publicCapabilityRecorder) Scroll(delta int) bool {
+	c.scrollDelta = delta
+	return c.scrollHandled
+}
+
+func (c *publicCapabilityRecorder) ScrollToBottom() bool {
+	return false
 }
 
 func TestPublicComponentAdapterReceivesRenderContext(t *testing.T) {
@@ -223,6 +234,26 @@ func TestPublicComponentKeyHandlerReceivesEvents(t *testing.T) {
 	}
 }
 
+func TestPublicComponentKeyHandlerReceivesPaste(t *testing.T) {
+	state := NewState(80, 24)
+	recorder := &publicCapabilityRecorder{
+		publicComponentRecorder: publicComponentRecorder{name: "custom"},
+		keyHandled:              true,
+	}
+	factory := ComponentFactoryForPublic(recorder)
+	if _, err := factory(state, LayoutNode{Component: "custom"}); err != nil {
+		t.Fatalf("factory error = %v", err)
+	}
+
+	handled := HandlePublicComponentEvent(state, keyboard.Event{Type: keyboard.KeyPaste, Text: "hello\nworld"}, nil)
+	if !handled {
+		t.Fatal("public component key handler did not handle paste")
+	}
+	if recorder.key.Key != "paste" || recorder.key.Text != "hello\nworld" {
+		t.Fatalf("public key event = %+v, want paste text", recorder.key)
+	}
+}
+
 func TestPublicComponentMouseHandlerTargetsArrangedRect(t *testing.T) {
 	state := NewState(80, 24)
 	recorder := &publicCapabilityRecorder{
@@ -246,5 +277,27 @@ func TestPublicComponentMouseHandlerTargetsArrangedRect(t *testing.T) {
 	}
 	if recorder.mouse.X != 6 || recorder.mouse.Y != 7 || recorder.mouse.Button != capabilities.MouseButtonLeft || recorder.mouse.Action != capabilities.MousePress {
 		t.Fatalf("public mouse event = %+v", recorder.mouse)
+	}
+}
+
+func TestPublicComponentWheelTargetsScrollable(t *testing.T) {
+	state := NewState(80, 24)
+	recorder := &publicCapabilityRecorder{
+		publicComponentRecorder: publicComponentRecorder{name: "custom"},
+		scrollHandled:           true,
+	}
+	factory := ComponentFactoryForPublic(recorder)
+	component, err := factory(state, LayoutNode{Component: "custom"})
+	if err != nil {
+		t.Fatalf("factory error = %v", err)
+	}
+	component.Layout(5, 6, 10, 3)
+
+	handled := HandlePublicComponentEvent(state, keyboard.Event{Type: keyboard.KeyMouseWheelUp, Mouse: true, MouseX: 6, MouseY: 7}, nil)
+	if !handled {
+		t.Fatal("wheel event inside scrollable component was not handled")
+	}
+	if recorder.scrollDelta != 3 {
+		t.Fatalf("scroll delta = %d, want 3", recorder.scrollDelta)
 	}
 }

@@ -8,10 +8,10 @@ import (
 
 // infoViewComponent is the public info_view pane used by the split layout: it
 // shows the chat log or the git diff log depending on the active info tab. Both
-// bodies are the State-owned widgets, so the central scroll/selection routing in
-// keyboard.go keeps targeting the rendered instance.
+// bodies are the State-owned widgets, with input routed through this component.
 type infoViewComponent struct {
-	rect capabilities.Rect
+	rect  capabilities.Rect
+	state *State
 }
 
 func NewInfoViewComponent() capabilities.Component {
@@ -35,6 +35,7 @@ func (c *infoViewComponent) Render(rctx capabilities.RenderCtx, surface capabili
 	if state == nil {
 		return
 	}
+	c.state = state
 
 	if rctx.InfoView() == "git_diff" {
 		diff := state.DiffLog()
@@ -46,6 +47,33 @@ func (c *infoViewComponent) Render(rctx capabilities.RenderCtx, surface capabili
 	}
 
 	renderStateChatLog(rctx, state, c.rect, scr)
+}
+
+func (c *infoViewComponent) HandleMouse(ctx capabilities.Ctx, ev capabilities.MouseEvent) bool {
+	if c.state == nil || c.state.PopupOpen {
+		return false
+	}
+	switch ev.Action {
+	case capabilities.MousePress:
+		return c.state.OutputMouseDown(ev.X, ev.Y)
+	case capabilities.MouseDrag:
+		return c.state.OutputMouseDrag(ev.X, ev.Y)
+	case capabilities.MouseRelease:
+		text := c.state.OutputMouseUp(ev.X, ev.Y)
+		if text != "" && ctx != nil {
+			ctx.Copy(text)
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *infoViewComponent) Scroll(delta int) bool {
+	if c.state == nil {
+		return false
+	}
+	return c.state.ScrollOutputVisible(delta)
 }
 
 // renderStateChatLog draws the State-owned chat log with the message/streaming

@@ -52,3 +52,11 @@ func (c *editorOrPaletteComponent) HandleKey(ctx capabilities.Ctx, ev capabiliti
 	}
 	return handleEditorKey(c.state, ctx, ev)
 }
+
+func (c *editorOrPaletteComponent) HandleMouse(_ capabilities.Ctx, ev capabilities.MouseEvent) bool {
+	return handleEditorMouse(c.state, ev)
+}
+
+func (c *editorOrPaletteComponent) Scroll(delta int) bool {
+	return handleEditorMouse(c.state, capabilities.MouseEvent{Action: capabilities.MouseWheel, Delta: delta})
+}
