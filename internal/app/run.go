@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/Ceinl/plums/capabilities"
+	cfgpkg "github.com/Ceinl/plums/config"
 	"github.com/Ceinl/plums/internal/core"
 	"github.com/Ceinl/plums/internal/debuglog"
 	"github.com/Ceinl/plums/internal/keyboard"
@@ -61,11 +63,13 @@ type RunConfig struct {
 	RecentModelTimeout   time.Duration
 	ListTimeout          time.Duration
 	WorkingDirectory     string
-	ConfigTomlPath       string
-	DefaultLayout        string
-	Theme                capabilities.Theme
-	HideThinking         bool
-	SplitLeftWidth       int
+	// DynamicPrefs is the resolved Opts; it tells the runtime which fields were
+	// declared cfg.Dynamic and so should be persisted to state.toml on change.
+	DynamicPrefs   cfgpkg.Opts
+	DefaultLayout  string
+	Theme          capabilities.Theme
+	HideThinking   bool
+	SplitLeftWidth int
 	// ClearHistory hides backend sessions that were not created in this run.
 	ClearHistory bool
 }
@@ -219,30 +223,34 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 		runToolCallHooks(ctx, deps.Hooks.OnToolCall, newHookCtx(), tool)
 	}
 
-	type savedConfigValues struct {
-		layout       string
-		hideThinking bool
-		leftWidth    int
+	// Dynamic preferences: snapshot the runtime-remembered fields and, on change,
+	// persist only the ones the config declared cfg.Dynamic to state.toml.
+	prefWriter := NewDynamicPrefWriter(cfg.DynamicPrefs)
+	snapshotPrefs := func() map[string]string {
+		return map[string]string{
+			prefDefaultLayout: layoutLabel(state.Layout),
+			prefHideThinking:  strconv.FormatBool(state.ThinkingMode == components.ThinkingVisibilityHidden),
+			prefSplitLeft:     strconv.Itoa(state.SplitLeftPercent()),
+			prefOutputPercent: strconv.Itoa(state.SplitOutputPercent()),
+			prefBackend:       cfg.BackendProvider,
+			prefModel:         state.ModelID,
+			prefMode:          state.Mode,
+		}
 	}
-	lastSaved := savedConfigValues{
-		layout:       layoutLabel(state.Layout),
-		hideThinking: state.ThinkingMode == components.ThinkingVisibilityHidden,
-		leftWidth:    state.SplitLeftPercent(),
-	}
+	lastSaved := snapshotPrefs()
 	saveConfigIfChanged := func() {
-		if cfg.ConfigTomlPath == "" {
+		current := snapshotPrefs()
+		updates := map[string]string{}
+		for key, value := range current {
+			if lastSaved[key] != value {
+				updates[key] = value
+			}
+		}
+		if len(updates) == 0 {
 			return
 		}
-		current := savedConfigValues{
-			layout:       layoutLabel(state.Layout),
-			hideThinking: state.ThinkingMode == components.ThinkingVisibilityHidden,
-			leftWidth:    state.SplitLeftPercent(),
-		}
-		if current == lastSaved {
-			return
-		}
-		if err := SaveConfigValues(cfg.ConfigTomlPath, current.layout, current.hideThinking, current.leftWidth); err != nil {
-			debuglog.Printf("config: save failed: %v", err)
+		if err := prefWriter.Persist(updates); err != nil {
+			debuglog.Printf("prefs: save failed: %v", err)
 			return
 		}
 		lastSaved = current

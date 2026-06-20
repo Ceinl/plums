@@ -59,67 +59,58 @@ func defaultRuntimeDefaults() runtimeDefaults {
 }
 
 type resolvedKernelConfig struct {
-	Config             cfgpkg.Config
-	Settings           capabilities.Settings
-	OpencodeConfigPath string
+	Config   cfgpkg.Config
+	Settings capabilities.Settings
 }
 
 // resolveKernelConfig builds the effective config by merging, last-wins:
 //
-//	built-in Default Config  ←  TOML/env-derived overlay  ←  external user config
+//	built-in Default Config  ←  external user config  ←  CLI-flag overlay
+//	                                                  ←  dynamic-prefs (state.toml)
 //
 // then projects the merged Opts into the runtime-facing capabilities.Settings.
-func resolveKernelConfig(cfg *Config, configPath, wd string) (*resolvedKernelConfig, error) {
-	opencodeConfigPath := app.ResolveOpencodeConfigPath(configPath)
-	serverURL, err := app.LoadOpencodeServerURL(opencodeConfigPath, opencodebackend.DefaultBaseURLForDir(wd))
-	if err != nil {
-		return nil, fmt.Errorf("failed to load opencode server URL: %w", err)
-	}
-	backendProvider, err := app.LoadBackendProvider(opencodeConfigPath, cfg.BackendProvider)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load backend provider: %w", err)
-	}
-	defaultLayout, _ := app.LoadDefaultLayout(opencodeConfigPath, "chat")
+// There is no TOML/JSON user-config layer: the compiled Default Config and the
+// compiled external user config are the only authoring paths; state.toml holds
+// only app-managed dynamic preferences.
+func resolveKernelConfig(cfg *Config, wd string) (*resolvedKernelConfig, error) {
 	defs := defaultRuntimeDefaults()
 
 	base := builtincfg.Config(builtincfg.RuntimeParams{
 		WorkingDirectory:  wd,
-		OpencodeServerURL: serverURL,
+		OpencodeServerURL: opencodebackend.DefaultBaseURLForDir(wd),
 		HealthTimeout:     defs.HealthTimeout,
 	})
 
-	// TOML/env-derived overlay — today's file/flag-driven settings, expressed as
-	// Opts so they slot into the same merge as everything else.
-	overlay := cfgpkg.Config{Opts: cfgpkg.Opts{
-		Backend:           cfgpkg.Pref(backendProvider),
-		DefaultLayout:     cfgpkg.Pref(defaultLayout),
-		HideThinking:      boolPref(app.LoadHideThinking(opencodeConfigPath, true)),
-		SplitLeftWidth:    cfgpkg.Int(app.LoadSplitLeftWidth(opencodeConfigPath, 50)),
-		ClearHistory:      boolPref(cfg.ClearHistory || app.LoadClearHistory(opencodeConfigPath, false)),
-		OpencodeServerURL: cfgpkg.Pref(serverURL),
-	}}
-
-	merged := cfgpkg.Merge(base, overlay)
+	merged := base
 	if external, ok := cfgpkg.Registered(); ok {
 		merged = cfgpkg.Merge(merged, external())
 	}
-	if cfg != nil && cfg.ClearHistory {
-		merged.Opts.ClearHistory = cfgpkg.True
+
+	// CLI-flag overlay — flags express the same settings as Opts so they slot
+	// into the merge after the user config (flags win).
+	overlay := cfgpkg.Opts{}
+	if cfg != nil {
+		if provider := strings.ToLower(strings.TrimSpace(cfg.BackendProvider)); provider != "" && provider != "opencode" {
+			if !app.ValidBackendProvider(provider) {
+				return nil, fmt.Errorf("unsupported backend provider %q", provider)
+			}
+			overlay.Backend = cfgpkg.Pref(provider)
+		}
+		if cfg.ClearHistory {
+			overlay.ClearHistory = cfgpkg.True
+		}
 	}
+	merged.Opts = cfgpkg.MergeOpts(merged.Opts, overlay)
+
+	// Dynamic-prefs overlay: for every Opts field declared cfg.Dynamic, seed its
+	// remembered value from the app-managed state.toml store.
+	merged.Opts = app.ApplyDynamicPrefs(merged.Opts)
 
 	settings := merged.Opts.ToSettings(builtincfg.Defaults())
 	return &resolvedKernelConfig{
-		Config:             merged,
-		Settings:           settings,
-		OpencodeConfigPath: opencodeConfigPath,
+		Config:   merged,
+		Settings: settings,
 	}, nil
-}
-
-func boolPref(v bool) cfgpkg.Bool {
-	if v {
-		return cfgpkg.True
-	}
-	return cfgpkg.False
 }
 
 func layoutNameFromSettings(settings capabilities.Settings) string {
@@ -180,19 +171,11 @@ func Run(cfg *Config) error {
 		return nil
 	}
 
-	configPath, err := app.ResolveConfigPath()
-	if err != nil {
-		return err
-	}
-	renderConfig, err := app.LoadRenderConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load layout config: %w", err)
-	}
-	if configPath != "" {
-		debuglog.Printf("config: using %s", configPath)
-	} else {
-		debuglog.Printf("config: using built-in layout config")
-	}
+	// First-run auto-seed: if the compiled user config is absent, create it so
+	// auto-build picks it up. Non-fatal — warn and continue on error.
+	maybeSeedUserConfig()
+
+	renderConfig := app.NewRenderConfig()
 
 	t := ui.NewTerminal(int(os.Stdin.Fd()))
 	if err := t.Enter(); err != nil {
@@ -215,7 +198,7 @@ func Run(cfg *Config) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	resolved, err := resolveKernelConfig(cfg, configPath, wd)
+	resolved, err := resolveKernelConfig(cfg, wd)
 	if err != nil {
 		return err
 	}
@@ -241,7 +224,7 @@ func Run(cfg *Config) error {
 		RecentModelTimeout:   defs.RecentModelTimeout,
 		ListTimeout:          defs.ListTimeout,
 		WorkingDirectory:     wd,
-		ConfigTomlPath:       resolved.OpencodeConfigPath,
+		DynamicPrefs:         resolved.Config.Opts,
 		DefaultLayout:        defaultLayout,
 		Theme:                settings.Theme,
 		HideThinking:         settings.HideThinking,
@@ -329,15 +312,11 @@ func backendRegistrationsFromRegistry(reg *kernel.Registry) ([]capabilities.Back
 }
 
 func loadKernelForConfig(cfg *Config) (*kernel.Loaded, error) {
-	configPath, err := app.ResolveConfigPath()
-	if err != nil {
-		return nil, err
-	}
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get working directory: %w", err)
 	}
-	resolved, err := resolveKernelConfig(cfg, configPath, wd)
+	resolved, err := resolveKernelConfig(cfg, wd)
 	if err != nil {
 		return nil, err
 	}
@@ -345,6 +324,30 @@ func loadKernelForConfig(cfg *Config) (*kernel.Loaded, error) {
 		Settings: &resolved.Settings,
 		Logf:     debuglog.Printf,
 	})
+}
+
+// maybeSeedUserConfig creates the compiled user config on first run (when
+// ~/.config/plums/config/config.go is absent) so auto-build picks it up without
+// requiring -init-config. Failures are non-fatal: warn and continue with the
+// built-in Default Config.
+func maybeSeedUserConfig() {
+	path, err := app.UserConfigGoPath()
+	if err != nil {
+		debuglog.Printf("config: cannot resolve user config path: %v", err)
+		return
+	}
+	if _, err := os.Stat(path); err == nil {
+		return
+	} else if !os.IsNotExist(err) {
+		debuglog.Printf("config: cannot stat user config: %v", err)
+		return
+	}
+	dir, err := app.InitGlobalConfig()
+	if err != nil {
+		debuglog.Printf("config: first-run seed failed: %v", err)
+		return
+	}
+	debuglog.Printf("config: seeded user config in %s", dir)
 }
 
 func formatDoctor(loaded *kernel.Loaded) string {

@@ -53,12 +53,21 @@ func TestScrollOutputVisibleUsesRenderedMax(t *testing.T) {
 	}
 }
 
-func TestLoadRenderConfig(t *testing.T) {
-	if _, err := LoadRenderConfig(""); err != nil {
-		t.Fatalf("load built-in render config: %v", err)
+func TestNewRenderConfig(t *testing.T) {
+	cfg := NewRenderConfig()
+	if cfg.Version != 1 {
+		t.Fatalf("expected version 1, got %d", cfg.Version)
 	}
-	if _, err := LoadRenderConfig("testdata/layout.json"); err != nil {
-		t.Fatalf("load test render config: %v", err)
+	if cfg.Layouts == nil {
+		t.Fatal("expected non-nil layouts map")
+	}
+	if _, ok := cfg.Overlays["slash_command_dropdown"]; !ok {
+		t.Fatal("expected slash_command_dropdown overlay scaffold")
+	}
+	// Layouts come from the registry via InstallPublicLayout; the scaffold itself
+	// ships none.
+	if len(cfg.Layouts) != 0 {
+		t.Fatalf("expected empty scaffold layouts, got %d", len(cfg.Layouts))
 	}
 }
 

@@ -2,13 +2,10 @@ package app
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
-	"github.com/Ceinl/plums/internal/app/defaults"
 	"github.com/Ceinl/plums/internal/ui/tui/components"
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
 )
@@ -76,32 +73,40 @@ type OverlayWidthNode struct {
 	Max       json.RawMessage `json:"max"`
 }
 
-func LoadRenderConfig(path string) (*RenderConfig, error) {
-	// The single source of truth for the built-in layout is the embedded
-	// defaults/layout.json — the same bytes seeded to disk — so there is no
-	// hand-maintained second copy to drift out of sync.
-	data, err := defaults.Read("layout.json")
-	if err != nil {
-		return nil, err
+// NewRenderConfig returns an internal render-config scaffold: an empty layout
+// set plus the fixed overlay definitions (the slash-command dropdown and command
+// palette popup). Layouts and the menu are populated at startup by
+// InstallPublicLayout from the registered layout plugins — there is no
+// user-facing layout.json. The overlays are app-internal chrome, not a
+// user-authored layout, so they live here as Go values rather than a file.
+func NewRenderConfig() *RenderConfig {
+	return &RenderConfig{
+		Version:  1,
+		Layouts:  map[string]LayoutNode{},
+		Overlays: defaultOverlays(),
 	}
-	if path != "" {
-		data, err = os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-	}
+}
 
-	var cfg RenderConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
+func defaultOverlays() map[string]OverlayNode {
+	return map[string]OverlayNode{
+		"slash_command_dropdown": {
+			EnabledWhen: "!state.PopupOpen && len(state.SlashCommands()) > 0",
+			Width: OverlayWidthNode{
+				Preferred: 44,
+				Min:       20,
+				Max:       json.RawMessage(`"state.width - 2"`),
+			},
+			Style: StyleNode{
+				Background: []uint8{30, 27, 38},
+				Foreground: []uint8{232, 229, 241},
+				Muted:      []uint8{145, 140, 160},
+				Accent:     []uint8{247, 184, 90},
+			},
+		},
+		"command_palette_popup": {
+			EnabledWhen: `state.PopupOpen && (state.EffectiveLayout() != "split" || state.width < MinSplitLayoutWidth)`,
+		},
 	}
-	if cfg.Version != 1 {
-		return nil, fmt.Errorf("unsupported layout config version %d", cfg.Version)
-	}
-	if len(cfg.Layouts) == 0 {
-		return nil, errors.New("layout config has no layouts")
-	}
-	return &cfg, nil
 }
 
 func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {

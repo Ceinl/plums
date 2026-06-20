@@ -12,7 +12,7 @@ var scr *screen.Screen
 
 func Render(state *State, cfg *RenderConfig) {
 	if cfg == nil {
-		cfg, _ = LoadRenderConfig("")
+		cfg = NewRenderConfig()
 	}
 	if scr == nil || scr.Width() != state.width || scr.Height() != state.height {
 		scr = screen.NewScreen(state.width, state.height)

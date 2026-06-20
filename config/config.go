@@ -137,22 +137,32 @@ func (b Bool) Value(def bool) bool {
 
 // Count is a tri-state integer for fields whose zero value (0) is a meaningful
 // setting and so cannot double as "unset". The zero Count is unset; wrap a real
-// value with Int (including Int(0)).
+// value with Int (including Int(0)). A Count can also be Dynamic (runtime-
+// remembered) via DynamicCount.
 type Count struct {
-	set bool
-	val int
+	set     bool
+	dynamic bool
+	val     int
 }
 
 // Int constructs a set Count from v (Int(0) is "explicitly zero", distinct from
 // the zero-value Count which is unset).
 func Int(v int) Count { return Count{set: true, val: v} }
 
-// Set reports whether the Count was assigned.
+// DynamicCount marks a Count field as runtime-remembered: it counts as set (so
+// it survives Merge), but resolves to the default until the dynamic-prefs store
+// supplies a remembered value.
+var DynamicCount = Count{set: true, dynamic: true}
+
+// Set reports whether the Count was assigned (including Dynamic).
 func (c Count) Set() bool { return c.set }
 
-// Value resolves the Count, returning def when unset.
+// IsDynamic reports whether the Count is the Dynamic sentinel.
+func (c Count) IsDynamic() bool { return c.dynamic }
+
+// Value resolves the Count, returning def when unset or Dynamic.
 func (c Count) Value(def int) int {
-	if c.set {
+	if c.set && !c.dynamic {
 		return c.val
 	}
 	return def

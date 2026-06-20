@@ -11,93 +11,33 @@ import (
 	"github.com/Ceinl/plums/internal/app/defaults"
 )
 
-const testDefaultOpencodeURL = "http://127.0.0.1:4096"
-
-func TestLoadOpencodeServerURLFromConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte("[opencode]\nopencode_server_url = \"http://localhost:9999\"\n"), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
+func TestValidBackendProvider(t *testing.T) {
+	for _, p := range []string{"opencode", "codex", "claude", "claude-mirror", "OpenCode "} {
+		if !ValidBackendProvider(p) {
+			t.Fatalf("expected %q to be valid", p)
+		}
 	}
-
-	got, err := LoadOpencodeServerURL(path, testDefaultOpencodeURL)
-	if err != nil {
-		t.Fatalf("load server URL: %v", err)
-	}
-	if got != "http://localhost:9999" {
-		t.Fatalf("expected configured URL, got %q", got)
+	for _, p := range []string{"codez", "", "gpt"} {
+		if ValidBackendProvider(p) {
+			t.Fatalf("expected %q to be invalid", p)
+		}
 	}
 }
 
-func TestLoadOpencodeServerURLDefault(t *testing.T) {
-	got, err := LoadOpencodeServerURL(filepath.Join(t.TempDir(), "missing.toml"), testDefaultOpencodeURL)
-	if err != nil {
-		t.Fatalf("load missing config: %v", err)
-	}
-	if got != testDefaultOpencodeURL {
-		t.Fatalf("expected default URL, got %q", got)
-	}
-}
-
-func TestLoadBackendProviderFromConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte("[backend]\nprovider = \"codex\"\n"), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	got, err := LoadBackendProvider(path, "opencode")
-	if err != nil {
-		t.Fatalf("load backend provider: %v", err)
-	}
-	if got != "codex" {
-		t.Fatalf("expected codex, got %q", got)
-	}
-}
-
-func TestLoadBackendProviderDefault(t *testing.T) {
-	got, err := LoadBackendProvider(filepath.Join(t.TempDir(), "missing.toml"), "opencode")
-	if err != nil {
-		t.Fatalf("load missing config: %v", err)
-	}
-	if got != "opencode" {
-		t.Fatalf("expected opencode, got %q", got)
-	}
-}
-
-func TestLoadBackendProviderRejectsUnknownProvider(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte("[backend]\nprovider = \"codez\"\n"), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	if _, err := LoadBackendProvider(path, "opencode"); err == nil {
-		t.Fatalf("expected unsupported provider error")
-	}
-}
-
-func TestLoadBackendProviderRejectsUnknownFallback(t *testing.T) {
-	if _, err := LoadBackendProvider(filepath.Join(t.TempDir(), "missing.toml"), "codez"); err == nil {
-		t.Fatalf("expected unsupported fallback error")
-	}
-}
-
-func TestResolveConfigPathReturnsGlobalWhenPresent(t *testing.T) {
+func TestResolveConfigPathReturnsDirWhenPresent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	dir := filepath.Join(home, ".config", "plums", "config")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	want := filepath.Join(dir, "layout.json")
-	if err := os.WriteFile(want, []byte("{}"), 0o644); err != nil {
-		t.Fatalf("write layout: %v", err)
-	}
 
 	got, err := ResolveConfigPath()
 	if err != nil {
 		t.Fatalf("resolve config: %v", err)
 	}
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
+	if got != dir {
+		t.Fatalf("expected %q, got %q", dir, got)
 	}
 }
 
@@ -110,26 +50,46 @@ func TestResolveConfigPathEmptyWhenMissing(t *testing.T) {
 		t.Fatalf("resolve config: %v", err)
 	}
 	if got != "" {
-		t.Fatalf("expected empty path (fall back to embedded defaults), got %q", got)
+		t.Fatalf("expected empty path (fall back to built-in defaults), got %q", got)
 	}
 }
 
-func TestResolveOpencodeConfigPathUsesLayoutConfigDir(t *testing.T) {
-	layoutPath := filepath.Join("/tmp", "plums", "config", "layout.json")
-	got := ResolveOpencodeConfigPath(layoutPath)
-	want := filepath.Join("/tmp", "plums", "config", "config.toml")
+func TestUserConfigGoPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := UserConfigGoPath()
+	if err != nil {
+		t.Fatalf("user config path: %v", err)
+	}
+	want := filepath.Join(home, ".config", "plums", "config", "config.go")
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
 }
 
+func TestInitGlobalConfigSeedsConfigGo(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir, err := InitGlobalConfig()
+	if err != nil {
+		t.Fatalf("init config: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "config.go")); err != nil {
+		t.Fatalf("expected config.go seeded: %v", err)
+	}
+	// Idempotent: a second call must not error.
+	if _, err := InitGlobalConfig(); err != nil {
+		t.Fatalf("second init config: %v", err)
+	}
+}
+
 func TestWriteDefaultConfigFileDoesNotOverwrite(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
+	path := filepath.Join(dir, "config.go")
 	if err := os.WriteFile(path, []byte("custom"), 0o600); err != nil {
 		t.Fatalf("write existing config: %v", err)
 	}
-	if err := defaults.WriteDefault(dir, "config.toml"); err == nil {
+	if err := defaults.WriteDefault(dir, "config.go"); err == nil {
 		t.Fatal("expected existing config error")
 	}
 	data, err := os.ReadFile(path)

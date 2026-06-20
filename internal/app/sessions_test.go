@@ -90,10 +90,7 @@ func TestNarrowChatLayoutHorizontalSessionsActions(t *testing.T) {
 }
 
 func TestConfiguredChatLayoutsSessionsActions(t *testing.T) {
-	cfg, err := LoadRenderConfig("")
-	if err != nil {
-		t.Fatalf("load render config: %v", err)
-	}
+	cfg := testRenderConfig(t)
 
 	wide := NewState(100, 24)
 	wide.Layout = LayoutChat
@@ -136,10 +133,7 @@ func TestConfiguredChatLayoutsSessionsActions(t *testing.T) {
 }
 
 func TestActiveConfiguredChatLayoutsSessionsActions(t *testing.T) {
-	cfg, err := LoadRenderConfig("") // embedded defaults (single source of truth)
-	if err != nil {
-		t.Fatalf("load active render config: %v", err)
-	}
+	cfg := testRenderConfig(t)
 
 	state := NewState(80, 24)
 	state.Layout = LayoutChat

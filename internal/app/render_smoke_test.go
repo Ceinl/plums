@@ -45,10 +45,7 @@ func smokeState(w, h int) *State {
 // catch panics and layout regressions across all modules.
 func TestRenderAllLayoutsAndSizes(t *testing.T) {
 	silenceStdout(t)
-	cfg, err := LoadRenderConfig("")
-	if err != nil {
-		t.Fatalf("load render config: %v", err)
-	}
+	cfg := testRenderConfig(t)
 
 	layouts := []LayoutType{LayoutChat, LayoutSplit, LayoutZen}
 	sizes := [][2]int{{160, 48}, {120, 40}, {80, 24}, {40, 12}}
@@ -95,10 +92,7 @@ func TestFallbackLayoutBuilders(t *testing.T) {
 // broader smoke test would pass on the Go fallback alone and hide a missing
 // JSON entry.)
 func TestEmbeddedDefaultExposesZen(t *testing.T) {
-	cfg, err := LoadRenderConfig("")
-	if err != nil {
-		t.Fatalf("load render config: %v", err)
-	}
+	cfg := testRenderConfig(t)
 	if _, ok := cfg.Layouts["zen"]; !ok {
 		t.Fatal("embedded default config is missing the 'zen' layout node")
 	}
@@ -118,10 +112,7 @@ func TestEmbeddedDefaultExposesZen(t *testing.T) {
 // with no Go LayoutType constant) becomes selectable, cycles in, and renders.
 func TestCustomConfigLayoutNeedsNoGo(t *testing.T) {
 	silenceStdout(t)
-	cfg, err := LoadRenderConfig("")
-	if err != nil {
-		t.Fatalf("load render config: %v", err)
-	}
+	cfg := testRenderConfig(t)
 
 	// Define a bespoke single-column layout purely as data.
 	cfg.Layouts["focus"] = LayoutNode{
