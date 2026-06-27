@@ -97,18 +97,24 @@ type Selection interface {
 // built-in Default Config's Opts (see github.com/Ceinl/plums/config). Authors do
 // not construct this directly; they declare config.Opts.
 type Settings struct {
-	Backend          string
-	Layout           Layout
-	DefaultLayout    string
-	Mode             string
-	Theme            Theme
-	Keybinds         []Keybind
-	HideThinking     bool
-	SplitLeftWidth   int
-	OutputPercent    int
-	ClipboardCommand string
-	ClearHistory     bool
-	Disable          []RegistryKey
+	Backend       string
+	Model         string
+	Layout        Layout
+	DefaultLayout string
+	Mode          string
+	Theme         Theme
+	Keybinds      []Keybind
+	HideThinking  bool
+	// ThinkingVisibility and ToolCallVisibility carry the resolved
+	// components-level visibility enums (0 = full). They are honoured only when
+	// non-zero; HideThinking still selects full vs hidden when they are unset.
+	ThinkingVisibility int
+	ToolCallVisibility int
+	SplitLeftWidth     int
+	OutputPercent      int
+	ClipboardCommand   string
+	ClearHistory       bool
+	Disable            []RegistryKey
 }
 
 // Keybind maps a key chord to a command name. The keymap is data the user owns;

@@ -43,6 +43,11 @@ func Build(ctx context.Context, opts Options) (string, error) {
 		}
 		return "", err
 	}
+	modulePath, err := ModulePath(configDir)
+	if err != nil {
+		return "", err
+	}
+	usesConfigModule := fileExists(filepath.Join(configDir, "go.mod"))
 	outputPath, cached, err := buildOutputPath(configDir, opts)
 	if err != nil {
 		return "", err
@@ -68,13 +73,19 @@ func Build(ctx context.Context, opts Options) (string, error) {
 	if err := os.MkdirAll(filepath.Join(workDir, "cmd", "plums"), 0o755); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(workDir, "cmd", "plums", "main.go"), []byte(GenerateMain(opts)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workDir, "cmd", "plums", "main.go"), []byte(GenerateMainForModule(opts, modulePath)), 0o644); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(workDir, "go.mod"), []byte(GenerateGoMod(opts)), 0o644); err != nil {
-		return "", err
+	if usesConfigModule {
+		if err := ensureBuildGoMod(workDir, opts); err != nil {
+			return "", err
+		}
+	} else {
+		if err := os.WriteFile(filepath.Join(workDir, "go.mod"), []byte(GenerateGoMod(opts)), 0o644); err != nil {
+			return "", err
+		}
 	}
-	if opts.PlumsModuleDir != "" {
+	if opts.PlumsModuleDir != "" && !usesConfigModule {
 		if err := copyGoSum(opts.PlumsModuleDir, workDir); err != nil {
 			return "", err
 		}
@@ -192,6 +203,11 @@ func executableExists(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
 func runGo(ctx context.Context, dir string, stdout, stderr io.Writer, args ...string) error {
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
@@ -201,6 +217,13 @@ func runGo(ctx context.Context, dir string, stdout, stderr io.Writer, args ...st
 }
 
 func GenerateMain(opts Options) string {
+	return GenerateMainForModule(opts, UserModulePath)
+}
+
+func GenerateMainForModule(opts Options, modulePath string) string {
+	if strings.TrimSpace(modulePath) == "" {
+		modulePath = UserModulePath
+	}
 	return fmt.Sprintf(`package main
 
 import (
@@ -218,7 +241,7 @@ var (
 func main() {
 	plumsruntime.Main(version, commit, buildDate)
 }
-`, UserModulePath, valueOr(opts.Version, "0.1.0-dev"), valueOr(opts.Commit, "unknown"), valueOr(opts.BuildDate, "unknown"))
+`, modulePath, valueOr(opts.Version, "0.1.0-dev"), valueOr(opts.Commit, "unknown"), valueOr(opts.BuildDate, "unknown"))
 }
 
 func GenerateGoMod(opts Options) string {
@@ -234,6 +257,58 @@ func GenerateGoMod(opts Options) string {
 		fmt.Fprintf(&b, "\nreplace %s => %s\n", PlumsModulePath, filepath.ToSlash(opts.PlumsModuleDir))
 	}
 	return b.String()
+}
+
+func ModulePath(configDir string) (string, error) {
+	configDir, err := resolveConfigDir(configDir)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(filepath.Join(configDir, "go.mod"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return UserModulePath, nil
+		}
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "module" {
+			return fields[1], nil
+		}
+	}
+	return "", fmt.Errorf("build: %s has no module declaration", filepath.Join(configDir, "go.mod"))
+}
+
+func ModuleVersion(version string) string {
+	if len(version) >= 2 && version[0] == 'v' && version[1] >= '0' && version[1] <= '9' {
+		return version
+	}
+	return ""
+}
+
+func ensureBuildGoMod(workDir string, opts Options) error {
+	path := filepath.Join(workDir, "go.mod")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	text := string(data)
+	var extra strings.Builder
+	if !strings.Contains(text, PlumsModulePath) {
+		version := opts.PlumsVersion
+		if version == "" {
+			version = "v0.0.0"
+		}
+		fmt.Fprintf(&extra, "\nrequire %s %s\n", PlumsModulePath, version)
+	}
+	if opts.PlumsModuleDir != "" && !strings.Contains(text, "replace "+PlumsModulePath) {
+		fmt.Fprintf(&extra, "\nreplace %s => %s\n", PlumsModulePath, filepath.ToSlash(opts.PlumsModuleDir))
+	}
+	if extra.Len() == 0 {
+		return nil
+	}
+	return os.WriteFile(path, append(data, []byte(extra.String())...), 0o644)
 }
 
 func DefaultConfigDir() (string, error) {

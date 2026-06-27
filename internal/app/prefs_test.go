@@ -103,6 +103,44 @@ func TestDynamicPrefWriterPersistsOnlyDeclared(t *testing.T) {
 	}
 }
 
+// TestDynamicPrefWriterFromDeclaredOptsKeepsPersisting guards the regression
+// where the writer was built from the post-resolution Opts: once a Dynamic field
+// had a stored value, ApplyDynamicPrefs rewrote its sentinel to a literal, the
+// writer saw IsDynamic()==false, and refused to persist further changes — so only
+// the first runtime change was ever saved. The writer must read the declared
+// (pre-resolution) Opts so a Dynamic field stays persistable across runs.
+func TestDynamicPrefWriterFromDeclaredOptsKeepsPersisting(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	declared := cfgpkg.Opts{Backend: cfgpkg.Dynamic}
+	// Simulate a prior run having stored a value: resolution turns the sentinel
+	// into a literal. A writer built from this resolved form would NOT persist.
+	resolved := applyDynamicPrefs(declared, map[string]string{prefBackend: "codex"})
+	if resolved.Backend.IsDynamic() {
+		t.Fatal("precondition: resolved Backend should be a literal, not Dynamic")
+	}
+	if NewDynamicPrefWriter(resolved).Declares(prefBackend) {
+		t.Fatal("precondition: writer from resolved opts wrongly declares backend dynamic")
+	}
+
+	// The fix: build the writer from the declared opts, which still mark Dynamic.
+	w := NewDynamicPrefWriter(declared)
+	if !w.Declares(prefBackend) {
+		t.Fatal("writer from declared opts must keep backend persistable")
+	}
+	if err := w.Persist(map[string]string{prefBackend: "claude"}); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	prefs, err := loadStatePrefs(filepath.Join(dir, ".config", "plums", "state.toml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if prefs[prefBackend] != "claude" {
+		t.Fatalf("backend = %q, want claude (second change must persist)", prefs[prefBackend])
+	}
+}
+
 func TestApplyDynamicPrefsRoundTripFromDisk(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

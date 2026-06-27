@@ -22,7 +22,7 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.OpencodeServerURL != "" {
 		t.Errorf("OpencodeServerURL = %q, want empty CLI override", cfg.OpencodeServerURL)
 	}
-	if cfg.ShowVersion || cfg.ShowDoctor || cfg.InitConfig {
+	if cfg.ShowVersion || cfg.ShowDoctor || cfg.InitConfig || cfg.NoConfig {
 		t.Error("action flags must default to false")
 	}
 }
@@ -30,7 +30,7 @@ func TestDefaultConfig(t *testing.T) {
 func TestRegisterFlags(t *testing.T) {
 	cfg := DefaultConfig()
 	RegisterFlags(cfg)
-	for _, name := range []string{"server-url", "provider", "init-config", "version", "doctor"} {
+	for _, name := range []string{"server-url", "provider", "init-config", "no-config", "version", "doctor"} {
 		if flag.Lookup(name) == nil {
 			t.Errorf("flag %q not registered", name)
 		}
@@ -320,6 +320,28 @@ func TestMergeOptsOverlaysExternalLastWins(t *testing.T) {
 	}
 	if !got.ClearHistory {
 		t.Fatal("ClearHistory = false, want external true")
+	}
+}
+
+func TestToSettingsProjectsModelModeAndVisibility(t *testing.T) {
+	opts := cfgpkg.Opts{
+		Model:              "anthropic/claude",
+		Mode:               "plan",
+		ThinkingVisibility: 1,
+		ToolCallVisibility: 2,
+	}
+	got := opts.ToSettings(builtincfg.Defaults())
+	if got.Model != "anthropic/claude" {
+		t.Fatalf("Model = %q, want anthropic/claude", got.Model)
+	}
+	if got.Mode != "plan" {
+		t.Fatalf("Mode = %q, want plan", got.Mode)
+	}
+	if got.ThinkingVisibility != 1 {
+		t.Fatalf("ThinkingVisibility = %d, want 1", got.ThinkingVisibility)
+	}
+	if got.ToolCallVisibility != 2 {
+		t.Fatalf("ToolCallVisibility = %d, want 2", got.ToolCallVisibility)
 	}
 }
 

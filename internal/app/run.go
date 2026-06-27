@@ -61,11 +61,19 @@ type RunConfig struct {
 	WorkingDirectory     string
 	// DynamicPrefs is the resolved Opts; it tells the runtime which fields were
 	// declared cfg.Dynamic and so should be persisted to state.toml on change.
-	DynamicPrefs   cfgpkg.Opts
-	DefaultLayout  string
-	Theme          capabilities.Theme
-	HideThinking   bool
-	SplitLeftWidth int
+	DynamicPrefs  cfgpkg.Opts
+	DefaultLayout string
+	// Mode is the initial agent mode (e.g. "build"/"plan"); empty keeps the state
+	// default.
+	Mode string
+	// Model is the initial model, "providerID/modelID" or a bare modelID; empty
+	// defers to the backend's recent model.
+	Model              string
+	Theme              capabilities.Theme
+	HideThinking       bool
+	ThinkingVisibility int
+	ToolCallVisibility int
+	SplitLeftWidth     int
 	// ClearHistory hides backend sessions that were not created in this run.
 	ClearHistory bool
 }
@@ -125,10 +133,24 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 	// Apply remembered config values (always override NewState's hardcoded default).
 	state.Layout = LayoutTypeFromString(cfg.DefaultLayout)
 	state.SetTheme(cfg.Theme)
+	if cfg.Mode != "" {
+		state.Mode = cfg.Mode
+	}
+	if provider, model, ok := splitModelRef(cfg.Model); ok {
+		state.SetModel(provider, model)
+	}
 	if cfg.HideThinking {
 		state.ThinkingMode = components.ThinkingVisibilityHidden
 	} else {
 		state.ThinkingMode = components.ThinkingVisibilityFull
+	}
+	// An explicit visibility enum (non-zero) wins over the HideThinking bool,
+	// reaching the third states (Title / Collapse) the bool cannot express.
+	if cfg.ThinkingVisibility != 0 {
+		state.ThinkingMode = components.ThinkingVisibility(cfg.ThinkingVisibility)
+	}
+	if cfg.ToolCallVisibility != 0 {
+		state.ToolCallMode = components.ToolCallVisibility(cfg.ToolCallVisibility)
 	}
 	if cfg.SplitLeftWidth > 0 && cfg.SplitLeftWidth <= 100 {
 		state.OutputPercent = 100 - cfg.SplitLeftWidth
@@ -283,7 +305,7 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 			prefHideThinking:  strconv.FormatBool(state.ThinkingMode == components.ThinkingVisibilityHidden),
 			prefSplitLeft:     strconv.Itoa(state.SplitLeftPercent()),
 			prefOutputPercent: strconv.Itoa(state.SplitOutputPercent()),
-			prefBackend:       cfg.BackendProvider,
+			prefBackend:       state.BackendProvider,
 			prefModel:         state.ModelID,
 			prefMode:          state.Mode,
 		}
@@ -606,6 +628,19 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 			}
 		}
 	}
+}
+
+// splitModelRef parses a config model reference into provider and model ids. It
+// accepts "providerID/modelID" or a bare modelID; ok is false for an empty ref.
+func splitModelRef(ref string) (provider, model string, ok bool) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", "", false
+	}
+	if provider, model, found := strings.Cut(ref, "/"); found {
+		return provider, model, true
+	}
+	return "", ref, true
 }
 
 func normalizeBackendRuntimes(deps Deps) []BackendRuntime {

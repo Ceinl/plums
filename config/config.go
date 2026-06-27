@@ -66,7 +66,7 @@ type Opts struct {
 	// Registry.
 	Disable []RegistryKey
 
-	// Advanced timeouts (nanoseconds; unset/0 inherits the default).
+	// Advanced timeouts (milliseconds; unset/0 inherits the default).
 	HealthTimeoutMS        int
 	QuestionReplyTimeoutMS int
 	RecentModelTimeoutMS   int

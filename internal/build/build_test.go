@@ -23,6 +23,13 @@ func TestGenerateMainImportsUserConfigAndRuntime(t *testing.T) {
 	}
 }
 
+func TestGenerateMainForModuleImportsConfigModule(t *testing.T) {
+	got := GenerateMainForModule(Options{}, "example.com/me/plums-config")
+	if !strings.Contains(got, `_ "example.com/me/plums-config"`) {
+		t.Fatalf("generated main did not import config module:\n%s", got)
+	}
+}
+
 func TestGenerateGoModUsesReplaceWhenPlumsDirProvided(t *testing.T) {
 	got := GenerateGoMod(Options{
 		PlumsVersion:   "v1.2.3",
@@ -37,6 +44,40 @@ func TestGenerateGoModUsesReplaceWhenPlumsDirProvided(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated go.mod missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestModulePathReadsGoMod(t *testing.T) {
+	configDir := t.TempDir()
+	mustWrite(t, filepath.Join(configDir, "go.mod"), "module example.com/me/plums-config\n\ngo 1.26.2\n")
+
+	got, err := ModulePath(configDir)
+	if err != nil {
+		t.Fatalf("ModulePath() error = %v", err)
+	}
+	if got != "example.com/me/plums-config" {
+		t.Fatalf("ModulePath() = %q", got)
+	}
+}
+
+func TestModulePathFallsBackWithoutGoMod(t *testing.T) {
+	configDir := t.TempDir()
+
+	got, err := ModulePath(configDir)
+	if err != nil {
+		t.Fatalf("ModulePath() error = %v", err)
+	}
+	if got != UserModulePath {
+		t.Fatalf("ModulePath() = %q, want %q", got, UserModulePath)
+	}
+}
+
+func TestModuleVersionAcceptsOnlyGoModuleVersions(t *testing.T) {
+	if got := ModuleVersion("v1.2.3"); got != "v1.2.3" {
+		t.Fatalf("ModuleVersion(v1.2.3) = %q", got)
+	}
+	if got := ModuleVersion("0.1.0-dev"); got != "" {
+		t.Fatalf("ModuleVersion(dev) = %q, want empty", got)
 	}
 }
 

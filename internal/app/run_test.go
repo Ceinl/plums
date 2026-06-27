@@ -13,6 +13,27 @@ import (
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
 )
 
+func TestSplitModelRef(t *testing.T) {
+	cases := []struct {
+		ref             string
+		provider, model string
+		ok              bool
+	}{
+		{"", "", "", false},
+		{"  ", "", "", false},
+		{"anthropic/claude", "anthropic", "claude", true},
+		{"claude", "", "claude", true},
+		{" openai/gpt-5 ", "openai", "gpt-5", true},
+	}
+	for _, c := range cases {
+		provider, model, ok := splitModelRef(c.ref)
+		if provider != c.provider || model != c.model || ok != c.ok {
+			t.Errorf("splitModelRef(%q) = (%q,%q,%v), want (%q,%q,%v)",
+				c.ref, provider, model, ok, c.provider, c.model, c.ok)
+		}
+	}
+}
+
 func TestDoubleEscapeStopperStopsOnSecondEscapeWhileStreaming(t *testing.T) {
 	var stopper doubleEscapeStopper
 	now := time.Now()

@@ -24,36 +24,6 @@ func TestValidBackendProvider(t *testing.T) {
 	}
 }
 
-func TestResolveConfigPathReturnsDirWhenPresent(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	dir := filepath.Join(home, ".config", "plums", "config")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-
-	got, err := ResolveConfigPath()
-	if err != nil {
-		t.Fatalf("resolve config: %v", err)
-	}
-	if got != dir {
-		t.Fatalf("expected %q, got %q", dir, got)
-	}
-}
-
-func TestResolveConfigPathEmptyWhenMissing(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	got, err := ResolveConfigPath()
-	if err != nil {
-		t.Fatalf("resolve config: %v", err)
-	}
-	if got != "" {
-		t.Fatalf("expected empty path (fall back to built-in defaults), got %q", got)
-	}
-}
-
 func TestUserConfigGoPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -70,12 +40,27 @@ func TestUserConfigGoPath(t *testing.T) {
 func TestInitGlobalConfigSeedsConfigGo(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	dir, err := InitGlobalConfig()
+	dir, err := InitGlobalConfig(InitConfigOptions{PlumsVersion: "v1.2.3"})
 	if err != nil {
 		t.Fatalf("init config: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "config.go")); err != nil {
 		t.Fatalf("expected config.go seeded: %v", err)
+	}
+	goMod, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		t.Fatalf("expected go.mod seeded: %v", err)
+	}
+	for _, want := range []string{
+		"module github.com/Ceinl/plums-user",
+		"require github.com/Ceinl/plums v1.2.3",
+	} {
+		if !strings.Contains(string(goMod), want) {
+			t.Fatalf("go.mod missing %q:\n%s", want, goMod)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "plugins")); err != nil {
+		t.Fatalf("expected plugins directory seeded: %v", err)
 	}
 	// Idempotent: a second call must not error.
 	if _, err := InitGlobalConfig(); err != nil {

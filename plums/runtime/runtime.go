@@ -7,10 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
+	"strings"
 
 	cfgpkg "github.com/Ceinl/plums/config"
 	"github.com/Ceinl/plums/internal/api"
+	"github.com/Ceinl/plums/internal/app"
 	internalbuild "github.com/Ceinl/plums/internal/build"
+	"github.com/Ceinl/plums/internal/scaffold"
 )
 
 // Config holds process-level launch options for a plums binary.
@@ -44,12 +48,17 @@ func Main(version, commit, buildDate string) {
 		runBuild(os.Args[2:], version, commit, buildDate, os.Args[1] != "build")
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "plugin" {
+		runPlugin(os.Args[2:], version)
+		return
+	}
 
 	// neovim-style: a stock binary that finds a user config.go in
 	// ~/.config/plums/config compiles it (cached by content hash) and runs the
 	// personalized binary. The compiled binary registers its config via
 	// config.Use, so it skips this branch and runs directly — no recursion.
-	if _, registered := cfgpkg.Registered(); !registered && os.Getenv(autobuildEnv) == "" {
+	noConfig := hasNoConfigArg(os.Args[1:])
+	if _, registered := cfgpkg.Registered(); !registered && !noConfig && os.Getenv(autobuildEnv) == "" {
 		if ran, err := runUserConfig(version, commit, buildDate); err != nil {
 			fmt.Fprintf(os.Stderr, "plums: user config build failed (%v); running defaults\n", err)
 		} else if ran {
@@ -61,6 +70,7 @@ func Main(version, commit, buildDate string) {
 	cfg.Version = version
 	cfg.Commit = commit
 	cfg.BuildDate = buildDate
+	cfg.NoConfig = noConfig
 
 	RegisterFlags(cfg)
 	flag.Parse()
@@ -80,20 +90,32 @@ func runUserConfig(version, commit, buildDate string) (bool, error) {
 		return false, nil
 	}
 	if _, err := os.Stat(filepath.Join(configDir, "config.go")); err != nil {
-		return false, nil
+		if !os.IsNotExist(err) {
+			return false, err
+		}
+		plumsVersion, plumsDir := configBuildSource(version)
+		if _, err := app.InitGlobalConfig(app.InitConfigOptions{
+			PlumsVersion:   plumsVersion,
+			PlumsModuleDir: plumsDir,
+		}); err != nil {
+			return false, err
+		}
 	}
+	plumsVersion, plumsDir := configBuildSource(version)
 	bin, err := internalbuild.Build(context.Background(), internalbuild.Options{
 		ConfigDir: configDir,
 		// A released binary (version like "v1.2.3") tells the build which plums
 		// module version to require so `go mod tidy` resolves it. A dev build
-		// ("0.1.0-dev") leaves this empty; the build then fails to resolve and we
-		// fall back to stock — use `plums build -plums-dir <checkout>` for dev.
-		PlumsVersion: moduleVersion(version),
-		Version:      version,
-		Commit:       commit,
-		BuildDate:    buildDate,
-		Stdout:       os.Stderr,
-		Stderr:       os.Stderr,
+		// ("0.1.0-dev") uses a best-effort local checkout replace when the
+		// source path is available; otherwise the build fails and stock defaults
+		// run as the broken-config fallback.
+		PlumsVersion:   plumsVersion,
+		PlumsModuleDir: plumsDir,
+		Version:        version,
+		Commit:         commit,
+		BuildDate:      buildDate,
+		Stdout:         os.Stderr,
+		Stderr:         os.Stderr,
 	})
 	if err != nil {
 		return false, err
@@ -113,15 +135,6 @@ func runUserConfig(version, commit, buildDate string) (bool, error) {
 	return true, nil
 }
 
-// moduleVersion returns version if it is shaped like a Go module version
-// ("vX..."), else "" so the build does not pin an unresolvable pseudo-version.
-func moduleVersion(version string) string {
-	if len(version) >= 2 && version[0] == 'v' && version[1] >= '0' && version[1] <= '9' {
-		return version
-	}
-	return ""
-}
-
 func sameFile(a, b string) bool {
 	ai, err := os.Stat(a)
 	if err != nil {
@@ -132,6 +145,53 @@ func sameFile(a, b string) bool {
 		return false
 	}
 	return os.SameFile(ai, bi)
+}
+
+func configBuildSource(version string) (plumsVersion, plumsDir string) {
+	plumsVersion = internalbuild.ModuleVersion(version)
+	if plumsVersion != "" {
+		return plumsVersion, ""
+	}
+	return "", localPlumsModuleDir()
+}
+
+func localPlumsModuleDir() string {
+	_, file, _, ok := goruntime.Caller(0)
+	if !ok {
+		return ""
+	}
+	dir := filepath.Dir(file)
+	for {
+		data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+		if err == nil && strings.Contains(string(data), "module "+internalbuild.PlumsModulePath) {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+func hasNoConfigArg(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == "--no-config" || arg == "-no-config" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--no-config=") {
+			value := strings.TrimPrefix(arg, "--no-config=")
+			return value == "" || value == "1" || value == "true"
+		}
+		if strings.HasPrefix(arg, "-no-config=") {
+			value := strings.TrimPrefix(arg, "-no-config=")
+			return value == "" || value == "1" || value == "true"
+		}
+	}
+	return false
 }
 
 func isBuildCommand(arg string) bool {
@@ -177,4 +237,48 @@ func runBuild(args []string, version, commit, buildDate string, force bool) {
 		os.Exit(1)
 	}
 	fmt.Fprintf(os.Stdout, "built plums %s\n", output)
+}
+
+func runPlugin(args []string, version string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: plums plugin new <name>")
+		os.Exit(2)
+	}
+	switch args[0] {
+	case "new":
+		runPluginNew(args[1:], version)
+	default:
+		fmt.Fprintf(os.Stderr, "plums plugin: unknown command %q\n", args[0])
+		os.Exit(2)
+	}
+}
+
+func runPluginNew(args []string, version string) {
+	fs := flag.NewFlagSet("plums plugin new", flag.ExitOnError)
+	configDir := fs.String("config-dir", "", "config module directory (default ~/.config/plums/config)")
+	defaultPlumsVersion, defaultPlumsDir := configBuildSource(version)
+	plumsDir := fs.String("plums-dir", defaultPlumsDir, "local github.com/Ceinl/plums module checkout for a replace directive")
+	plumsVersion := fs.String("plums-version", defaultPlumsVersion, "github.com/Ceinl/plums module version to require")
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "plums plugin new: %v\n", err)
+		os.Exit(2)
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "usage: plums plugin new <name>")
+		os.Exit(2)
+	}
+	result, err := scaffold.NewPlugin(scaffold.PluginOptions{
+		ConfigDir:      *configDir,
+		Name:           fs.Arg(0),
+		PlumsVersion:   *plumsVersion,
+		PlumsModuleDir: *plumsDir,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "plums plugin new: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stdout, "created plugin %s\n", result.Dir)
+	fmt.Fprintf(os.Stdout, "\nAdd it to config.go:\n\n")
+	fmt.Fprintf(os.Stdout, "import %s %q\n\n", result.PackageName, result.ImportPath)
+	fmt.Fprintf(os.Stdout, "%s.New(%s.Options{})\n", result.PackageName, result.PackageName)
 }

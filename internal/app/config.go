@@ -8,8 +8,13 @@ import (
 	"github.com/Ceinl/plums/internal/app/defaults"
 )
 
+type InitConfigOptions struct {
+	PlumsVersion   string
+	PlumsModuleDir string
+}
+
 // InitGlobalConfig creates the default config files in ~/.config/plums/config.
-func InitGlobalConfig() (string, error) {
+func InitGlobalConfig(opts ...InitConfigOptions) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -18,7 +23,12 @@ func InitGlobalConfig() (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	if err := defaults.WriteAll(dir); err != nil {
+	options := defaults.Options{}
+	if len(opts) > 0 {
+		options.PlumsVersion = opts[0].PlumsVersion
+		options.PlumsModuleDir = opts[0].PlumsModuleDir
+	}
+	if err := defaults.WriteAll(dir, options); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -33,25 +43,6 @@ func UserConfigGoPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".config", "plums", "config", "config.go"), nil
-}
-
-// ResolveConfigPath reports the global config directory,
-// ~/.config/plums/config. plums is global-only (neovim style): there is no
-// project-local config. When the directory does not exist, "" is returned so
-// callers fall back to the built-in defaults (works out of the box).
-func ResolveConfigPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(home, ".config", "plums", "config")
-	if _, err := os.Stat(dir); err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	return dir, nil
 }
 
 // ValidBackendProvider reports whether provider names a backend plums ships.

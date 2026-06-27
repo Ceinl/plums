@@ -11,6 +11,7 @@ import (
 	"github.com/Ceinl/plums/capabilities"
 	cfgpkg "github.com/Ceinl/plums/config"
 	"github.com/Ceinl/plums/internal/app"
+	internalbuild "github.com/Ceinl/plums/internal/build"
 	"github.com/Ceinl/plums/internal/builtincfg"
 	"github.com/Ceinl/plums/internal/core"
 	opencodebackend "github.com/Ceinl/plums/internal/core/backend/opencode"
@@ -30,6 +31,7 @@ type Config struct {
 	BackendProvider   string
 
 	InitConfig   bool
+	NoConfig     bool
 	ClearHistory bool
 	ShowVersion  bool
 	ShowDoctor   bool
@@ -44,6 +46,15 @@ type runtimeDefaults struct {
 	ListTimeout          time.Duration
 }
 
+// durationOrDefault converts a millisecond Opts value to a Duration, falling
+// back to def when the value is unset (zero or negative).
+func durationOrDefault(ms int, def time.Duration) time.Duration {
+	if ms > 0 {
+		return time.Duration(ms) * time.Millisecond
+	}
+	return def
+}
+
 func defaultRuntimeDefaults() runtimeDefaults {
 	return runtimeDefaults{
 		AppVersion:           "0.1.0-dev",
@@ -56,7 +67,13 @@ func defaultRuntimeDefaults() runtimeDefaults {
 }
 
 type resolvedKernelConfig struct {
-	Config   cfgpkg.Config
+	Config cfgpkg.Config
+	// Declared is the merged Opts BEFORE dynamic-pref resolution, so its
+	// cfg.Dynamic / unset markers still reflect what the config declared. The
+	// dynamic-pref writer reads this to decide which fields it may persist;
+	// reading Config.Opts instead would see resolved literals and refuse to save
+	// any field that already had a stored value.
+	Declared cfgpkg.Opts
 	Settings capabilities.Settings
 }
 
@@ -83,15 +100,17 @@ func resolveKernelConfig(cfg *Config, wd string) (*resolvedKernelConfig, error) 
 	})
 
 	merged := base
-	if external, ok := cfgpkg.Registered(); ok {
-		merged = cfgpkg.Merge(merged, external())
+	if cfg == nil || !cfg.NoConfig {
+		if external, ok := cfgpkg.Registered(); ok {
+			merged = cfgpkg.Merge(merged, external())
+		}
 	}
 
 	// CLI-flag overlay — flags express the same settings as Opts so they slot
 	// into the merge after the user config (flags win).
 	overlay := cfgpkg.Opts{}
 	if cfg != nil {
-		if provider := strings.ToLower(strings.TrimSpace(cfg.BackendProvider)); provider != "" && provider != "opencode" {
+		if provider := strings.ToLower(strings.TrimSpace(cfg.BackendProvider)); provider != "" {
 			if !app.ValidBackendProvider(provider) {
 				return nil, fmt.Errorf("unsupported backend provider %q", provider)
 			}
@@ -103,6 +122,11 @@ func resolveKernelConfig(cfg *Config, wd string) (*resolvedKernelConfig, error) 
 	}
 	merged.Opts = cfgpkg.MergeOpts(merged.Opts, overlay)
 
+	// Capture the dynamic declaration before resolution: ApplyDynamicPrefs rewrites
+	// Dynamic sentinels to stored literals, which would otherwise hide from the
+	// pref writer that the field is still meant to be runtime-remembered.
+	declared := merged.Opts
+
 	// Dynamic-prefs overlay: for every Opts field declared cfg.Dynamic, seed its
 	// remembered value from the app-managed state.toml store.
 	merged.Opts = app.ApplyDynamicPrefs(merged.Opts)
@@ -110,6 +134,7 @@ func resolveKernelConfig(cfg *Config, wd string) (*resolvedKernelConfig, error) 
 	settings := merged.Opts.ToSettings(builtincfg.Defaults())
 	return &resolvedKernelConfig{
 		Config:   merged,
+		Declared: declared,
 		Settings: settings,
 	}, nil
 }
@@ -135,10 +160,14 @@ func DefaultConfig() *Config {
 // RegisterFlags binds CLI flags to the supplied Config.
 func RegisterFlags(cfg *Config) {
 	flag.StringVar(&cfg.OpencodeServerURL, "server-url", cfg.OpencodeServerURL, "opencode server URL")
-	flag.StringVar(&cfg.BackendProvider, "provider", cfg.BackendProvider, "backend provider: opencode, codex, claude, or claude-mirror")
+	// Default empty (not cfg.BackendProvider) so an explicit -provider opencode is
+	// distinguishable from "flag unset" and can override a config that pinned a
+	// different backend. When unset, the merged config supplies the default.
+	flag.StringVar(&cfg.BackendProvider, "provider", "", "backend provider: opencode, codex, claude, or claude-mirror")
 	flag.BoolVar(&cfg.ClearHistory, "clear-history", false, "hide pre-existing backend sessions; show only sessions created in this run")
 	flag.BoolVar(&cfg.ClearHistory, "ch", false, "hide pre-existing backend sessions; show only sessions created in this run")
 	flag.BoolVar(&cfg.InitConfig, "init-config", false, "create default config files in ~/.config/plums/config and exit")
+	flag.BoolVar(&cfg.NoConfig, "no-config", false, "run with built-in defaults and do not load or create user config")
 	flag.BoolVar(&cfg.ShowVersion, "version", false, "show version metadata and exit")
 	flag.BoolVar(&cfg.ShowDoctor, "doctor", false, "print resolved plums registry and exit")
 }
@@ -162,7 +191,9 @@ func Run(cfg *Config) error {
 	}
 
 	if cfg.InitConfig {
-		path, err := app.InitGlobalConfig()
+		path, err := app.InitGlobalConfig(app.InitConfigOptions{
+			PlumsVersion: internalbuild.ModuleVersion(cfg.Version),
+		})
 		if err != nil {
 			return err
 		}
@@ -172,7 +203,9 @@ func Run(cfg *Config) error {
 
 	// First-run auto-seed: if the compiled user config is absent, create it so
 	// auto-build picks it up. Non-fatal — warn and continue on error.
-	maybeSeedUserConfig()
+	if !cfg.NoConfig {
+		maybeSeedUserConfig(cfg)
+	}
 
 	renderConfig := app.NewRenderConfig()
 
@@ -206,21 +239,35 @@ func Run(cfg *Config) error {
 
 	registry := core.NewAgentRegistry()
 	defs := defaultRuntimeDefaults()
+	opts := resolved.Config.Opts
+
+	// Output sizing has two complementary spellings: a concrete OutputPercent
+	// wins (split left width is its complement); otherwise SplitLeftWidth drives.
+	// A still-Dynamic OutputPercent (declared Dynamic, no stored value) is skipped
+	// so it falls through to SplitLeftWidth rather than resolving to zero.
+	splitLeftWidth := settings.SplitLeftWidth
+	if op := opts.OutputPercent; op.Set() && !op.IsDynamic() {
+		splitLeftWidth = 100 - op.Value(0)
+	}
 
 	runCfg := app.RunConfig{
 		BackendProvider:      settings.Backend,
 		ClipboardCommand:     settings.ClipboardCommand,
-		SpinnerInterval:      defs.SpinnerInterval,
-		HealthTimeout:        defs.HealthTimeout,
-		QuestionReplyTimeout: defs.QuestionReplyTimeout,
-		RecentModelTimeout:   defs.RecentModelTimeout,
-		ListTimeout:          defs.ListTimeout,
+		SpinnerInterval:      durationOrDefault(opts.SpinnerIntervalMS, defs.SpinnerInterval),
+		HealthTimeout:        durationOrDefault(opts.HealthTimeoutMS, defs.HealthTimeout),
+		QuestionReplyTimeout: durationOrDefault(opts.QuestionReplyTimeoutMS, defs.QuestionReplyTimeout),
+		RecentModelTimeout:   durationOrDefault(opts.RecentModelTimeoutMS, defs.RecentModelTimeout),
+		ListTimeout:          durationOrDefault(opts.ListTimeoutMS, defs.ListTimeout),
 		WorkingDirectory:     wd,
-		DynamicPrefs:         resolved.Config.Opts,
+		DynamicPrefs:         resolved.Declared,
 		DefaultLayout:        defaultLayout,
+		Mode:                 settings.Mode,
+		Model:                settings.Model,
 		Theme:                settings.Theme,
 		HideThinking:         settings.HideThinking,
-		SplitLeftWidth:       settings.SplitLeftWidth,
+		ThinkingVisibility:   settings.ThinkingVisibility,
+		ToolCallVisibility:   settings.ToolCallVisibility,
+		SplitLeftWidth:       splitLeftWidth,
 		ClearHistory:         settings.ClearHistory,
 	}
 
@@ -326,7 +373,7 @@ func loadKernelForConfig(cfg *Config) (*kernel.Loaded, error) {
 // ~/.config/plums/config/config.go is absent) so auto-build picks it up without
 // requiring -init-config. Failures are non-fatal: warn and continue with the
 // built-in Default Config.
-func maybeSeedUserConfig() {
+func maybeSeedUserConfig(cfg *Config) {
 	path, err := app.UserConfigGoPath()
 	if err != nil {
 		debuglog.Printf("config: cannot resolve user config path: %v", err)
@@ -338,7 +385,11 @@ func maybeSeedUserConfig() {
 		debuglog.Printf("config: cannot stat user config: %v", err)
 		return
 	}
-	dir, err := app.InitGlobalConfig()
+	version := ""
+	if cfg != nil {
+		version = internalbuild.ModuleVersion(cfg.Version)
+	}
+	dir, err := app.InitGlobalConfig(app.InitConfigOptions{PlumsVersion: version})
 	if err != nil {
 		debuglog.Printf("config: first-run seed failed: %v", err)
 		return
