@@ -47,6 +47,76 @@ func TestNewPluginSeedsConfigModuleAndPlugin(t *testing.T) {
 	assertParseGo(t, filepath.Join(configDir, "plugins", "hello-world", "hello_world_test.go"))
 }
 
+func TestWirePluginAddsImportAndPluginEntry(t *testing.T) {
+	configDir := t.TempDir()
+	if _, err := NewPlugin(PluginOptions{ConfigDir: configDir, Name: "hello-world"}); err != nil {
+		t.Fatalf("NewPlugin() error = %v", err)
+	}
+
+	result, err := WirePlugin(WireOptions{
+		ConfigDir:   configDir,
+		ImportPath:  "github.com/Ceinl/plums-user/plugins/hello-world",
+		PackageName: "hello_world",
+	})
+	if err != nil {
+		t.Fatalf("WirePlugin() error = %v", err)
+	}
+	if !result.Changed {
+		t.Fatal("WirePlugin() Changed = false, want true")
+	}
+	data, err := os.ReadFile(filepath.Join(configDir, "config.go"))
+	if err != nil {
+		t.Fatalf("read config.go: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		`hello_world "github.com/Ceinl/plums-user/plugins/hello-world"`,
+		`hello_world.New(hello_world.Options{})`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("config.go missing %q:\n%s", want, text)
+		}
+	}
+	assertParseGo(t, filepath.Join(configDir, "config.go"))
+
+	again, err := WirePlugin(WireOptions{
+		ConfigDir:   configDir,
+		ImportPath:  "github.com/Ceinl/plums-user/plugins/hello-world",
+		PackageName: "hello_world",
+	})
+	if err != nil {
+		t.Fatalf("second WirePlugin() error = %v", err)
+	}
+	if again.Changed {
+		t.Fatal("second WirePlugin() Changed = true, want idempotent false")
+	}
+}
+
+func TestListPluginsMarksWiredLocalPlugins(t *testing.T) {
+	configDir := t.TempDir()
+	if _, err := NewPlugin(PluginOptions{ConfigDir: configDir, Name: "hello-world"}); err != nil {
+		t.Fatalf("NewPlugin() error = %v", err)
+	}
+	if _, err := WirePlugin(WireOptions{
+		ConfigDir:   configDir,
+		ImportPath:  "github.com/Ceinl/plums-user/plugins/hello-world",
+		PackageName: "hello_world",
+	}); err != nil {
+		t.Fatalf("WirePlugin() error = %v", err)
+	}
+
+	plugins, err := ListPlugins(ConfigOptions{ConfigDir: configDir})
+	if err != nil {
+		t.Fatalf("ListPlugins() error = %v", err)
+	}
+	if len(plugins) != 1 {
+		t.Fatalf("plugins = %+v, want one", plugins)
+	}
+	if !plugins[0].Local || !plugins[0].Wired {
+		t.Fatalf("plugin = %+v, want local wired", plugins[0])
+	}
+}
+
 func TestNewPluginRejectsExistingPlugin(t *testing.T) {
 	configDir := t.TempDir()
 	if _, err := NewPlugin(PluginOptions{ConfigDir: configDir, Name: "demo"}); err != nil {
@@ -54,6 +124,13 @@ func TestNewPluginRejectsExistingPlugin(t *testing.T) {
 	}
 	if _, err := NewPlugin(PluginOptions{ConfigDir: configDir, Name: "demo"}); err == nil {
 		t.Fatal("expected duplicate plugin to fail")
+	}
+}
+
+func TestPackageNameForImportPathHandlesMajorVersion(t *testing.T) {
+	got := PackageNameForImportPath("github.com/me/plums-thing/v2@v2.0.0")
+	if got != "plums_thing" {
+		t.Fatalf("PackageNameForImportPath() = %q", got)
 	}
 }
 

@@ -241,12 +241,18 @@ func runBuild(args []string, version, commit, buildDate string, force bool) {
 
 func runPlugin(args []string, version string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: plums plugin new <name>")
+		fmt.Fprintln(os.Stderr, "usage: plums plugin <new|add|update|list> ...")
 		os.Exit(2)
 	}
 	switch args[0] {
 	case "new":
 		runPluginNew(args[1:], version)
+	case "add":
+		runPluginAdd(args[1:], version)
+	case "update":
+		runPluginUpdate(args[1:], version)
+	case "list":
+		runPluginList(args[1:], version)
 	default:
 		fmt.Fprintf(os.Stderr, "plums plugin: unknown command %q\n", args[0])
 		os.Exit(2)
@@ -259,6 +265,7 @@ func runPluginNew(args []string, version string) {
 	defaultPlumsVersion, defaultPlumsDir := configBuildSource(version)
 	plumsDir := fs.String("plums-dir", defaultPlumsDir, "local github.com/Ceinl/plums module checkout for a replace directive")
 	plumsVersion := fs.String("plums-version", defaultPlumsVersion, "github.com/Ceinl/plums module version to require")
+	noWire := fs.Bool("no-wire", false, "create files but do not add the plugin to config.go")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "plums plugin new: %v\n", err)
 		os.Exit(2)
@@ -278,7 +285,136 @@ func runPluginNew(args []string, version string) {
 		os.Exit(1)
 	}
 	fmt.Fprintf(os.Stdout, "created plugin %s\n", result.Dir)
+	if !*noWire {
+		wire, err := scaffold.WirePlugin(scaffold.WireOptions{
+			ConfigDir:   *configDir,
+			ImportPath:  result.ImportPath,
+			PackageName: result.PackageName,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "plums plugin new: %v\n", err)
+		} else if wire.Changed {
+			fmt.Fprintf(os.Stdout, "wired %s into %s\n", wire.Expression, wire.ConfigPath)
+			return
+		} else {
+			fmt.Fprintf(os.Stdout, "%s already wired in %s\n", wire.Expression, wire.ConfigPath)
+			return
+		}
+	}
 	fmt.Fprintf(os.Stdout, "\nAdd it to config.go:\n\n")
 	fmt.Fprintf(os.Stdout, "import %s %q\n\n", result.PackageName, result.ImportPath)
 	fmt.Fprintf(os.Stdout, "%s.New(%s.Options{})\n", result.PackageName, result.PackageName)
+}
+
+func runPluginAdd(args []string, version string) {
+	fs := flag.NewFlagSet("plums plugin add", flag.ExitOnError)
+	configDir := fs.String("config-dir", "", "config module directory (default ~/.config/plums/config)")
+	defaultPlumsVersion, defaultPlumsDir := configBuildSource(version)
+	plumsDir := fs.String("plums-dir", defaultPlumsDir, "local github.com/Ceinl/plums module checkout for a replace directive")
+	plumsVersion := fs.String("plums-version", defaultPlumsVersion, "github.com/Ceinl/plums module version to require")
+	noWire := fs.Bool("no-wire", false, "download module but do not add the plugin to config.go")
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "plums plugin add: %v\n", err)
+		os.Exit(2)
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "usage: plums plugin add <go-import-path[@version]>")
+		os.Exit(2)
+	}
+	target := fs.Arg(0)
+	if _, err := scaffold.AddModule(context.Background(), scaffold.ModuleOptions{
+		ConfigDir:      *configDir,
+		PlumsVersion:   *plumsVersion,
+		PlumsModuleDir: *plumsDir,
+		Stdout:         os.Stdout,
+		Stderr:         os.Stderr,
+	}, target); err != nil {
+		fmt.Fprintf(os.Stderr, "plums plugin add: %v\n", err)
+		os.Exit(1)
+	}
+	importPath := scaffold.ImportPathForGetTarget(target)
+	packageName := scaffold.PackageNameForImportPath(importPath)
+	fmt.Fprintf(os.Stdout, "added plugin module %s\n", target)
+	if !*noWire {
+		wire, err := scaffold.WirePlugin(scaffold.WireOptions{
+			ConfigDir:   *configDir,
+			ImportPath:  importPath,
+			PackageName: packageName,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "plums plugin add: %v\n", err)
+		} else if wire.Changed {
+			fmt.Fprintf(os.Stdout, "wired %s into %s\n", wire.Expression, wire.ConfigPath)
+			return
+		} else {
+			fmt.Fprintf(os.Stdout, "%s already wired in %s\n", wire.Expression, wire.ConfigPath)
+			return
+		}
+	}
+	fmt.Fprintf(os.Stdout, "\nAdd it to config.go:\n\n")
+	fmt.Fprintf(os.Stdout, "import %s %q\n\n", packageName, importPath)
+	fmt.Fprintf(os.Stdout, "%s.New(%s.Options{})\n", packageName, packageName)
+}
+
+func runPluginUpdate(args []string, version string) {
+	fs := flag.NewFlagSet("plums plugin update", flag.ExitOnError)
+	configDir := fs.String("config-dir", "", "config module directory (default ~/.config/plums/config)")
+	defaultPlumsVersion, defaultPlumsDir := configBuildSource(version)
+	plumsDir := fs.String("plums-dir", defaultPlumsDir, "local github.com/Ceinl/plums module checkout for a replace directive")
+	plumsVersion := fs.String("plums-version", defaultPlumsVersion, "github.com/Ceinl/plums module version to require")
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "plums plugin update: %v\n", err)
+		os.Exit(2)
+	}
+	if _, err := scaffold.UpdateModules(context.Background(), scaffold.ModuleOptions{
+		ConfigDir:      *configDir,
+		PlumsVersion:   *plumsVersion,
+		PlumsModuleDir: *plumsDir,
+		Stdout:         os.Stdout,
+		Stderr:         os.Stderr,
+	}, fs.Args()); err != nil {
+		fmt.Fprintf(os.Stderr, "plums plugin update: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintln(os.Stdout, "updated plugin dependencies")
+}
+
+func runPluginList(args []string, version string) {
+	fs := flag.NewFlagSet("plums plugin list", flag.ExitOnError)
+	configDir := fs.String("config-dir", "", "config module directory (default ~/.config/plums/config)")
+	defaultPlumsVersion, defaultPlumsDir := configBuildSource(version)
+	plumsDir := fs.String("plums-dir", defaultPlumsDir, "local github.com/Ceinl/plums module checkout for a replace directive")
+	plumsVersion := fs.String("plums-version", defaultPlumsVersion, "github.com/Ceinl/plums module version to require")
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "plums plugin list: %v\n", err)
+		os.Exit(2)
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "usage: plums plugin list")
+		os.Exit(2)
+	}
+	plugins, err := scaffold.ListPlugins(scaffold.ConfigOptions{
+		ConfigDir:      *configDir,
+		PlumsVersion:   *plumsVersion,
+		PlumsModuleDir: *plumsDir,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "plums plugin list: %v\n", err)
+		os.Exit(1)
+	}
+	if len(plugins) == 0 {
+		fmt.Fprintln(os.Stdout, "no plugins found")
+		return
+	}
+	for _, plugin := range plugins {
+		kind := "module"
+		if plugin.Local {
+			kind = "local"
+		}
+		status := "not wired"
+		if plugin.Wired {
+			status = "wired"
+		}
+		fmt.Fprintf(os.Stdout, "%-8s %-10s %s\n", kind, status, plugin.ImportPath)
+	}
 }

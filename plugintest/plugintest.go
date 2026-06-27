@@ -101,6 +101,16 @@ func checkComponents(plugin any) []error {
 			errs = append(errs, fmt.Errorf("component %q is registered more than once", name))
 		}
 		seen[name] = struct{}{}
+		if instancer, ok := component.(capabilities.ComponentInstancer); ok {
+			component = instancer.NewComponent()
+			if component == nil {
+				errs = append(errs, fmt.Errorf("component %q NewComponent returned nil", name))
+				continue
+			}
+		}
+		if err := renderSmoke(component); err != nil {
+			errs = append(errs, fmt.Errorf("component %q render smoke failed: %w", name, err))
+		}
 	}
 	return errs
 }
@@ -126,6 +136,9 @@ func checkLayouts(plugin any) []error {
 			errs = append(errs, fmt.Errorf("layout %q is registered more than once", name))
 		}
 		seen[name] = struct{}{}
+		if layout.Tree() == nil {
+			errs = append(errs, fmt.Errorf("layout %q has nil Tree", name))
+		}
 	}
 	return errs
 }
@@ -191,3 +204,55 @@ type fakeSelection struct{}
 
 func (fakeSelection) Current() string { return "" }
 func (fakeSelection) Copy() error     { return nil }
+
+func renderSmoke(component capabilities.Component) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	component.Arrange(capabilities.Rect{W: 40, H: 8})
+	component.Render(fakeRenderCtx{}, fakeSurface{w: 40, h: 8})
+	return nil
+}
+
+type fakeRenderCtx struct{}
+
+func (fakeRenderCtx) Rect() capabilities.Rect                  { return capabilities.Rect{W: 40, H: 8} }
+func (fakeRenderCtx) Theme() capabilities.Theme                { return capabilities.Theme{Name: "test"} }
+func (fakeRenderCtx) Background() string                       { return "" }
+func (fakeRenderCtx) Messages() []capabilities.Message         { return nil }
+func (fakeRenderCtx) Streaming() bool                          { return false }
+func (fakeRenderCtx) StreamingText() string                    { return "" }
+func (fakeRenderCtx) ThinkingVisibility() int                  { return 0 }
+func (fakeRenderCtx) ToolCallVisibility() int                  { return 0 }
+func (fakeRenderCtx) Session() capabilities.Session            { return capabilities.Session{} }
+func (fakeRenderCtx) Input() capabilities.EditorView           { return fakeEditorView{} }
+func (fakeRenderCtx) ServerStarting() bool                     { return false }
+func (fakeRenderCtx) ServerReady() bool                        { return true }
+func (fakeRenderCtx) Mode() string                             { return "build" }
+func (fakeRenderCtx) SpinnerFrame() int                        { return 0 }
+func (fakeRenderCtx) Sessions() []capabilities.SessionItem     { return nil }
+func (fakeRenderCtx) SelectedSession() string                  { return "" }
+func (fakeRenderCtx) InfoView() string                         { return "ai" }
+func (fakeRenderCtx) InfoTabs() []capabilities.InfoTabItem     { return nil }
+func (fakeRenderCtx) GitDiff() string                          { return "" }
+func (fakeRenderCtx) SplitLeftPercent() int                    { return 50 }
+func (fakeRenderCtx) OutputPercent() int                       { return 50 }
+func (fakeRenderCtx) PaletteTitle() string                     { return "" }
+func (fakeRenderCtx) PaletteQuery() string                     { return "" }
+func (fakeRenderCtx) PaletteItems() []capabilities.PaletteItem { return nil }
+func (fakeRenderCtx) PaletteIndex() int                        { return 0 }
+func (fakeEditorView) Text() string                            { return "" }
+func (s fakeSurface) Width() int                               { return s.w }
+func (s fakeSurface) Height() int                              { return s.h }
+func (fakeSurface) Set(int, int, rune, string, string, string) {}
+func (fakeSurface) SetCursor(int, int)                         {}
+func (fakeSurface) ShowCursor()                                {}
+
+type fakeEditorView struct{}
+
+type fakeSurface struct {
+	w int
+	h int
+}

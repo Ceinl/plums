@@ -32,6 +32,16 @@ func TestCheckPluginReportsBadCommand(t *testing.T) {
 	}
 }
 
+func TestCheckPluginReportsComponentRenderPanic(t *testing.T) {
+	errs := CheckPlugin(config.Plugin{Self: &componentPlugin{}})
+	if len(errs) == 0 {
+		t.Fatal("expected render smoke error")
+	}
+	if got := joinErrors(errs); !strings.Contains(got, "render smoke failed") {
+		t.Fatalf("errors missing render smoke failure: %s", got)
+	}
+}
+
 type testOptions struct {
 	Message string
 }
@@ -72,4 +82,20 @@ func joinErrors(errs []error) string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+type componentPlugin struct{}
+
+func (*componentPlugin) Name() string                      { return "component" }
+func (*componentPlugin) Init(capabilities.Host, any) error { return nil }
+func (*componentPlugin) Components() []capabilities.Component {
+	return []capabilities.Component{panicComponent{}}
+}
+
+type panicComponent struct{}
+
+func (panicComponent) Name() string              { return "panic_component" }
+func (panicComponent) Arrange(capabilities.Rect) {}
+func (panicComponent) Render(capabilities.RenderCtx, capabilities.Surface) {
+	panic("boom")
 }
