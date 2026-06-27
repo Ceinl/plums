@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Ceinl/plums/capabilities"
+	"github.com/Ceinl/plums/internal/core/backend/streambridge"
 	provider "github.com/Ceinl/plums/internal/core/provider/opencode"
 	"github.com/Ceinl/plums/internal/debuglog"
 )
@@ -60,7 +61,7 @@ func (b backend) Health(ctx context.Context) error {
 
 func (b backend) CreateSession(ctx context.Context, dir string) (*capabilities.Session, error) {
 	session, err := b.client.CreateSession(ctx, dir)
-	return toSessionPtr(session), err
+	return streambridge.Ptr(session, toSession), err
 }
 
 func (b backend) ListSessions(ctx context.Context) ([]capabilities.Session, error) {
@@ -68,16 +69,12 @@ func (b backend) ListSessions(ctx context.Context) ([]capabilities.Session, erro
 	if err != nil {
 		return nil, err
 	}
-	out := make([]capabilities.Session, 0, len(sessions))
-	for _, session := range sessions {
-		out = append(out, toSession(session))
-	}
-	return out, nil
+	return streambridge.Map(sessions, toSession), nil
 }
 
 func (b backend) GetSession(ctx context.Context, id string) (*capabilities.Session, error) {
 	session, err := b.client.GetSession(ctx, id)
-	return toSessionPtr(session), err
+	return streambridge.Ptr(session, toSession), err
 }
 
 func (b backend) ListMessages(ctx context.Context, id string) ([]capabilities.MessageResponse, error) {
@@ -85,11 +82,7 @@ func (b backend) ListMessages(ctx context.Context, id string) ([]capabilities.Me
 	if err != nil {
 		return nil, err
 	}
-	out := make([]capabilities.MessageResponse, 0, len(messages))
-	for _, message := range messages {
-		out = append(out, toMessageResponse(message))
-	}
-	return out, nil
+	return streambridge.Map(messages, toMessageResponse), nil
 }
 
 func (b backend) ListProviders(ctx context.Context) ([]capabilities.Provider, []string, error) {
@@ -97,23 +90,12 @@ func (b backend) ListProviders(ctx context.Context) ([]capabilities.Provider, []
 	if err != nil {
 		return nil, nil, err
 	}
-	out := make([]capabilities.Provider, 0, len(providers))
-	for _, provider := range providers {
-		out = append(out, toProvider(provider))
-	}
-	return out, append([]string(nil), connected...), nil
+	return streambridge.Map(providers, toProvider), append([]string(nil), connected...), nil
 }
 
 func (b backend) SendMessageEvents(ctx context.Context, id, text, providerID, modelID, agent string) <-chan capabilities.StreamEvent {
 	in := b.client.SendMessageEvents(ctx, id, text, providerID, modelID, agent)
-	out := make(chan capabilities.StreamEvent)
-	go func() {
-		defer close(out)
-		for event := range in {
-			out <- toStreamEvent(event)
-		}
-	}()
-	return out
+	return streambridge.Forward(ctx, in, toStreamEvent)
 }
 
 func (b backend) ReplyQuestion(ctx context.Context, requestID string, answers [][]string) error {
@@ -153,14 +135,6 @@ func startup(wd string, healthTimeout time.Duration, client *provider.Client) fu
 		}
 		return result, nil
 	}
-}
-
-func toSessionPtr(session *provider.Session) *capabilities.Session {
-	if session == nil {
-		return nil
-	}
-	out := toSession(*session)
-	return &out
 }
 
 func toSession(session provider.Session) capabilities.Session {
