@@ -1,4 +1,4 @@
-On changing/creating a layout, command, keybinding or runtime setting, edit the embedded defaults in `internal/app/defaults` (`config.toml`, `layout.json`, `commands.json`, `config.go.tmpl`) — they are the source of truth seeded to the global config. plums is global-only (neovim style): user config lives at `~/.config/plums/config`; there is no project-local config.
+On changing/creating a layout, command, keybinding or runtime setting, edit the built-in Default Config in `internal/builtincfg` (default `Opts` + the bundled plugin set) and the relevant bundled plugin under `plugins/` or `internal/kernel/builtin` — that compiled Default Config is the source of truth, merged under any external user config. The first-run user config is seeded from the `internal/app/defaults/config.go.tmpl` template. There is no TOML/JSON config layer. plums is global-only (neovim style): user config lives at `~/.config/plums/config`; there is no project-local config.
 On creating a new backend, all raw-protocol changes stay in the provider package under `internal/core/provider/<name>`; all domain translation stays in the bridge under `internal/core/backend/<name>`. Do not change provider-package logic unless necessary.
 
 This project is a VERY EARLY WIP. Maintain structure, and proposing changes that improve long-term maintainability is encouraged.
@@ -24,7 +24,9 @@ terms:
 ```
 cmd/plums/main.go            → plums/runtime.Main (ldflags, flags, `plums build`)
 internal/api                 → wiring: resolve config → kernel.Load → app.Run
-plums/                       → PUBLIC API (the plugin contract; imports nothing internal)
+capabilities/                → PUBLIC plugin floor (interfaces + domain types; imports nothing internal)
+config/                      → PUBLIC authoring surface (Config, Opts, config.Use) — builds on capabilities
+plums/{layout,runtime}/      → PUBLIC layout builders + the binary entrypoint
 internal/kernel              → registry (last-wins) + plugin loader + bundled `builtin` plugins
 internal/app                 → the runtime host: event loop, State store, render driver,
                                built-in components, public-component adapter
@@ -37,26 +39,22 @@ Dependencies point **inward**: `provider` knows only its protocol (never imports
 the `backend` bridge imports both the raw client and `plums`; `plums` imports nothing
 internal. See DESIGN.md §5.4 for the ACL discipline.
 
-## The public API — package `plums/`
+## The public API — `capabilities/`, `config/`, `plums/`
 
 This is the frozen-ish contract a plugin (or the user's compiled config) is written against.
 
-- `plugin.go`   — `Plugin` (`Name`, `Init(Host)`), `Host`, and the optional capability
-  interfaces discovered by type assertion: `CommandProvider`, `ComponentProvider`,
-  `LayoutProvider`, `BackendProvider`, and the `OnMessage`/`OnSessionStart`/`OnToolCall` hooks.
-- `config.go`   — `Config` (`Settings`+`Plugins`) and `Settings`. `plums.Use(cfg)` registers
-  the compiled user config (the xmonad model; see DESIGN.md §8 and `plums build`).
-- `component.go` — `Component` (`Name`/`Arrange`/`Render`), `Surface` (the cell drawing
-  primitive), `RenderCtx` (the only read path into state), `Layout`/`Node`, and optional
-  component capabilities: `ComponentInstancer` (per-slot instance), `KeyHandler`,
-  `MouseHandler`, `SelectionProvider`, `Scrollable`, `DirtyTracker`.
-- `command.go`  — `Command` and `Ctx` (runtime verbs: `Send`, `Chat`, `Copy`, `Shell`,
-  `SetLayout`, `OpenList`, …).
-- `backend.go`  — `Backend` port + `BackendRegistration` (name/label/backend/startup) + the
-  domain model (`Session`, `Provider`, `Model`, `StreamEvent`, `ToolCall`, `QuestionRequest`).
-- `registry.go` — `RegistryKind`/`RegistryKey` for override + `Settings.Disable`.
-- `layout/`     — Go builders for layout trees (`Split`, `Column`, `Chat`, `Editor`, …).
-- `runtime/`    — `runtime.Main`/`runtime.Run`: the entrypoint stock and generated binaries call.
+- `capabilities/capabilities.go` — the plugin floor in one file: `Plugin` (`Name`,
+  `Init(Host, any)`), `Host`/`Services`, the optional capability interfaces discovered by type
+  assertion (`CommandProvider`, `ComponentProvider`, `LayoutProvider`, `BackendProvider`, the
+  `OnMessage`/`OnSessionStart`/`OnToolCall`/`OnShutdown` hooks), the `Component`/`Surface`/
+  `RenderCtx` render contract, `Command`/`Ctx` runtime verbs, the `Backend` port +
+  `BackendRegistration`, the domain model (`Session`, `Provider`, `Model`, `StreamEvent`,
+  `ToolCall`, `QuestionRequest`), `Settings`, and `RegistryKind`/`RegistryKey` for override.
+- `config/`   — the authoring surface: `Config` (`Opts`+`Plugins`), the sentinel `Opts` field
+  types (`Pref`/`Bool`/`Count`, `Dynamic`), `Merge`/`MergeOpts`, and `config.Use(func() Config)`
+  which registers the compiled user config (the xmonad model; see DESIGN.md §8 and `plums build`).
+- `plums/layout/`  — Go builders for layout trees (`Split`, `Column`, `Chat`, `Editor`, …).
+- `plums/runtime/` — `runtime.Main`/`runtime.Run`: the entrypoint stock and generated binaries call.
 
 ## The kernel — `internal/kernel/`
 
@@ -125,9 +123,10 @@ inward over time; today the kernel feeds them).
 - Grow `RenderCtx`/`Ctx` when a built-in genuinely needs a verb — that accretion *is* the API being
   driven to completeness by dogfooding (DESIGN.md §2.4, §6). Don't add privileged `*State` reads.
 - `internal/api` is the only wiring layer and is what `cmd/plums/main.go` (via `plums/runtime`) calls.
-- Runtime settings come from the embedded `internal/app/defaults` TOML (or the user's global
-  `~/.config/plums/config`), resolved into `plums.Settings`. The compiled-Go config
-  (`plums.Use` + `plums build`) is the target path; launching plums auto-builds the user's
+- Runtime settings come from the compiled built-in Default Config (`internal/builtincfg`),
+  merged under the user's compiled global config (`~/.config/plums/config`) and the CLI-flag
+  overlay, then resolved into `capabilities.Settings`. The compiled-Go config
+  (`config.Use` + `plums build`) is the target path; launching plums auto-builds the user's
   `~/.config/plums/config/config.go` when present (neovim style).
 - Default opencode port is derived from `os.Getwd()` via FNV hash into 49152–65535, so every
   project/worktree gets its own isolated `opencode serve`. Pin a fixed port in config if needed.

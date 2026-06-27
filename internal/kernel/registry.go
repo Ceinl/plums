@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/Ceinl/plums/capabilities"
 )
@@ -81,21 +80,6 @@ func (r *Registry) Entry(kind capabilities.RegistryKind, name string) (Entry, bo
 	}
 	entry, ok := byName[name]
 	return entry, ok
-}
-
-func (r *Registry) Entries(kind capabilities.RegistryKind) []Entry {
-	byName := r.entries[kind]
-	if byName == nil {
-		return nil
-	}
-	entries := make([]Entry, 0, len(byName))
-	for _, entry := range byName {
-		entries = append(entries, entry)
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name < entries[j].Name
-	})
-	return entries
 }
 
 func (r *Registry) EntriesInRegistrationOrder(kind capabilities.RegistryKind) []Entry {

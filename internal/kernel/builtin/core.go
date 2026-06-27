@@ -89,16 +89,3 @@ func (componentsPlugin) Init(capabilities.Host, any) error { return nil }
 func (p componentsPlugin) Components() []capabilities.Component {
 	return append([]capabilities.Component(nil), p.components...)
 }
-
-func BackendRegistrations(options CoreOptions) []capabilities.BackendRegistration {
-	return []capabilities.BackendRegistration{
-		opencodebackend.Registration(opencodebackend.Options{
-			WorkingDirectory: options.WorkingDirectory,
-			ServerURL:        options.OpencodeServerURL,
-			HealthTimeout:    options.HealthTimeout,
-		}),
-		codexbackend.Registration(),
-		claudebackend.Registration(),
-		mirrorbackend.Registration(),
-	}
-}

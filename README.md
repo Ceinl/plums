@@ -42,7 +42,7 @@ plums -init-config
 
 The user-authored config directory is `~/.config/plums/config`:
 
-- `config.go` — the compiled Go config (`plums.Use`); edit this to reshape plums.
+- `config.go` — the compiled Go config (`config.Use`); edit this to reshape plums.
   Launching `plums` auto-compiles it (cached) and runs the result; `plums build`
   builds it explicitly.
 

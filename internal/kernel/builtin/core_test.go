@@ -90,33 +90,6 @@ func TestBackendPluginExposesSingleRegistration(t *testing.T) {
 	}
 }
 
-func TestBackendRegistrations(t *testing.T) {
-	registrations := BackendRegistrations(CoreOptions{
-		WorkingDirectory:  "/tmp/project",
-		OpencodeServerURL: "http://127.0.0.1:4096",
-	})
-
-	names := make([]string, 0, len(registrations))
-	for _, registration := range registrations {
-		if registration.Backend == nil {
-			t.Fatalf("%s backend is nil", registration.Name)
-		}
-		if registration.Startup == nil {
-			t.Fatalf("%s startup is nil", registration.Name)
-		}
-		names = append(names, registration.Name)
-	}
-	want := []string{"opencode", "codex", "claude", "claude-mirror"}
-	if len(names) != len(want) {
-		t.Fatalf("backend names = %v, want %v", names, want)
-	}
-	for i := range want {
-		if names[i] != want[i] {
-			t.Fatalf("backend names = %v, want %v", names, want)
-		}
-	}
-}
-
 func TestDefaultComponents(t *testing.T) {
 	components := DefaultComponents()
 	names := make([]string, 0, len(components))

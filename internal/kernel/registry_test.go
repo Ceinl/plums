@@ -30,24 +30,6 @@ func TestEntriesInRegistrationOrder(t *testing.T) {
 	}
 }
 
-func TestEntriesRemainSortedByName(t *testing.T) {
-	reg := NewRegistry(nil)
-	if err := reg.Register(capabilities.RegistryBackend, "opencode", 1, "core"); err != nil {
-		t.Fatal(err)
-	}
-	if err := reg.Register(capabilities.RegistryBackend, "codex", 2, "core"); err != nil {
-		t.Fatal(err)
-	}
-
-	entries := reg.Entries(capabilities.RegistryBackend)
-	if len(entries) != 2 {
-		t.Fatalf("entry count = %d, want 2", len(entries))
-	}
-	if entries[0].Name != "codex" || entries[1].Name != "opencode" {
-		t.Fatalf("entries not sorted by name: %+v", entries)
-	}
-}
-
 func TestEntriesInRegistrationOrderSkipsDisabled(t *testing.T) {
 	reg := NewRegistry(nil)
 	if err := reg.Register(capabilities.RegistryBackend, "opencode", 1, "core"); err != nil {
