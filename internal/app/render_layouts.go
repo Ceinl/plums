@@ -41,38 +41,6 @@ func newChatLog(state *State) *components.ChatLog {
 	return chatLog
 }
 
-func newSessions(state *State, orientation components.SessionsOrientation) *components.Sessions {
-	sessions := state.Sessions()
-	if orientation == components.SessionsHorizontal {
-		sessions = state.SessionsHorizontal()
-	}
-	sessions.SetOrientation(orientation)
-	items := make([]components.SessionItem, 0, len(state.SessionItems)+1)
-	foundCurrent := false
-	for _, item := range state.SessionItems {
-		current := item.Current || item.ID == state.SessionID
-		if current {
-			foundCurrent = true
-		}
-		items = append(items, components.SessionItem{
-			ID:        item.ID,
-			Title:     item.Title,
-			Directory: item.Directory,
-			Updated:   item.Updated,
-			Current:   current,
-		})
-	}
-	if !foundCurrent && (state.SessionID != "" || state.SessionTitle != "") {
-		items = append([]components.SessionItem{{
-			ID:      state.SessionID,
-			Title:   state.SessionTitle,
-			Current: true,
-		}}, items...)
-	}
-	sessions.SetItems(items)
-	return sessions
-}
-
 // chatStatusSegments builds the coloured status line above the input box: the
 // state indicator in its status colour, the mode in accent, the model muted.
 func chatStatusSegments(state *State) []components.StatusSegment {

@@ -14,6 +14,8 @@ type infoViewComponent struct {
 	state *State
 }
 
+var _ capabilities.Scrollable = (*infoViewComponent)(nil)
+
 func NewInfoViewComponent() capabilities.Component {
 	return &infoViewComponent{}
 }
@@ -74,7 +76,14 @@ func (c *infoViewComponent) Scroll(delta int) bool {
 	if c.state == nil {
 		return false
 	}
-	return c.state.ScrollOutputVisible(delta)
+	return c.state.scrollOutputOffset(delta)
+}
+
+func (c *infoViewComponent) ScrollToBottom() bool {
+	if c.state == nil {
+		return false
+	}
+	return c.state.scrollOutputOffsetBottom()
 }
 
 // renderStateChatLog draws the State-owned chat log with the message/streaming

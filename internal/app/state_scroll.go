@@ -47,6 +47,10 @@ func (s *State) ScrollOutputVisible(delta int) bool {
 	if sc := s.activeOutputScrollable(); sc != nil {
 		return sc.Scroll(delta)
 	}
+	return s.scrollOutputOffset(delta)
+}
+
+func (s *State) scrollOutputOffset(delta int) bool {
 	before := s.outputScroll
 	s.ScrollOutput(delta)
 	if s.outputMaxSet {
@@ -102,6 +106,10 @@ func (s *State) ScrollOutputBottom() bool {
 	if sc := s.activeOutputScrollable(); sc != nil {
 		return sc.ScrollToBottom()
 	}
+	return s.scrollOutputOffsetBottom()
+}
+
+func (s *State) scrollOutputOffsetBottom() bool {
 	if s.outputScroll == 0 {
 		return false
 	}

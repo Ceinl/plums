@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Ceinl/plums/capabilities"
+	"github.com/Ceinl/plums/internal/keyboard"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
 )
 
@@ -39,4 +40,68 @@ func TestInfoViewGitDiffUsesRenderCtxBackground(t *testing.T) {
 	if got := scr.Cell(0, 0).Bg; got != bg {
 		t.Fatalf("info_view git diff bg = %q, want RenderCtx background %q", got, bg)
 	}
+}
+
+func TestSplitInfoViewWheelScrollsOutputTabs(t *testing.T) {
+	silenceStdout(t)
+	cfg := testRenderConfig(t)
+
+	for _, tc := range []struct {
+		name string
+		view InfoView
+	}{
+		{name: "ai output", view: InfoViewAI},
+		{name: "git diff", view: InfoViewGitDiff},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := NewState(120, 30)
+			state.Layout = LayoutSplit
+			state.InfoView = tc.view
+			Render(state, cfg)
+
+			adapter := publicComponentByName(state, "info_view")
+			if adapter == nil {
+				t.Fatal("split layout did not render info_view")
+			}
+			state.SetOutputMaxScroll(20)
+
+			handled := HandlePublicComponentEvent(state, keyboard.Event{
+				Type:   keyboard.KeyMouseWheelUp,
+				Mouse:  true,
+				MouseX: adapter.rect.X,
+				MouseY: adapter.rect.Y,
+			}, nil)
+			if !handled {
+				t.Fatal("wheel over split info_view was not handled")
+			}
+			if got := state.OutputScroll(); got != 3 {
+				t.Fatalf("output scroll offset = %d, want 3", got)
+			}
+		})
+	}
+}
+
+func TestSplitInfoViewIsActiveOutputScrollable(t *testing.T) {
+	silenceStdout(t)
+	cfg := testRenderConfig(t)
+	state := NewState(120, 30)
+	state.Layout = LayoutSplit
+	Render(state, cfg)
+	state.SetOutputMaxScroll(20)
+
+	if !state.ScrollOutputVisible(3) {
+		t.Fatal("split info_view did not handle visible output scroll")
+	}
+	if got := state.OutputScroll(); got != 3 {
+		t.Fatalf("output scroll offset = %d, want 3", got)
+	}
+}
+
+func publicComponentByName(state *State, name string) *publicComponentAdapter {
+	for _, adapter := range state.publicComponents {
+		if adapter.component != nil && adapter.component.Name() == name {
+			return adapter
+		}
+	}
+	return nil
 }

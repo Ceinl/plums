@@ -63,3 +63,26 @@ func TestVerticalAndHorizontalSessionsKeepSeparateHitMaps(t *testing.T) {
 		t.Fatalf("expected new session call, got %v", ctx.calls)
 	}
 }
+
+// newSessions populates and returns the State-owned Sessions widget for the
+// given orientation, mirroring what sessionsComponent.Render does in prod. It
+// lives here because only the hit-map tests need to drive the widget directly.
+func newSessions(state *State, orientation components.SessionsOrientation) *components.Sessions {
+	sessions := state.Sessions()
+	if orientation == components.SessionsHorizontal {
+		sessions = state.SessionsHorizontal()
+	}
+	sessions.SetOrientation(orientation)
+	items := make([]components.SessionItem, 0, len(state.SessionItems))
+	for _, item := range state.SessionItems {
+		items = append(items, components.SessionItem{
+			ID:        item.ID,
+			Title:     item.Title,
+			Directory: item.Directory,
+			Updated:   item.Updated,
+			Current:   item.Current || item.ID == state.SessionID,
+		})
+	}
+	sessions.SetItems(items)
+	return sessions
+}
