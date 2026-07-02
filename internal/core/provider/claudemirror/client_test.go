@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
 func TestEncodeProjectDir(t *testing.T) {
@@ -179,7 +177,7 @@ func TestTailTurnSurvivesLeakedEndTurn(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out := make(chan adapter.StreamEvent)
+	out := make(chan StreamEvent)
 	done := make(chan error, 1)
 	go func() { done <- tailTurn(ctx, out, path, 0, "", 0) }()
 
@@ -252,11 +250,11 @@ func TestEmitEntrySuppressesDeclinedResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collect := func(suppress string) []adapter.StreamEvent {
-		out := make(chan adapter.StreamEvent, 8)
+	collect := func(suppress string) []StreamEvent {
+		out := make(chan StreamEvent, 8)
 		emitEntry(context.Background(), out, entries[0], suppress)
 		close(out)
-		var got []adapter.StreamEvent
+		var got []StreamEvent
 		for ev := range out {
 			got = append(got, ev)
 		}
@@ -478,13 +476,7 @@ func TestAwaitActiveTranscriptSlashCommandTimesOut(t *testing.T) {
 // injecting blindly) when no Claude Code window is running. ps/lsof report no
 // interactive claude process in the test environment, so discovery is empty.
 func TestResetSessionRequiresWindow(t *testing.T) {
-	type resetter interface {
-		ResetSession(ctx context.Context, directory string) (*adapter.Session, error)
-	}
-	r, ok := NewBackend().(resetter)
-	if !ok {
-		t.Fatal("claude-mirror backend must implement ResetSession")
-	}
+	r := NewClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	// The assertion only holds when no interactive Claude window is running. On

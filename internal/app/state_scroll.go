@@ -1,8 +1,34 @@
 package app
 
 import (
+	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/internal/ui/tui/components"
 )
+
+// activeOutputScrollable returns the on-screen public component that owns a
+// scrollable body (e.g. chat_output), or nil when the active output pane is still
+// a legacy State-driven pane (diff log).
+func (s *State) activeOutputScrollable() capabilities.Scrollable {
+	for i := len(s.publicComponents) - 1; i >= 0; i-- {
+		if sc, ok := s.publicComponents[i].component.(capabilities.Scrollable); ok {
+			return sc
+		}
+	}
+	return nil
+}
+
+// scrollableAt returns the public scrollable component under (x, y), so wheel
+// scroll targets the pane actually beneath the cursor — independent of any other
+// scrollable panes in the layout.
+func (s *State) scrollableAt(x, y int) capabilities.Scrollable {
+	for i := len(s.publicComponents) - 1; i >= 0; i-- {
+		adapter := s.publicComponents[i]
+		if sc, ok := adapter.component.(capabilities.Scrollable); ok && adapter.contains(x, y) {
+			return sc
+		}
+	}
+	return nil
+}
 
 func (s *State) OutputScroll() int {
 	return s.outputScroll
@@ -18,6 +44,13 @@ func (s *State) ScrollOutput(delta int) bool {
 }
 
 func (s *State) ScrollOutputVisible(delta int) bool {
+	if sc := s.activeOutputScrollable(); sc != nil {
+		return sc.Scroll(delta)
+	}
+	return s.scrollOutputOffset(delta)
+}
+
+func (s *State) scrollOutputOffset(delta int) bool {
 	before := s.outputScroll
 	s.ScrollOutput(delta)
 	if s.outputMaxSet {
@@ -36,6 +69,9 @@ func (s *State) ScrollAt(x, y, delta int) bool {
 	if s.isEditorPoint(x, y) {
 		return s.Editor.Scroll(delta)
 	}
+	if sc := s.scrollableAt(x, y); sc != nil {
+		return sc.Scroll(delta)
+	}
 	return s.ScrollOutputVisible(delta)
 }
 
@@ -45,8 +81,6 @@ func (s *State) isEditorPoint(x, y int) bool {
 	}
 
 	switch s.EffectiveLayout() {
-	case LayoutFullscreen:
-		return s.FullscreenShowsEditor()
 	case LayoutSplit:
 		if s.width >= MinSplitLayoutWidth {
 			leftW := s.SplitLeftWidth()
@@ -69,6 +103,13 @@ func (s *State) ScrollOutputPage(direction int) bool {
 }
 
 func (s *State) ScrollOutputBottom() bool {
+	if sc := s.activeOutputScrollable(); sc != nil {
+		return sc.ScrollToBottom()
+	}
+	return s.scrollOutputOffsetBottom()
+}
+
+func (s *State) scrollOutputOffsetBottom() bool {
 	if s.outputScroll == 0 {
 		return false
 	}
@@ -100,7 +141,7 @@ func (s *State) invalidateOutputMax() {
 	// past the visible range and then snapping back during render.
 }
 
-func (s *State) SessionMouseDown(x, y int) bool {
+func (s *State) SessionMouseDown(ctx capabilities.Ctx, x, y int) bool {
 	sessions := s.Sessions()
 	if s.sessionsHorizontal != nil && s.sessionsHorizontal.Contains(x, y) {
 		sessions = s.sessionsHorizontal
@@ -112,21 +153,18 @@ func (s *State) SessionMouseDown(x, y int) bool {
 	s.PopupOpen = false
 	s.PaletteQuery = ""
 	s.PaletteView = PaletteViewSessions
-	s.PendingAction = PaletteActionNone
 	s.PaletteIndex = 0
 	switch action {
 	case components.SessionMouseNew:
-		s.PendingAction = PaletteActionNewSession
+		if ctx != nil {
+			ctx.Sessions().New()
+		}
 	case components.SessionMouseSelect:
 		if id == "" || id == s.SessionID {
 			return true
 		}
-		for i, item := range s.visibleSessionItems() {
-			if item.ID == id {
-				s.PaletteIndex = i
-				s.PendingAction = PaletteActionSelectSession
-				break
-			}
+		if ctx != nil {
+			ctx.Sessions().Open(id)
 		}
 	}
 	return true

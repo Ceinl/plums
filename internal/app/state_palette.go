@@ -3,29 +3,8 @@ package app
 import (
 	"strings"
 
+	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/internal/ui/tui/components"
-)
-
-type PaletteAction int
-
-const (
-	PaletteActionNone PaletteAction = iota
-	PaletteActionOpenPalette
-	PaletteActionChangeModel
-	PaletteActionSelectModel
-	PaletteActionNewSession
-	PaletteActionSwitchMode
-	PaletteActionSessionsList
-	PaletteActionSelectSession
-	PaletteActionSkillsList
-	PaletteActionSelectSkill
-	PaletteActionAnswerQuestion
-	PaletteActionCycleThinkingVisibility
-	PaletteActionCycleToolCallVisibility
-	PaletteActionBackendList
-	PaletteActionSelectBackend
-	PaletteActionLayoutsList
-	PaletteActionSelectLayout
 )
 
 type PaletteView int
@@ -38,22 +17,16 @@ const (
 	PaletteViewQuestions
 	PaletteViewBackends
 	PaletteViewLayouts
+	PaletteViewList
 )
 
 type paletteCommandItem struct {
-	Title    string
-	Detail   string
-	Action   PaletteAction
-	Adjust   bool
-	Min      int
-	Max      int
-	Step     int
-	Disabled bool
-}
-
-type QuestionOptionItem struct {
-	Label       string
-	Description string
+	Title       string
+	Detail      string
+	CommandName string
+	Adjust      bool
+	Step        int
+	Disabled    bool
 }
 
 func (s *State) TogglePopup() {
@@ -68,7 +41,6 @@ func (s *State) OpenPalette() {
 	s.PopupOpen = true
 	s.PaletteView = PaletteViewCommands
 	s.PaletteQuery = ""
-	s.PendingAction = PaletteActionNone
 	items := s.PaletteItems()
 	if s.PaletteIndex >= len(items) {
 		s.PaletteIndex = 0
@@ -79,10 +51,12 @@ func (s *State) OpenPalette() {
 }
 
 func (s *State) ClosePalette() {
+	if s.PaletteView == PaletteViewList {
+		s.clearRuntimeList()
+	}
 	s.PopupOpen = false
 	s.PaletteView = PaletteViewCommands
 	s.PaletteQuery = ""
-	s.PendingAction = PaletteActionNone
 }
 
 func (s *State) PaletteTitle() string {
@@ -107,8 +81,20 @@ func (s *State) PaletteTitle() string {
 	if s.PaletteView == PaletteViewLayouts {
 		return "Layouts"
 	}
-	return s.commandConfig.Palette.Title
+	if s.PaletteView == PaletteViewList {
+		if s.ListTitle != "" {
+			return s.ListTitle
+		}
+		return "List"
+	}
+	return paletteCommandsTitle
 }
+
+const (
+	paletteCommandsTitle      = "Command Palette"
+	paletteEmptySessionsTitle = "No sessions"
+	paletteEmptySessionsHint  = "No opencode sessions found"
+)
 
 func (s *State) PaletteItems() []components.PopupItem {
 	if s.PaletteView == PaletteViewModels {
@@ -136,7 +122,7 @@ func (s *State) PaletteItems() []components.PopupItem {
 	if s.PaletteView == PaletteViewSessions {
 		sessions := s.visibleSessionItems()
 		if len(sessions) == 0 {
-			return []components.PopupItem{{Title: s.commandConfig.Palette.EmptySessionsTitle, Detail: s.commandConfig.Palette.EmptySessionsDetail, Disabled: true}}
+			return []components.PopupItem{{Title: paletteEmptySessionsTitle, Detail: paletteEmptySessionsHint, Disabled: true}}
 		}
 		items := make([]components.PopupItem, len(sessions))
 		for i, session := range sessions {
@@ -204,6 +190,21 @@ func (s *State) PaletteItems() []components.PopupItem {
 		}
 		return items
 	}
+	if s.PaletteView == PaletteViewList {
+		listItems := s.visibleRuntimeListItems()
+		if len(listItems) == 0 {
+			return []components.PopupItem{{Title: "No items", Detail: "", Disabled: true}}
+		}
+		items := make([]components.PopupItem, len(listItems))
+		for i, item := range listItems {
+			title := item.Label
+			if title == "" {
+				title = item.ID
+			}
+			items[i] = components.PopupItem{Title: title, Detail: item.Detail}
+		}
+		return items
+	}
 	commands := s.visibleCommandItems()
 	if len(commands) == 0 {
 		return []components.PopupItem{{Title: "No commands", Detail: "No matching commands", Disabled: true}}
@@ -222,7 +223,7 @@ func (s *State) AdjustSelectedPaletteItem(delta int) bool {
 	}
 	step := command.Step
 	if step == 0 {
-		_, _, step = s.outputAdjustment()
+		step = outputPercentageStep
 	}
 	return s.AdjustOutputPercentage(delta * step)
 }
@@ -241,27 +242,6 @@ func (s *State) selectedAdjustableCommand() (paletteCommandItem, bool) {
 		return paletteCommandItem{}, false
 	}
 	return commands[s.PaletteIndex], true
-}
-
-func (s *State) outputAdjustment() (min, max, step int) {
-	min, max, step = minOutputPercentage, maxOutputPercentage, outputPercentageStep
-	if s.commandConfig == nil {
-		return min, max, step
-	}
-	for _, spec := range s.commandConfig.Actions {
-		if spec.Adjustment.Step == 0 {
-			continue
-		}
-		if spec.Adjustment.Min != 0 {
-			min = spec.Adjustment.Min
-		}
-		if spec.Adjustment.Max != 0 {
-			max = spec.Adjustment.Max
-		}
-		step = spec.Adjustment.Step
-		return min, max, step
-	}
-	return min, max, step
 }
 
 func (s *State) PaletteSearch() string {
@@ -329,37 +309,62 @@ func (s *State) ensurePaletteSelection() {
 }
 
 func (s *State) SelectPaletteItem() {
+	s.SelectPaletteItemWithCtx(nil)
+}
+
+func (s *State) SelectPaletteItemWithCtx(ctx capabilities.Ctx) {
 	items := s.PaletteItems()
 	if s.PaletteIndex < 0 || s.PaletteIndex >= len(items) || items[s.PaletteIndex].Disabled {
 		return
 	}
 	if s.PaletteView == PaletteViewSessions {
-		s.PendingAction = PaletteActionSelectSession
+		sessionID := s.SelectedSessionID()
 		s.PopupOpen = false
+		if ctx != nil {
+			ctx.Sessions().Open(sessionID)
+		}
 		return
 	}
 	if s.PaletteView == PaletteViewModels {
-		s.PendingAction = PaletteActionSelectModel
+		providerID, modelID := s.SelectedModel()
 		s.PopupOpen = false
+		if ctx != nil {
+			ctx.Backends().SetModel(providerID, modelID)
+		}
 		return
 	}
 	if s.PaletteView == PaletteViewSkills {
-		s.PendingAction = PaletteActionSelectSkill
+		if skill, ok := s.SelectedSkill(); ok {
+			s.InsertSkillMarker(skill)
+		}
 		s.PopupOpen = false
 		return
 	}
 	if s.PaletteView == PaletteViewQuestions {
-		s.PendingAction = PaletteActionAnswerQuestion
+		answer, ok := s.SelectedQuestionAnswer()
 		s.PopupOpen = false
+		if ok && ctx != nil {
+			ctx.Backends().AnswerQuestion(answer)
+		}
 		return
 	}
 	if s.PaletteView == PaletteViewBackends {
-		s.PendingAction = PaletteActionSelectBackend
+		backendID := s.SelectedBackendID()
 		s.PopupOpen = false
+		if ctx != nil {
+			ctx.Backends().Select(backendID)
+		}
 		return
 	}
 	if s.PaletteView == PaletteViewLayouts {
-		s.PendingAction = PaletteActionSelectLayout
+		if layoutType, ok := s.SelectedLayout(); ok {
+			s.SetLayout(layoutType)
+		}
+		s.PopupOpen = false
+		return
+	}
+	if s.PaletteView == PaletteViewList {
+		s.pendingListPick = true
 		s.PopupOpen = false
 		return
 	}
@@ -367,19 +372,33 @@ func (s *State) SelectPaletteItem() {
 	if s.PaletteIndex < 0 || s.PaletteIndex >= len(commands) {
 		return
 	}
-	s.PendingAction = commands[s.PaletteIndex].Action
-	if s.PendingAction == PaletteActionNone {
+	command := commands[s.PaletteIndex]
+	if command.CommandName == "" {
 		return
 	}
-	if s.PendingAction != PaletteActionSessionsList && s.PendingAction != PaletteActionSkillsList && s.PendingAction != PaletteActionChangeModel && s.PendingAction != PaletteActionOpenPalette && s.PendingAction != PaletteActionBackendList && s.PendingAction != PaletteActionLayoutsList {
-		s.PopupOpen = false
+	// The command's Do verb decides whether a new picker/list opens (model,
+	// backend, sessions, skills, layouts) or the palette closes (toggles, new
+	// session). For the picker-opening verbs the palette stays open until the run
+	// loop swaps the view; the others close it here. Output-percent adjusts in
+	// place via Left/Right and never selects.
+	if !command.Adjust {
+		s.pendingCommand = command.CommandName
+		if !commandKeepsPaletteOpen(command.CommandName) {
+			s.PopupOpen = false
+		}
 	}
 }
 
-func (s *State) ConsumePendingAction() PaletteAction {
-	action := s.PendingAction
-	s.PendingAction = PaletteActionNone
-	return action
+// commandKeepsPaletteOpen reports whether selecting a command leaves the palette
+// open (because the command swaps to a sub-view: models, backends, sessions,
+// skills, layouts, or re-opens the palette), matching the legacy dispatch gate.
+func commandKeepsPaletteOpen(name string) bool {
+	switch name {
+	case "Change model", "Backend provider", "Sessions list", "Skills list", "Layouts":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *State) SetSessionItems(items []SessionListItem) {
@@ -414,7 +433,7 @@ func (s *State) SetModelItems(items []ModelListItem) {
 	s.PopupOpen = true
 }
 
-func (s *State) SetSkillItems(items []SkillListItem) {
+func (s *State) SetSkillItems(items []capabilities.Skill) {
 	s.SkillItems = items
 	s.PaletteView = PaletteViewSkills
 	s.PaletteQuery = ""
@@ -422,7 +441,7 @@ func (s *State) SetSkillItems(items []SkillListItem) {
 	s.PopupOpen = true
 }
 
-func (s *State) SetQuestionItems(title string, items []QuestionOptionItem) {
+func (s *State) SetQuestionItems(title string, items []capabilities.QuestionOption) {
 	s.QuestionTitle = title
 	s.QuestionItems = items
 	s.PaletteView = PaletteViewQuestions
@@ -448,11 +467,44 @@ func (s *State) SetBackendItems(items []BackendListItem) {
 	s.PopupOpen = true
 }
 
+func (s *State) SetRuntimeList(title string, items []capabilities.ListItem, onPick func(capabilities.ListItem)) {
+	s.ListTitle = title
+	s.ListItems = append([]capabilities.ListItem(nil), items...)
+	s.listOnPick = onPick
+	s.PaletteView = PaletteViewList
+	s.PaletteQuery = ""
+	s.PaletteIndex = 0
+	s.PopupOpen = true
+	s.ensurePaletteSelection()
+}
+
+func (s *State) ConsumePendingListPick() (capabilities.ListItem, func(capabilities.ListItem), bool) {
+	if !s.pendingListPick {
+		return capabilities.ListItem{}, nil, false
+	}
+	s.pendingListPick = false
+	items := s.visibleRuntimeListItems()
+	if s.PaletteIndex < 0 || s.PaletteIndex >= len(items) {
+		s.clearRuntimeList()
+		return capabilities.ListItem{}, nil, false
+	}
+	item := items[s.PaletteIndex]
+	onPick := s.listOnPick
+	s.clearRuntimeList()
+	return item, onPick, true
+}
+
+func (s *State) clearRuntimeList() {
+	s.ListTitle = ""
+	s.ListItems = nil
+	s.listOnPick = nil
+}
+
 func (s *State) SetAvailableBackends(items []BackendListItem) {
 	s.BackendItems = items
 }
 
-func (s *State) SetAvailableSkills(items []SkillListItem) {
+func (s *State) SetAvailableSkills(items []capabilities.Skill) {
 	s.SkillItems = items
 }
 
@@ -473,10 +525,10 @@ func (s *State) SelectedSessionID() string {
 	return sessions[s.PaletteIndex].ID
 }
 
-func (s *State) SelectedSkill() (SkillListItem, bool) {
+func (s *State) SelectedSkill() (capabilities.Skill, bool) {
 	skills := s.visibleSkillItems()
 	if s.PaletteView != PaletteViewSkills || s.PaletteIndex < 0 || s.PaletteIndex >= len(skills) {
-		return SkillListItem{}, false
+		return capabilities.Skill{}, false
 	}
 	return skills[s.PaletteIndex], true
 }
@@ -497,8 +549,60 @@ func (s *State) SelectedBackendID() string {
 	return backends[s.PaletteIndex].ID
 }
 
+// commandItems builds the command-palette rows from the registered commands.
+// Each row's visible label comes from the command's dynamic Title (fed the
+// current host state) when present, else its static Name/Detail. Title-disabled
+// rows (e.g. the slash commands) are skipped so the palette shows only the
+// palette actions. The split-only output-percent adjuster is hidden outside the
+// split layout, matching the legacy behavior.
 func (s *State) commandItems() []paletteCommandItem {
-	return s.commandConfig.commandItems(s)
+	state := s.commandState()
+	items := make([]paletteCommandItem, 0, len(s.commands))
+	for _, command := range s.commands {
+		if command.Do == nil {
+			continue
+		}
+		title := command.Name
+		detail := command.Detail
+		disabled := false
+		adjust := false
+		step := 0
+		if command.Title != nil {
+			label := command.Title(state)
+			if label.Disabled {
+				continue
+			}
+			title = label.Title
+			detail = label.Detail
+			adjust = label.Adjust
+			step = label.Step
+		}
+		if adjust && s.EffectiveLayout() != LayoutSplit {
+			continue
+		}
+		items = append(items, paletteCommandItem{
+			Title:       title,
+			Detail:      detail,
+			CommandName: command.Name,
+			Adjust:      adjust,
+			Step:        step,
+			Disabled:    disabled,
+		})
+	}
+	return items
+}
+
+// commandState snapshots the host fields commands read for dynamic palette
+// titles, mirroring runtime_ctx's commandStateFromState.
+func (s *State) commandState() capabilities.CommandState {
+	return capabilities.CommandState{
+		Mode:               s.Mode,
+		Layout:             s.LayoutLabel(),
+		ThinkingVisibility: s.ThinkingVisibilityLabel(),
+		ToolCallVisibility: s.ToolCallVisibilityLabel(),
+		OutputPercent:      s.SplitOutputPercent(),
+		BackendProvider:    s.BackendProvider,
+	}
 }
 
 func (s *State) visibleCommandItems() []paletteCommandItem {
@@ -511,6 +615,19 @@ func (s *State) visibleCommandItems() []paletteCommandItem {
 	for _, command := range commands {
 		if paletteMatches(query, command.Title, command.Detail) {
 			items = append(items, command)
+		}
+	}
+	return items
+}
+
+func (s *State) visibleRuntimeListItems() []capabilities.ListItem {
+	if s.PaletteQuery == "" {
+		return s.ListItems
+	}
+	items := make([]capabilities.ListItem, 0, len(s.ListItems))
+	for _, item := range s.ListItems {
+		if paletteMatches(s.PaletteQuery, item.ID, item.Label, item.Detail) {
+			items = append(items, item)
 		}
 	}
 	return items
@@ -544,12 +661,12 @@ func (s *State) visibleSessionItems() []SessionListItem {
 	return items
 }
 
-func (s *State) visibleSkillItems() []SkillListItem {
+func (s *State) visibleSkillItems() []capabilities.Skill {
 	query := normalizedQuery(s.PaletteQuery)
 	if query == "" {
 		return s.SkillItems
 	}
-	items := make([]SkillListItem, 0, len(s.SkillItems))
+	items := make([]capabilities.Skill, 0, len(s.SkillItems))
 	for _, skill := range s.SkillItems {
 		if paletteMatches(query, skill.Name, skill.Description) {
 			items = append(items, skill)
@@ -558,12 +675,12 @@ func (s *State) visibleSkillItems() []SkillListItem {
 	return items
 }
 
-func (s *State) visibleQuestionItems() []QuestionOptionItem {
+func (s *State) visibleQuestionItems() []capabilities.QuestionOption {
 	query := normalizedQuery(s.PaletteQuery)
 	if query == "" {
 		return s.QuestionItems
 	}
-	items := make([]QuestionOptionItem, 0, len(s.QuestionItems))
+	items := make([]capabilities.QuestionOption, 0, len(s.QuestionItems))
 	for _, option := range s.QuestionItems {
 		if paletteMatches(query, option.Label, option.Description) {
 			items = append(items, option)

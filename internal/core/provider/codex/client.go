@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/debuglog"
 )
 
@@ -19,13 +18,13 @@ const (
 	defaultModelID = "default"
 )
 
-// Client implements adapter.Backend by communicating with a persistent
+// Client implements Backend by communicating with a persistent
 // `codex app-server` process over JSON-RPC stdio.
 type Client struct {
 	mu        sync.Mutex
-	sessions  []adapter.Session
+	sessions  []Session
 	threads   map[string]string
-	messages  map[string][]adapter.MessageResponse
+	messages  map[string][]MessageResponse
 	appServer *AppServer
 }
 
@@ -51,10 +50,10 @@ func (p *appServerProcess) Done() <-chan struct{} {
 	return nil
 }
 
-func NewBackend() adapter.Backend {
+func NewClient() *Client {
 	return &Client{
 		threads:  make(map[string]string),
-		messages: make(map[string][]adapter.MessageResponse),
+		messages: make(map[string][]MessageResponse),
 	}
 }
 
@@ -97,7 +96,7 @@ func (c *Client) Health(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) CreateSession(ctx context.Context, directory string) (*adapter.Session, error) {
+func (c *Client) CreateSession(ctx context.Context, directory string) (*Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -130,33 +129,33 @@ func (c *Client) CreateSession(ctx context.Context, directory string) (*adapter.
 	if modelID == "" {
 		modelID = defaultModelID
 	}
-	session := adapter.Session{
+	session := Session{
 		ID:        fmt.Sprintf("codex-%d", now),
 		Title:     "Codex session",
 		Directory: directory,
-		Model:     &adapter.ModelRef{ID: modelID, ProviderID: providerID},
-		Time:      adapter.SessionTime{Created: now, Updated: now},
+		Model:     &ModelRef{ID: modelID, ProviderID: providerID},
+		Time:      SessionTime{Created: now, Updated: now},
 	}
 
 	c.mu.Lock()
-	c.sessions = append([]adapter.Session{session}, c.sessions...)
+	c.sessions = append([]Session{session}, c.sessions...)
 	c.threads[session.ID] = threadResp.Thread.ID
 	c.mu.Unlock()
 
 	return copySession(session), nil
 }
 
-func (c *Client) ListSessions(ctx context.Context) ([]adapter.Session, error) {
+func (c *Client) ListSessions(ctx context.Context) ([]Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	sessions := append([]adapter.Session(nil), c.sessions...)
+	sessions := append([]Session(nil), c.sessions...)
 	return sessions, nil
 }
 
-func (c *Client) GetSession(ctx context.Context, sessionID string) (*adapter.Session, error) {
+func (c *Client) GetSession(ctx context.Context, sessionID string) (*Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -170,17 +169,17 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*adapter.Ses
 	return nil, fmt.Errorf("codex session %q not found", sessionID)
 }
 
-func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]adapter.MessageResponse, error) {
+func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]MessageResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	messages := append([]adapter.MessageResponse(nil), c.messages[sessionID]...)
+	messages := append([]MessageResponse(nil), c.messages[sessionID]...)
 	return messages, nil
 }
 
-func (c *Client) ListProviders(ctx context.Context) ([]adapter.Provider, []string, error) {
+func (c *Client) ListProviders(ctx context.Context) ([]Provider, []string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -194,15 +193,15 @@ func (c *Client) ListProviders(ctx context.Context) ([]adapter.Provider, []strin
 		if err == nil {
 			models, err := parseModelList(result)
 			if err == nil && len(models) > 0 {
-				provider := adapter.Provider{ID: providerID, Name: "Codex", Models: models}
-				return []adapter.Provider{provider}, []string{providerID}, nil
+				provider := Provider{ID: providerID, Name: "Codex", Models: models}
+				return []Provider{provider}, []string{providerID}, nil
 			}
 		}
 		debuglog.Printf("codex: model/list failed, using static fallback: %v", err)
 	}
 
 	// Static fallback when app-server is not running or model/list fails.
-	models := map[string]adapter.Model{
+	models := map[string]Model{
 		defaultModelID:  {ID: defaultModelID, ProviderID: providerID, Name: "Codex default"},
 		"gpt-5.5":       {ID: "gpt-5.5", ProviderID: providerID, Name: "GPT-5.5"},
 		"gpt-5.4":       {ID: "gpt-5.4", ProviderID: providerID, Name: "GPT-5.4"},
@@ -210,11 +209,11 @@ func (c *Client) ListProviders(ctx context.Context) ([]adapter.Provider, []strin
 		"gpt-5.3-codex": {ID: "gpt-5.3-codex", ProviderID: providerID, Name: "GPT-5.3-Codex"},
 		"o3":            {ID: "o3", ProviderID: providerID, Name: "o3"},
 	}
-	provider := adapter.Provider{ID: providerID, Name: "Codex", Models: models}
-	return []adapter.Provider{provider}, []string{providerID}, nil
+	provider := Provider{ID: providerID, Name: "Codex", Models: models}
+	return []Provider{provider}, []string{providerID}, nil
 }
 
-func parseModelList(raw json.RawMessage) (map[string]adapter.Model, error) {
+func parseModelList(raw json.RawMessage) (map[string]Model, error) {
 	var resp struct {
 		Data []struct {
 			ID          string `json:"id"`
@@ -225,7 +224,7 @@ func parseModelList(raw json.RawMessage) (map[string]adapter.Model, error) {
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, err
 	}
-	models := make(map[string]adapter.Model, len(resp.Data))
+	models := make(map[string]Model, len(resp.Data))
 	for _, m := range resp.Data {
 		if m.Hidden {
 			continue
@@ -234,13 +233,13 @@ func parseModelList(raw json.RawMessage) (map[string]adapter.Model, error) {
 		if name == "" {
 			name = m.ID
 		}
-		models[m.ID] = adapter.Model{ID: m.ID, ProviderID: providerID, Name: name}
+		models[m.ID] = Model{ID: m.ID, ProviderID: providerID, Name: name}
 	}
 	return models, nil
 }
 
-func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, providerID, modelID, agent string) <-chan adapter.StreamEvent {
-	out := make(chan adapter.StreamEvent)
+func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, providerID, modelID, agent string) <-chan StreamEvent {
+	out := make(chan StreamEvent)
 	go func() {
 		defer close(out)
 		if strings.TrimSpace(text) == "" {
@@ -249,7 +248,7 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, provide
 
 		threadID := c.thread(sessionID)
 		if threadID == "" {
-			emit(ctx, out, adapter.StreamEvent{Text: "\nCodex error: no thread for session\n"})
+			emit(ctx, out, StreamEvent{Text: "\nCodex error: no thread for session\n"})
 			return
 		}
 
@@ -257,7 +256,7 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, provide
 		as := c.appServer
 		c.mu.Unlock()
 		if as == nil {
-			emit(ctx, out, adapter.StreamEvent{Text: "\nCodex error: app-server not running\n"})
+			emit(ctx, out, StreamEvent{Text: "\nCodex error: app-server not running\n"})
 			return
 		}
 
@@ -275,7 +274,7 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, provide
 		}
 		_, err := as.Request(ctx, "turn/start", params)
 		if err != nil {
-			emit(ctx, out, adapter.StreamEvent{Text: fmt.Sprintf("\nCodex error: %v\n", err)})
+			emit(ctx, out, StreamEvent{Text: fmt.Sprintf("\nCodex error: %v\n", err)})
 			return
 		}
 
@@ -297,12 +296,12 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, provide
 				case "item/agentMessage/delta":
 					if event.Delta != "" {
 						assistantText += event.Delta
-						emit(ctx, out, adapter.StreamEvent{Text: event.Delta})
+						emit(ctx, out, StreamEvent{Text: event.Delta})
 					}
 				case "item/reasoning/textDelta":
 					if event.Delta != "" {
 						assistantText += event.Delta
-						emit(ctx, out, adapter.StreamEvent{Text: "<thinking>" + event.Delta + "</thinking>"})
+						emit(ctx, out, StreamEvent{Text: "<thinking>" + event.Delta + "</thinking>"})
 					}
 				case "turn/completed":
 					if event.TurnID == turnID {
@@ -316,7 +315,7 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, provide
 					}
 				case "error":
 					if event.Message != "" {
-						emit(ctx, out, adapter.StreamEvent{Text: fmt.Sprintf("\nCodex error: %s\n", event.Message)})
+						emit(ctx, out, StreamEvent{Text: fmt.Sprintf("\nCodex error: %s\n", event.Message)})
 					}
 					c.recordExchange(sessionID, text, assistantText, modelID)
 					return
@@ -331,7 +330,7 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, provide
 					case <-ctx.Done():
 						c.recordExchange(sessionID, text, assistantText, modelID)
 						return
-					case out <- adapter.StreamEvent{Question: question}:
+					case out <- StreamEvent{Question: question}:
 					}
 				}
 			}
@@ -366,7 +365,7 @@ func (c *Client) ReplyQuestion(ctx context.Context, requestID string, answers []
 	return as.ReplyUserInput(id, reply)
 }
 
-func parseUserInputQuestion(event UserInputEvent, sessionID string) *adapter.QuestionRequest {
+func parseUserInputQuestion(event UserInputEvent, sessionID string) *QuestionRequest {
 	var params struct {
 		Message  string `json:"message"`
 		Prompt   string `json:"prompt"`
@@ -390,10 +389,10 @@ func parseUserInputQuestion(event UserInputEvent, sessionID string) *adapter.Que
 	}
 
 	custom := true
-	return &adapter.QuestionRequest{
+	return &QuestionRequest{
 		ID:        fmt.Sprintf("%d", event.ID),
 		SessionID: sessionID,
-		Questions: []adapter.QuestionInfo{
+		Questions: []QuestionInfo{
 			{
 				Question: text,
 				Header:   "Input required",
@@ -440,43 +439,32 @@ func (c *Client) thread(sessionID string) string {
 	return c.threads[sessionID]
 }
 
-func (c *Client) sessionDirectory(sessionID string) string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for _, session := range c.sessions {
-		if session.ID == sessionID {
-			return session.Directory
-		}
-	}
-	return ""
-}
-
 func (c *Client) recordExchange(sessionID, userText, assistantText, modelID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.messages[sessionID] = append(c.messages[sessionID], adapter.MessageResponse{
-		Info:  adapter.MessageInfo{Role: "user"},
-		Parts: []adapter.Part{{Type: "text", Text: userText}},
-	}, adapter.MessageResponse{
-		Info:  adapter.MessageInfo{Role: "assistant"},
-		Parts: []adapter.Part{{Type: "text", Text: assistantText}},
+	c.messages[sessionID] = append(c.messages[sessionID], MessageResponse{
+		Info:  MessageInfo{Role: "user"},
+		Parts: []Part{{Type: "text", Text: userText}},
+	}, MessageResponse{
+		Info:  MessageInfo{Role: "assistant"},
+		Parts: []Part{{Type: "text", Text: assistantText}},
 	})
 	now := time.Now().UnixMilli()
 	for i := range c.sessions {
 		if c.sessions[i].ID == sessionID {
 			c.sessions[i].Time.Updated = now
 			if c.sessions[i].Title == "Codex session" {
-				c.sessions[i].Title = adapter.TitleFromMessage(userText, "Codex session")
+				c.sessions[i].Title = TitleFromMessage(userText, "Codex session")
 			}
 			if modelID != "" {
-				c.sessions[i].Model = &adapter.ModelRef{ID: modelID, ProviderID: providerID}
+				c.sessions[i].Model = &ModelRef{ID: modelID, ProviderID: providerID}
 			}
 			return
 		}
 	}
 }
 
-func copySession(session adapter.Session) *adapter.Session {
+func copySession(session Session) *Session {
 	cp := session
 	if session.Model != nil {
 		model := *session.Model
@@ -485,7 +473,7 @@ func copySession(session adapter.Session) *adapter.Session {
 	return &cp
 }
 
-func emit(ctx context.Context, out chan<- adapter.StreamEvent, event adapter.StreamEvent) {
+func emit(ctx context.Context, out chan<- StreamEvent, event StreamEvent) {
 	select {
 	case <-ctx.Done():
 	case out <- event:

@@ -4,16 +4,30 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/internal/ui/tui/screen"
 	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
+// Render satisfies layout.Component; it delegates to the public Surface path so
+// the chatlog renders identically whether driven by the internal layout engine or
+// a public component over capabilities.Surface.
 func (cl *ChatLog) Render(s *screen.Screen) {
+	cl.RenderSurface(s)
+}
+
+// RenderSurface draws the chatlog using only the public Surface primitives.
+func (cl *ChatLog) RenderSurface(s capabilities.Surface) {
 	bg := cl.style.GetBackground()
 	if cl.parent != nil {
 		bg = cl.parent.GetStyle().GetBackground()
+	}
+	// A public component has no layout parent; it supplies its slot background
+	// explicitly via SetBackground so the pane is themed, not pure black.
+	if cl.background != "" {
+		bg = cl.background
 	}
 
 	if len(cl.messages) == 0 && cl.aioutput == "" && !cl.isStreaming {
@@ -58,7 +72,7 @@ func (cl *ChatLog) Render(s *screen.Screen) {
 
 // renderEmptyState fills the chat area and draws a centred placeholder so an
 // empty conversation is not just a dark void.
-func (cl *ChatLog) renderEmptyState(s *screen.Screen, bg string) {
+func (cl *ChatLog) renderEmptyState(s capabilities.Surface, bg string) {
 	for row := 0; row < cl.h; row++ {
 		cl.clearRow(s, cl.y+row, bg)
 	}
@@ -107,12 +121,22 @@ func (cl *ChatLog) buildStreamingLines() []renderLine {
 	if len(cl.messages) > 0 {
 		lines = append(lines, renderLine{kind: lineKindBlank})
 	}
+	if cl.isStreaming {
+		status := []textSpan{
+			{text: "● ", fg: fgToolIndicator},
+			{text: "responding", fg: fgContent, decor: decorBold},
+		}
+		if cl.aioutput == "" {
+			status = append(status, textSpan{text: " waiting for output ▌", fg: fgThinking})
+		}
+		lines = append(lines, renderLine{kind: lineKindContent, spans: status, contentFg: fgContent, contentBg: ""})
+	}
 	if cl.aioutput != "" {
 		content := cl.aioutput
 		if cl.isStreaming {
-			content += "▌"
+			content += " ▌"
 		}
-		lines = append(lines, cl.buildContentLines(content, fgContent, "")...)
+		lines = append(lines, withAccent(cl.buildContentLines(content, fgContent, ""), fgCursor)...)
 	}
 	return lines
 }
@@ -304,7 +328,7 @@ func (cl *ChatLog) buildListLines(marker, body, fg, bg string) []renderLine {
 
 // ── Per-row rendering ─────────────────────────────────────────────────────────
 
-func (cl *ChatLog) renderLine(s *screen.Screen, y int, line renderLine, bg string) {
+func (cl *ChatLog) renderLine(s capabilities.Surface, y int, line renderLine, bg string) {
 	switch line.kind {
 	case lineKindBlank:
 		cl.clearRow(s, y, bg)
@@ -335,7 +359,7 @@ func (cl *ChatLog) selectionFgBg(y, x int, fg, bg string) (string, string) {
 	return fg, bg
 }
 
-func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg string, bg string) {
+func (cl *ChatLog) renderHeader(s capabilities.Surface, y int, role string, roleFg string, bg string) {
 	x := cl.x
 
 	// Role label.
@@ -364,7 +388,7 @@ func (cl *ChatLog) renderHeader(s *screen.Screen, y int, role string, roleFg str
 }
 
 // renderContent draws "  <text><padding>" using the given foreground colour.
-func (cl *ChatLog) renderContent(s *screen.Screen, y int, text string, spans []textSpan, fg string, bg string, accentFg string) {
+func (cl *ChatLog) renderContent(s capabilities.Surface, y int, text string, spans []textSpan, fg string, bg string, accentFg string) {
 	x := cl.x
 	if accentFg != "" && x < cl.x+cl.w {
 		cellFg, cellBg := cl.selectionFgBg(y, x, accentFg, bg)
@@ -451,7 +475,7 @@ func compactBlankLines(lines []renderLine) []renderLine {
 	return out
 }
 
-func (cl *ChatLog) clearRow(s *screen.Screen, y int, bg string) {
+func (cl *ChatLog) clearRow(s capabilities.Surface, y int, bg string) {
 	for x := cl.x; x < cl.x+cl.w; x++ {
 		cellFg, cellBg := cl.selectionFgBg(y, x, fgContent, bg)
 		s.Set(x, y, ' ', cellFg, cellBg, "")

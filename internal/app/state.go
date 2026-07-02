@@ -1,11 +1,9 @@
 package app
 
 import (
-	"context"
-	"os/exec"
 	"strings"
-	"time"
 
+	"github.com/Ceinl/plums/capabilities"
 	"github.com/Ceinl/plums/internal/ui/tui/components"
 )
 
@@ -54,36 +52,47 @@ type State struct {
 	Layout           LayoutType
 	availableLayouts []LayoutType
 
-	SessionID       string
-	SessionTitle    string
-	ServerStarting  bool
-	ServerReady     bool
-	PopupOpen       bool
-	PaletteIndex    int
-	DropdownIndex   int
-	DropdownHidden  bool
-	PaletteView     PaletteView
-	PaletteQuery    string
-	PendingAction   PaletteAction
-	ModelItems      []ModelListItem
-	SessionItems    []SessionListItem
-	SkillItems      []SkillListItem
-	QuestionTitle   string
-	QuestionItems   []QuestionOptionItem
-	BackendItems    []BackendListItem
-	BackendProvider string
-	Mode            string
-	ThinkingMode    components.ThinkingVisibility
-	ToolCallMode    components.ToolCallVisibility
-	ModelProvider   string
-	ModelID         string
-	InfoView        InfoView
-	FullscreenTab   FullscreenTab
-	GitDiff         string
-	OutputPercent   int
-	submittedInput  string
-	commandConfig   *CommandConfig
-	projectFiles    []string
+	SessionID          string
+	SessionTitle       string
+	ServerStarting     bool
+	ServerReady        bool
+	PopupOpen          bool
+	PaletteIndex       int
+	DropdownIndex      int
+	DropdownHidden     bool
+	PaletteView        PaletteView
+	PaletteQuery       string
+	ModelItems         []ModelListItem
+	SessionItems       []SessionListItem
+	SkillItems         []capabilities.Skill
+	QuestionTitle      string
+	QuestionItems      []capabilities.QuestionOption
+	BackendItems       []BackendListItem
+	ListTitle          string
+	ListItems          []capabilities.ListItem
+	listOnPick         func(capabilities.ListItem)
+	pendingListPick    bool
+	BackendProvider    string
+	Mode               string
+	Theme              capabilities.Theme
+	ThinkingMode       components.ThinkingVisibility
+	ToolCallMode       components.ToolCallVisibility
+	ModelProvider      string
+	ModelID            string
+	InfoView           InfoView
+	GitDiff            string
+	gitDiffDirty       bool
+	OutputPercent      int
+	submittedInput     string
+	submittedMessage   string
+	pendingCommand     string
+	commands           []capabilities.Command
+	componentFactories map[string]ComponentFactory
+	publicComponents   []*publicComponentAdapter
+	publicInstances    map[string]capabilities.Component
+	mouseCapture       *publicComponentAdapter
+	projectFiles       []string
+	completion         *completionRegistry
 
 	// runSessionIDs tracks sessions created during this run, so pre-existing
 	// backend history can be hidden when RunConfig.ClearHistory is set.
@@ -103,11 +112,10 @@ func NewState(width int, height int) *State {
 		width:            width,
 		height:           height,
 		Editor:           components.NewTextEditor(),
-		Layout:           LayoutSplit,
+		Layout:           LayoutDefault,
 		availableLayouts: defaultLayoutCycle(),
 		Mode:             "build",
 		OutputPercent:    defaultOutputPercentage,
-		commandConfig:    DefaultCommandConfig(),
 		ThinkingMode:     components.ThinkingVisibilityHidden,
 		ToolCallMode:     components.ToolCallVisibilityFull,
 		runSessionIDs:    map[string]bool{},
@@ -129,14 +137,22 @@ func (s *State) IsRunSession(id string) bool {
 
 func (s *State) SubmitInput() string {
 	s.submittedInput = ""
+	s.submittedMessage = ""
 	input := s.Editor.GetContent()
 	if s.runEditorCommand(input) {
 		return ""
 	}
+	return s.SubmitPrompt(input)
+}
+
+func (s *State) SubmitPrompt(input string) string {
+	s.submittedInput = ""
+	s.submittedMessage = ""
 	if input != "" {
 		s.messages = append(s.messages, Message{Role: "user", Content: input})
 		s.Editor.SetContent("")
-		s.submittedInput = ExpandSkillMarkers(input, s.SkillItems)
+		s.submittedInput = input
+		s.submittedMessage = input
 		s.invalidateOutputMax()
 	}
 	return input
@@ -146,6 +162,12 @@ func (s *State) ConsumeSubmittedInput() string {
 	input := s.submittedInput
 	s.submittedInput = ""
 	return input
+}
+
+func (s *State) ConsumeSubmittedMessage() string {
+	message := s.submittedMessage
+	s.submittedMessage = ""
+	return message
 }
 
 func (s *State) AppendAiOutput(b string) {
@@ -170,13 +192,16 @@ func (s *State) SetServerReady(v bool) {
 	s.ServerReady = v
 }
 
-func (s *State) FinalizeAiOutput() {
+func (s *State) FinalizeAiOutput() string {
 	s.isStreaming = false
 	if s.aioutput != "" {
+		output := s.aioutput
 		s.messages = append(s.messages, Message{Role: "ai", Content: s.aioutput})
 		s.aioutput = ""
 		s.invalidateOutputMax()
+		return output
 	}
+	return ""
 }
 
 func (s *State) Messages() []Message {
@@ -212,25 +237,18 @@ func (s *State) TickSpinner() {
 	s.spinnerFrame = (s.spinnerFrame + 1) % 10
 }
 
-func (s *State) RefreshGitDiff() {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "diff", "--", ".").CombinedOutput()
-	if err != nil {
-		s.GitDiff = strings.TrimSpace(string(out))
-		if s.GitDiff != "" {
-			s.GitDiff += "\n"
-		}
-		if ctx.Err() == context.DeadlineExceeded {
-			s.GitDiff += "git diff timed out"
-			s.invalidateOutputMax()
-			return
-		}
-		s.GitDiff += err.Error()
-		s.invalidateOutputMax()
-		return
-	}
-	s.GitDiff = string(out)
+func (s *State) MarkGitDiffDirty() {
+	s.gitDiffDirty = true
+}
+
+func (s *State) ConsumeGitDiffDirty() bool {
+	dirty := s.gitDiffDirty
+	s.gitDiffDirty = false
+	return dirty
+}
+
+func (s *State) SetGitDiff(diff string) {
+	s.GitDiff = diff
 	s.invalidateOutputMax()
 }
 
@@ -266,6 +284,57 @@ func (s *State) SetBackendProvider(provider string) {
 func (s *State) SetModel(providerID, modelID string) {
 	s.ModelProvider = providerID
 	s.ModelID = modelID
+}
+
+func (s *State) SetTheme(value capabilities.Theme) {
+	value.Name = strings.ToLower(strings.TrimSpace(value.Name))
+	s.Theme = value
+}
+
+func (s *State) ThemeName() string {
+	return strings.ToLower(strings.TrimSpace(s.Theme.Name))
+}
+
+func (s *State) EffectiveTheme() capabilities.Theme {
+	if name := s.ThemeName(); name != "" {
+		return capabilities.Theme{Name: name}
+	}
+	return capabilities.Theme{Name: "default"}
+}
+
+func (s *State) BeginPublicComponentFrame() {
+	s.publicComponents = nil
+}
+
+func (s *State) addPublicComponent(component *publicComponentAdapter) {
+	if component == nil {
+		return
+	}
+	s.publicComponents = append(s.publicComponents, component)
+}
+
+// publicComponentInstance returns a per-build instance for a component template,
+// cached by name so the instance's private render/input state survives layout
+// rebuilds (the factory is re-invoked on every rebuild).
+func (s *State) publicComponentInstance(name string, build func() capabilities.Component) capabilities.Component {
+	if s.publicInstances == nil {
+		s.publicInstances = make(map[string]capabilities.Component)
+	}
+	if existing, ok := s.publicInstances[name]; ok {
+		return existing
+	}
+	instance := build()
+	s.publicInstances[name] = instance
+	return instance
+}
+
+func (s *State) PublicComponentSelection() string {
+	for i := len(s.publicComponents) - 1; i >= 0; i-- {
+		if selection := s.publicComponents[i].Selection(); selection != "" {
+			return selection
+		}
+	}
+	return ""
 }
 
 func (s *State) ResetBackendSession() {

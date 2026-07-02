@@ -45,6 +45,41 @@ func TestChatLogRendersInlineCodeWithoutSemanticLineColoring(t *testing.T) {
 	}
 }
 
+func TestChatLogStreamingShowsStatusBeforeFirstToken(t *testing.T) {
+	cl := NewChatLog()
+	cl.Layout(0, 0, 80, 10)
+	cl.SetStreaming(true)
+
+	lines := cl.lines()
+	if len(lines) != 1 {
+		t.Fatalf("expected streaming status line, got %d lines", len(lines))
+	}
+	if got := spanText(lines[0].spans); got != "● responding waiting for output ▌" {
+		t.Fatalf("status text = %q", got)
+	}
+}
+
+func TestChatLogStreamingContentIsAccented(t *testing.T) {
+	cl := NewChatLog()
+	cl.Layout(0, 0, 80, 10)
+	cl.SetStreaming(true)
+	cl.SetAiOutput("partial answer")
+
+	lines := cl.lines()
+	if len(lines) != 2 {
+		t.Fatalf("expected status and content lines, got %d", len(lines))
+	}
+	if got := spanText(lines[0].spans); got != "● responding" {
+		t.Fatalf("status text = %q", got)
+	}
+	if got := spanText(lines[1].spans); got != "partial answer ▌" {
+		t.Fatalf("content text = %q", got)
+	}
+	if lines[1].accentFg != fgCursor {
+		t.Fatalf("streaming content accent = %q, want %q", lines[1].accentFg, fgCursor)
+	}
+}
+
 func TestChatLogDimsThinkingTraceAndRemovesThinkTags(t *testing.T) {
 	cl := NewChatLog()
 	cl.Layout(0, 0, 80, 10)

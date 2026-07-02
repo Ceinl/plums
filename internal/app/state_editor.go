@@ -1,13 +1,17 @@
 package app
 
 import (
+	"context"
+	"sort"
 	"strings"
+
+	"github.com/Ceinl/plums/capabilities"
 )
 
 type SlashCommand struct {
 	Name   string
 	Detail string
-	Action PaletteAction
+	Do     func(context.Context, capabilities.Ctx) error
 }
 
 type FileCommandSuggestion struct {
@@ -33,11 +37,8 @@ type editorDropdownItem struct {
 	Detail string
 }
 
-func (s *State) SetCommandConfig(cfg *CommandConfig) {
-	if cfg == nil {
-		cfg = DefaultCommandConfig()
-	}
-	s.commandConfig = cfg
+func (s *State) SetCommands(commands []capabilities.Command) {
+	s.commands = append([]capabilities.Command(nil), commands...)
 }
 
 func (s *State) EditorDropdownOpen() bool {
@@ -79,7 +80,7 @@ func (s *State) SubmitExactSlashCommand() bool {
 	if input == "" || strings.Contains(input, "\n") {
 		return false
 	}
-	for _, command := range s.commandConfig.SlashCommands {
+	for _, command := range s.allSlashCommands() {
 		if input == command.Name {
 			return s.runSlashCommand(strings.TrimPrefix(command.Name, "/"))
 		}
@@ -112,18 +113,77 @@ func (s *State) ActiveEditorDropdownIndex(total int) int {
 }
 
 func (s *State) SlashCommands() []SlashCommand {
-	_, ctx, ok := s.activeCommand("/")
+	ctx, ok := s.activeCommand("/")
 	if !ok || strings.Contains(ctx.Query, "\n") {
 		return nil
 	}
-	input := "/" + ctx.Query
 
-	items := make([]SlashCommand, 0, len(s.commandConfig.SlashCommands))
-	for _, command := range s.commandConfig.SlashCommands {
-		if strings.HasPrefix(command.Name, input) {
-			items = append(items, SlashCommand{Name: command.Name, Detail: command.Detail, Action: s.commandConfig.actionFor(command.Action)})
+	commands := s.allSlashCommands()
+	// Gate which command names the registered '/' completion source surfaces, then
+	// map them back to the richer SlashCommand records the dropdown needs.
+	byName := make(map[string]SlashCommand, len(commands))
+	for _, command := range commands {
+		byName[command.Name] = command
+	}
+	items := make([]SlashCommand, 0, len(commands))
+	for _, candidate := range s.completionCandidates('/', ctx.Query) {
+		if command, found := byName[candidate.Value]; found {
+			items = append(items, command)
 		}
 	}
+	return items
+}
+
+// completionCandidates queries the registered completion source for the trigger,
+// or returns nil when no registry/source is present (e.g. State built without a
+// runtime). This routes the built-in dropdowns through the Completion capability.
+func (s *State) completionCandidates(trigger rune, query string) []capabilities.Candidate {
+	var source capabilities.CompletionSource
+	if s.completion != nil {
+		source = s.completion.source(trigger)
+	}
+	if source == nil {
+		// Fall back to the built-in source bound to this state so a State without a
+		// runtime registry (e.g. tests) still produces identical candidates.
+		source = s.builtinCompletionSource(trigger)
+	}
+	if source == nil {
+		return nil
+	}
+	return source.Candidates(query)
+}
+
+// builtinCompletionSource returns the default source for a trigger bound to this
+// state. It mirrors buildCompletionRegistry's built-ins for the no-registry path.
+func (s *State) builtinCompletionSource(trigger rune) capabilities.CompletionSource {
+	switch trigger {
+	case '@':
+		return fileCompletionSource{paths: func() []string {
+			if s.projectFiles == nil {
+				s.projectFiles = projectFilePaths(".", 5000)
+			}
+			return s.projectFiles
+		}}
+	case '/':
+		return slashCompletionSource{commands: s.allSlashCommands}
+	default:
+		return nil
+	}
+}
+
+// allSlashCommands returns the registered commands whose name is a "/" slash
+// command. These feed the editor's "/" dropdown and exact-submit path.
+func (s *State) allSlashCommands() []SlashCommand {
+	items := make([]SlashCommand, 0, len(s.commands))
+	for _, command := range s.commands {
+		if command.Name == "" || !strings.HasPrefix(command.Name, "/") {
+			continue
+		}
+		items = append(items, SlashCommand{Name: command.Name, Detail: command.Detail, Do: command.Do})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Name < items[j].Name
+	})
 	return items
 }
 
@@ -158,13 +218,13 @@ func (s *State) replaceActiveEditorDropdown(kind editorDropdownKind, value strin
 	case editorDropdownSkill:
 		s.Editor.SetContent("/skill " + value)
 	case editorDropdownFile:
-		_, ctx, ok := s.activeCommand("@")
+		ctx, ok := s.activeCommand("@")
 		if !ok {
 			return
 		}
 		s.replaceEditorRange(ctx.TriggerStart, ctx.CursorIndex, "@"+value)
 	case editorDropdownSlash:
-		_, ctx, ok := s.activeCommand("/")
+		ctx, ok := s.activeCommand("/")
 		if !ok {
 			return
 		}
@@ -181,22 +241,14 @@ func (s *State) replaceEditorRange(start, end int, replacement string) {
 }
 
 func (s *State) FileCommandSuggestions() []FileCommandSuggestion {
-	_, ctx, ok := s.activeCommand("@")
+	ctx, ok := s.activeCommand("@")
 	if !ok {
 		return nil
 	}
-	if s.projectFiles == nil {
-		s.projectFiles = projectFilePaths(".", 5000)
-	}
-	query := normalizedQuery(ctx.Query)
-	items := make([]FileCommandSuggestion, 0, 12)
-	for _, path := range s.projectFiles {
-		if query == "" || paletteMatches(query, path) {
-			items = append(items, FileCommandSuggestion{Path: path})
-			if len(items) >= 12 {
-				break
-			}
-		}
+	candidates := s.completionCandidates('@', ctx.Query)
+	items := make([]FileCommandSuggestion, 0, len(candidates))
+	for _, candidate := range candidates {
+		items = append(items, FileCommandSuggestion{Path: candidate.Value})
 	}
 	return items
 }
@@ -216,7 +268,7 @@ func (s *State) SkillSuggestions() []SkillSuggestion {
 	return items
 }
 
-func (s *State) InsertSkillMarker(skill SkillListItem) {
+func (s *State) InsertSkillMarker(skill capabilities.Skill) {
 	marker := "/skill " + skill.Name
 	content := s.Editor.GetContent()
 	if strings.TrimSpace(content) != "" {
@@ -230,11 +282,11 @@ func (s *State) InsertSkillMarker(skill SkillListItem) {
 func (s *State) runEditorCommand(input string) bool {
 	line := strings.TrimSpace(input)
 	if strings.HasPrefix(line, "/") {
-		command, ctx, ok := s.activeCommand("/")
-		if !ok || command.HandlerFunction == nil {
+		ctx, ok := s.activeCommand("/")
+		if !ok {
 			return false
 		}
-		return command.HandlerFunction(s, ctx)
+		return s.runSlashCommand(ctx.Query)
 	}
 	if !strings.HasPrefix(line, ">") {
 		return false
@@ -245,34 +297,33 @@ func (s *State) runEditorCommand(input string) bool {
 
 func (s *State) runSlashCommand(command string) bool {
 	command = strings.ToLower(strings.TrimSpace(command))
-	switch command {
-	case "clear":
+	if command == "clear" {
 		s.Editor.SetContent("")
 		return true
-	case "command":
-		s.Editor.SetContent("")
-		s.OpenPalette()
-		return true
-	case "skills":
-		s.Editor.SetContent("")
-		s.PendingAction = PaletteActionSkillsList
-		return true
-	default:
-		for _, slashCommand := range s.SlashCommands() {
-			if strings.TrimPrefix(slashCommand.Name, "/") != command {
-				continue
-			}
-			s.Editor.SetContent("")
-			if slashCommand.Action == PaletteActionOpenPalette {
-				s.OpenPalette()
-				return true
-			}
-			if slashCommand.Action == PaletteActionNone {
-				return true
-			}
-			s.PendingAction = slashCommand.Action
-			return true
-		}
-		return false
 	}
+	for _, slashCommand := range s.allSlashCommands() {
+		if strings.TrimPrefix(slashCommand.Name, "/") != command {
+			continue
+		}
+		s.Editor.SetContent("")
+		if slashCommand.Do != nil {
+			s.pendingCommand = slashCommand.Name
+		}
+		return true
+	}
+	return false
+}
+
+func (s *State) ConsumePendingCommand() (capabilities.Command, bool) {
+	name := s.pendingCommand
+	s.pendingCommand = ""
+	if name == "" {
+		return capabilities.Command{}, false
+	}
+	for _, command := range s.commands {
+		if command.Name == name {
+			return command, true
+		}
+	}
+	return capabilities.Command{}, false
 }

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/debuglog"
 )
 
@@ -24,14 +23,10 @@ type Client struct {
 
 // ── Constructors ──────────────────────────────────────────────────────────────
 
-func NewClient() *Client {
-	return NewClientWithURL(adapter.DefaultBaseURL)
-}
-
 func NewClientWithURL(baseURL string) *Client {
 	baseURL = strings.TrimRight(baseURL, "/")
 	if baseURL == "" {
-		baseURL = adapter.DefaultBaseURL
+		baseURL = DefaultBaseURL
 	}
 	return &Client{
 		baseURL: baseURL,
@@ -46,14 +41,9 @@ func NewClientWithURL(baseURL string) *Client {
 
 func (c *Client) BaseURL() string {
 	if c == nil || c.baseURL == "" {
-		return adapter.DefaultBaseURL
+		return DefaultBaseURL
 	}
 	return c.baseURL
-}
-
-// NewBackend creates an adapter.Backend backed by an opencode client.
-func NewBackend(baseURL string) adapter.Backend {
-	return NewClientWithURL(baseURL)
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -74,7 +64,7 @@ func (c *Client) Health(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) CreateSession(ctx context.Context, directory string) (*adapter.Session, error) {
+func (c *Client) CreateSession(ctx context.Context, directory string) (*Session, error) {
 	body := createSessionBody{Directory: strings.TrimSpace(directory)}
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -93,14 +83,14 @@ func (c *Client) CreateSession(ctx context.Context, directory string) (*adapter.
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("opencode server returned status %d", resp.StatusCode)
 	}
-	var session adapter.Session
+	var session Session
 	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
 		return nil, err
 	}
 	return &session, nil
 }
 
-func (c *Client) ListSessions(ctx context.Context) ([]adapter.Session, error) {
+func (c *Client) ListSessions(ctx context.Context) ([]Session, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session", nil)
 	if err != nil {
 		return nil, err
@@ -113,14 +103,14 @@ func (c *Client) ListSessions(ctx context.Context) ([]adapter.Session, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("opencode server returned status %d", resp.StatusCode)
 	}
-	var sessions []adapter.Session
+	var sessions []Session
 	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
 		return nil, err
 	}
 	return sessions, nil
 }
 
-func (c *Client) GetSession(ctx context.Context, sessionID string) (*adapter.Session, error) {
+func (c *Client) GetSession(ctx context.Context, sessionID string) (*Session, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session/"+url.PathEscape(sessionID), nil)
 	if err != nil {
 		return nil, err
@@ -133,14 +123,14 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*adapter.Ses
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("opencode server returned status %d", resp.StatusCode)
 	}
-	var session adapter.Session
+	var session Session
 	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
 		return nil, err
 	}
 	return &session, nil
 }
 
-func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]adapter.MessageResponse, error) {
+func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]MessageResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/session/"+url.PathEscape(sessionID)+"/message", nil)
 	if err != nil {
 		return nil, err
@@ -157,7 +147,7 @@ func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]adapter.
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, err
 	}
-	messages := make([]adapter.MessageResponse, 0, len(raw))
+	messages := make([]MessageResponse, 0, len(raw))
 	for _, msg := range raw {
 		messages = append(messages, convertMessageResponse(msg))
 	}
@@ -180,7 +170,7 @@ func (c *Client) AbortSession(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-func (c *Client) ListProviders(ctx context.Context) ([]adapter.Provider, []string, error) {
+func (c *Client) ListProviders(ctx context.Context) ([]Provider, []string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/provider", nil)
 	if err != nil {
 		return nil, nil, err
@@ -216,7 +206,7 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 	out := make(chan string)
 	go func() {
 		defer close(out)
-		events := make(chan adapter.StreamEvent, streamBufferSize)
+		events := make(chan StreamEvent, streamBufferSize)
 		go func() {
 			defer close(events)
 			result, err := c.sendWithSSE(ctx, sessionID, text, providerID, modelID, agent, events)
@@ -249,12 +239,12 @@ func (c *Client) SendMessage(ctx context.Context, sessionID, text, providerID, m
 	return out
 }
 
-func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, providerID, modelID, agent string) <-chan adapter.StreamEvent {
+func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, providerID, modelID, agent string) <-chan StreamEvent {
 	// Buffered so a brief stall in the UI consumer (e.g. a synchronous question
 	// reply or post-stream model refresh) does not block the SSE reader. If the
 	// reader blocks, opencode's /event buffer fills and the agent's tool calls
 	// stall — the symptom that looks like "tool calls aborting".
-	out := make(chan adapter.StreamEvent, streamBufferSize)
+	out := make(chan StreamEvent, streamBufferSize)
 	go func() {
 		defer close(out)
 		result, err := c.sendWithSSE(ctx, sessionID, text, providerID, modelID, agent, out)
@@ -271,7 +261,7 @@ func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, provide
 		}
 		select {
 		case <-ctx.Done():
-		case out <- adapter.StreamEvent{Text: fmt.Sprintf("\n⚠️  SSE stream ended before completion: %v\n", err)}:
+		case out <- StreamEvent{Text: fmt.Sprintf("\n⚠️  SSE stream ended before completion: %v\n", err)}:
 		}
 	}()
 	return out
@@ -335,7 +325,7 @@ func (c *Client) replyPermission(ctx context.Context, path, body string) bool {
 // generation via POST /session/{id}/prompt_async, then reads events until
 // session.idle arrives. It reports whether tokens were emitted so the caller
 // only falls back to sendSync when doing so cannot duplicate output.
-func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, modelID, agent string, out chan<- adapter.StreamEvent) (sseResult, error) {
+func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, modelID, agent string, out chan<- StreamEvent) (sseResult, error) {
 	var result sseResult
 
 	// 1. Open the SSE stream first so we don't miss any events.
@@ -446,7 +436,7 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 						select {
 						case <-ctx.Done():
 							return result, ctx.Err()
-						case out <- adapter.StreamEvent{Tool: tool}:
+						case out <- StreamEvent{Tool: tool}:
 							result.emitted = true
 						}
 						continue
@@ -455,14 +445,14 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 					partTypes[props.Part.ID] = partType
 					// Flush any deltas that arrived before this registration.
 					for _, d := range pendingDeltas[props.Part.ID] {
-						text := adapter.DisplayTextForPart(adapter.Part{Type: partType, Text: d})
+						text := DisplayTextForPart(Part{Type: partType, Text: d})
 						if text == "" {
 							continue
 						}
 						select {
 						case <-ctx.Done():
 							return result, ctx.Err()
-						case out <- adapter.StreamEvent{Text: text}:
+						case out <- StreamEvent{Text: text}:
 							result.emitted = true
 						}
 					}
@@ -481,14 +471,14 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 					continue
 				}
 				if partType := partTypes[props.PartID]; partType != "" {
-					text := adapter.DisplayTextForPart(adapter.Part{Type: partType, Text: props.Delta})
+					text := DisplayTextForPart(Part{Type: partType, Text: props.Delta})
 					if text == "" {
 						continue
 					}
 					select {
 					case <-ctx.Done():
 						return result, ctx.Err()
-					case out <- adapter.StreamEvent{Text: text}:
+					case out <- StreamEvent{Text: text}:
 						result.emitted = true
 					}
 				} else {
@@ -529,7 +519,7 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 					select {
 					case <-ctx.Done():
 						return result, ctx.Err()
-					case out <- adapter.StreamEvent{Question: &props}:
+					case out <- StreamEvent{Question: &props}:
 					}
 				}
 
@@ -575,7 +565,7 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 					select {
 					case <-ctx.Done():
 						return result, ctx.Err()
-					case out <- adapter.StreamEvent{Text: fmt.Sprintf("\n⚠️  opencode error: %s\n", message)}:
+					case out <- StreamEvent{Text: fmt.Sprintf("\n⚠️  opencode error: %s\n", message)}:
 						result.emitted = true
 					}
 					result.completed = true
@@ -594,13 +584,13 @@ func (c *Client) sendWithSSE(ctx context.Context, sessionID, text, providerID, m
 
 // sendSync is the legacy fallback: POSTs to /session/{id}/message, waits for
 // the full JSON response, then emits the text character by character.
-func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, modelID, agent string, out chan<- adapter.StreamEvent) {
+func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, modelID, agent string, out chan<- StreamEvent) {
 	b := newSendMessageBody(text, providerID, modelID, agent)
 	data, err := json.Marshal(b)
 	if err != nil {
 		select {
 		case <-ctx.Done():
-		case out <- adapter.StreamEvent{Text: fmt.Sprintf("\n⚠️  marshal error: %v\n", err)}:
+		case out <- StreamEvent{Text: fmt.Sprintf("\n⚠️  marshal error: %v\n", err)}:
 		}
 		return
 	}
@@ -611,7 +601,7 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 	if err != nil {
 		select {
 		case <-ctx.Done():
-		case out <- adapter.StreamEvent{Text: fmt.Sprintf("\n⚠️  request error: %v\n", err)}:
+		case out <- StreamEvent{Text: fmt.Sprintf("\n⚠️  request error: %v\n", err)}:
 		}
 		return
 	}
@@ -622,7 +612,7 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 		select {
 		case <-ctx.Done():
 			return
-		case out <- adapter.StreamEvent{Text: "\n⚠️  Opencode server not available (is `opencode serve` running?)\n"}:
+		case out <- StreamEvent{Text: "\n⚠️  Opencode server not available (is `opencode serve` running?)\n"}:
 		}
 		return
 	}
@@ -631,7 +621,7 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 	if resp.StatusCode != http.StatusOK {
 		select {
 		case <-ctx.Done():
-		case out <- adapter.StreamEvent{Text: fmt.Sprintf("\n⚠️  opencode server returned status %d\n", resp.StatusCode)}:
+		case out <- StreamEvent{Text: fmt.Sprintf("\n⚠️  opencode server returned status %d\n", resp.StatusCode)}:
 		}
 		return
 	}
@@ -640,7 +630,7 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 	if err := json.NewDecoder(resp.Body).Decode(&msgResp); err != nil {
 		select {
 		case <-ctx.Done():
-		case out <- adapter.StreamEvent{Text: fmt.Sprintf("\n⚠️  decode error: %v\n", err)}:
+		case out <- StreamEvent{Text: fmt.Sprintf("\n⚠️  decode error: %v\n", err)}:
 		}
 		return
 	}
@@ -650,17 +640,17 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 			select {
 			case <-ctx.Done():
 				return
-			case out <- adapter.StreamEvent{Tool: part.Tool}:
+			case out <- StreamEvent{Tool: part.Tool}:
 			}
 			continue
 		}
-		text := adapter.DisplayTextForPart(part)
+		text := DisplayTextForPart(part)
 		if text != "" {
 			for _, r := range text {
 				select {
 				case <-ctx.Done():
 					return
-				case out <- adapter.StreamEvent{Text: string(r)}:
+				case out <- StreamEvent{Text: string(r)}:
 				}
 				time.Sleep(3 * time.Millisecond)
 			}
@@ -671,10 +661,10 @@ func (c *Client) sendSync(ctx context.Context, sessionID, text, providerID, mode
 func newSendMessageBody(text, providerID, modelID, agent string) sendMessageBody {
 	b := sendMessageBody{
 		Agent: agent,
-		Parts: []adapter.Part{{Type: "text", Text: text}},
+		Parts: []Part{{Type: "text", Text: text}},
 	}
 	if providerID != "" && modelID != "" {
-		b.Model = &adapter.MessageModelRef{ProviderID: providerID, ModelID: modelID}
+		b.Model = &MessageModelRef{ProviderID: providerID, ModelID: modelID}
 	}
 	return b
 }
@@ -691,15 +681,15 @@ type createSessionBody struct {
 }
 
 type sendMessageBody struct {
-	Model *adapter.MessageModelRef `json:"model,omitempty"`
-	Agent string                   `json:"agent,omitempty"`
-	Parts []adapter.Part           `json:"parts"`
+	Model *MessageModelRef `json:"model,omitempty"`
+	Agent string           `json:"agent,omitempty"`
+	Parts []Part           `json:"parts"`
 }
 
 type providerListResponse struct {
-	All       []adapter.Provider `json:"all"`
-	Providers []adapter.Provider `json:"providers"`
-	Connected []string           `json:"connected"`
+	All       []Provider `json:"all"`
+	Providers []Provider `json:"providers"`
+	Connected []string   `json:"connected"`
 }
 
 // ── SSE event types ───────────────────────────────────────────────────────────
@@ -754,7 +744,7 @@ type sessionStatusProperties struct {
 	} `json:"status"`
 }
 
-type questionAskedProperties = adapter.QuestionRequest
+type questionAskedProperties = QuestionRequest
 
 // permissionAskedProperties is the shared subset of "permission.asked" and
 // "permission.v2.asked" event payloads that plums needs to send a reply.
@@ -790,32 +780,32 @@ type sseResult struct {
 }
 
 type messageResponse struct {
-	Info  adapter.MessageInfo `json:"info"`
-	Parts []opencodePart      `json:"parts"`
+	Info  MessageInfo    `json:"info"`
+	Parts []opencodePart `json:"parts"`
 }
 
-func convertMessageResponse(msg messageResponse) adapter.MessageResponse {
-	parts := make([]adapter.Part, 0, len(msg.Parts))
+func convertMessageResponse(msg messageResponse) MessageResponse {
+	parts := make([]Part, 0, len(msg.Parts))
 	for _, part := range msg.Parts {
 		if part.Type == "tool" {
 			if tool := convertToolPart(part); tool != nil {
-				parts = append(parts, adapter.Part{Type: "tool", Tool: tool})
+				parts = append(parts, Part{Type: "tool", Tool: tool})
 			}
 			continue
 		}
-		parts = append(parts, adapter.Part{Type: part.Type, Text: part.Text})
+		parts = append(parts, Part{Type: part.Type, Text: part.Text})
 	}
-	return adapter.MessageResponse{Info: msg.Info, Parts: parts}
+	return MessageResponse{Info: msg.Info, Parts: parts}
 }
 
-func convertToolPart(part opencodePart) *adapter.ToolEvent {
+func convertToolPart(part opencodePart) *ToolEvent {
 	input := part.State.Raw
 	if input == "" && part.State.Input != nil {
 		if data, err := json.Marshal(part.State.Input); err == nil {
 			input = string(data)
 		}
 	}
-	tool := &adapter.ToolEvent{
+	tool := &ToolEvent{
 		ID:    part.ID,
 		Name:  part.Tool,
 		Input: input,

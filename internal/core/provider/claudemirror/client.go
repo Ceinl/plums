@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
 	"github.com/Ceinl/plums/internal/debuglog"
 )
 
@@ -39,7 +38,7 @@ var commandReplyTimeout = 10 * time.Second
 // prompt never appears in any transcript before the deadline.
 var errPromptNotSeen = fmt.Errorf("prompt was sent but never appeared in any transcript")
 
-// Client implements adapter.Backend by attaching to already-running
+// Client implements Backend by attaching to already-running
 // interactive Claude Code instances: prompts are typed into the real
 // window's tmux pane and output is mirrored by tailing the session's
 // JSONL transcript under ~/.claude/projects. The real window stays the
@@ -50,7 +49,7 @@ type Client struct {
 	bindings  map[string]int      // transcript path -> verified owning pid
 }
 
-func NewBackend() adapter.Backend {
+func NewClient() *Client {
 	return &Client{
 		instances: make(map[string]instance),
 		bindings:  make(map[string]int),
@@ -82,7 +81,7 @@ func (c *Client) Health(ctx context.Context) error {
 // anything: the instance whose cwd matches directory, or the only live one.
 // With several candidates and no directory match it refuses rather than
 // guessing — injecting into the wrong window must never happen.
-func (c *Client) CreateSession(ctx context.Context, directory string) (*adapter.Session, error) {
+func (c *Client) CreateSession(ctx context.Context, directory string) (*Session, error) {
 	chosen, err := chooseInstance(ctx, directory)
 	if err != nil {
 		return nil, err
@@ -124,7 +123,7 @@ func chooseInstance(ctx context.Context, directory string) (*instance, error) {
 // window, so it starts a fresh conversation in the attached one by injecting
 // Claude Code's own /clear, then returns the window as a fresh live instance
 // whose next prompt re-discovers the new transcript.
-func (c *Client) ResetSession(ctx context.Context, directory string) (*adapter.Session, error) {
+func (c *Client) ResetSession(ctx context.Context, directory string) (*Session, error) {
 	chosen, err := chooseInstance(ctx, directory)
 	if err != nil {
 		return nil, err
@@ -145,12 +144,12 @@ func (c *Client) ResetSession(ctx context.Context, directory string) (*adapter.S
 	return &session, nil
 }
 
-func (c *Client) ListSessions(ctx context.Context) ([]adapter.Session, error) {
+func (c *Client) ListSessions(ctx context.Context) ([]Session, error) {
 	instances, err := discoverInstances(ctx)
 	if err != nil {
 		return nil, err
 	}
-	sessions := make([]adapter.Session, 0, len(instances))
+	sessions := make([]Session, 0, len(instances))
 	for _, inst := range instances {
 		c.remember(inst)
 		sessions = append(sessions, c.sessionFromInstance(inst))
@@ -158,7 +157,7 @@ func (c *Client) ListSessions(ctx context.Context) ([]adapter.Session, error) {
 	return sessions, nil
 }
 
-func (c *Client) GetSession(ctx context.Context, sessionID string) (*adapter.Session, error) {
+func (c *Client) GetSession(ctx context.Context, sessionID string) (*Session, error) {
 	instances, err := discoverInstances(ctx)
 	if err == nil {
 		for _, inst := range instances {
@@ -182,7 +181,7 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*adapter.Ses
 	return &session, nil
 }
 
-func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]adapter.MessageResponse, error) {
+func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]MessageResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -197,7 +196,7 @@ func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]adapter.
 	if err != nil {
 		return nil, err
 	}
-	var messages []adapter.MessageResponse
+	var messages []MessageResponse
 	for _, entry := range entries {
 		if !conversationEntry(entry) {
 			continue
@@ -206,38 +205,38 @@ func (c *Client) ListMessages(ctx context.Context, sessionID string) ([]adapter.
 		if len(parts) == 0 {
 			continue
 		}
-		messages = append(messages, adapter.MessageResponse{
-			Info:  adapter.MessageInfo{ID: entry.UUID, Role: entry.Message.Role},
+		messages = append(messages, MessageResponse{
+			Info:  MessageInfo{ID: entry.UUID, Role: entry.Message.Role},
 			Parts: parts,
 		})
 	}
 	return messages, nil
 }
 
-func (c *Client) ListProviders(ctx context.Context) ([]adapter.Provider, []string, error) {
+func (c *Client) ListProviders(ctx context.Context) ([]Provider, []string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	provider := adapter.Provider{
+	provider := Provider{
 		ID:   providerID,
 		Name: "Claude Mirror",
-		Models: map[string]adapter.Model{
+		Models: map[string]Model{
 			// The real window decides the model; this is a placeholder.
 			defaultModelID: {ID: defaultModelID, ProviderID: providerID, Name: "Live window"},
 		},
 	}
-	return []adapter.Provider{provider}, []string{providerID}, nil
+	return []Provider{provider}, []string{providerID}, nil
 }
 
-func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, _ string, _, _ string) <-chan adapter.StreamEvent {
-	out := make(chan adapter.StreamEvent)
+func (c *Client) SendMessageEvents(ctx context.Context, sessionID, text, _ string, _, _ string) <-chan StreamEvent {
+	out := make(chan StreamEvent)
 	go func() {
 		defer close(out)
 		if strings.TrimSpace(text) == "" {
 			return
 		}
 		if err := c.runMirroredTurn(ctx, out, sessionID, text); err != nil {
-			emit(ctx, out, adapter.StreamEvent{Text: fmt.Sprintf("\nClaude mirror error: %v\n", err)})
+			emit(ctx, out, StreamEvent{Text: fmt.Sprintf("\nClaude mirror error: %v\n", err)})
 		}
 	}()
 	return out
@@ -278,7 +277,7 @@ func (c *Client) BaseURL() string {
 // transcript is only a guess (mtime heuristic), so after injecting it locks
 // onto whichever transcript in the project directory actually receives the
 // prompt — a fresh window may write to a file that didn't exist yet.
-func (c *Client) runMirroredTurn(ctx context.Context, out chan<- adapter.StreamEvent, sessionID, text string) error {
+func (c *Client) runMirroredTurn(ctx context.Context, out chan<- StreamEvent, sessionID, text string) error {
 	inst, err := c.resolveInstance(ctx, sessionID)
 	if err != nil {
 		return err
@@ -310,7 +309,7 @@ func (c *Client) runMirroredTurn(ctx context.Context, out chan<- adapter.StreamE
 		// produces no transcript output; it was still injected, so report it as
 		// sent rather than failing the turn.
 		if isSlashCommand(text) && errors.Is(err, errPromptNotSeen) {
-			emit(ctx, out, adapter.StreamEvent{Text: fmt.Sprintf(
+			emit(ctx, out, StreamEvent{Text: fmt.Sprintf(
 				"\n[claude-mirror] sent %q to the Claude Code window (no transcript output to mirror)\n", strings.TrimSpace(text))})
 			return nil
 		}
@@ -555,7 +554,7 @@ func (c *Client) resolveInstance(ctx context.Context, sessionID string) (instanc
 // AskUserQuestion (with its full options) to the transcript, where the next
 // poll reads it and surfaces the native picker in Plums. The user's selection
 // is then injected as the next prompt (see ReplyQuestion).
-func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, offset int64, pane string, pid int) error {
+func tailTurn(ctx context.Context, out chan<- StreamEvent, path string, offset int64, pane string, pid int) error {
 	deadline := time.Now().Add(firstReplyTimeout)
 	sawActivity := false
 	lastActivity := time.Now()
@@ -641,7 +640,7 @@ func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, 
 					}
 				} else {
 					debuglog.Printf("claude-mirror: pid %d waiting (%s) without bypass; leaving it for the real window", pid, st.WaitingFor)
-					emit(ctx, out, adapter.StreamEvent{Text: "\n[claude-mirror] the Claude Code window is waiting for your input (a question or a permission prompt) — handle it there; the reply will mirror back here\n"})
+					emit(ctx, out, StreamEvent{Text: "\n[claude-mirror] the Claude Code window is waiting for your input (a question or a permission prompt) — handle it there; the reply will mirror back here\n"})
 					// A detected wait is first-turn activity: the prompt reached the
 					// window. Mark it so a slow human reply doesn't trip the
 					// "no transcript activity" deadline below.
@@ -654,7 +653,7 @@ func tailTurn(ctx context.Context, out chan<- adapter.StreamEvent, path string, 
 			return fmt.Errorf("no transcript activity within %s — the prompt may not have reached the window", firstReplyTimeout)
 		}
 		if sawActivity && time.Since(lastActivity) > idleTimeout {
-			emit(ctx, out, adapter.StreamEvent{Text: fmt.Sprintf(
+			emit(ctx, out, StreamEvent{Text: fmt.Sprintf(
 				"\n[claude-mirror] no transcript activity for %s — the real window may be waiting for input (permission prompt or question); check it there\n",
 				idleTimeout)})
 			return nil
@@ -682,7 +681,7 @@ func askQuestionID(entry transcriptEntry) string {
 // suppressResultID is the tool_use id of a question the mirror auto-declined to
 // flush it; that question's synthetic rejection tool_result is dropped so Plums
 // does not show a "declined" error the user never caused.
-func emitEntry(ctx context.Context, out chan<- adapter.StreamEvent, entry transcriptEntry, suppressResultID string) {
+func emitEntry(ctx context.Context, out chan<- StreamEvent, entry transcriptEntry, suppressResultID string) {
 	for _, part := range entryParts(entry) {
 		switch {
 		case part.Tool != nil:
@@ -691,19 +690,19 @@ func emitEntry(ctx context.Context, out chan<- adapter.StreamEvent, entry transc
 			if suppressResultID != "" && part.Tool.Name == "" && part.Tool.ID == suppressResultID {
 				continue
 			}
-			emit(ctx, out, adapter.StreamEvent{Tool: part.Tool})
+			emit(ctx, out, StreamEvent{Tool: part.Tool})
 			// Questions block the real window; surface them in Plums when the
 			// input matches Claude's question tool schema.
 			if part.Tool.Name == "AskUserQuestion" {
 				if req := parseQuestionRequest(entry.SessionID, part.Tool.ID, part.Tool.Input); req != nil {
-					emit(ctx, out, adapter.StreamEvent{Question: req})
+					emit(ctx, out, StreamEvent{Question: req})
 				} else if text := formatQuestions(part.Tool.Input); text != "" {
-					emit(ctx, out, adapter.StreamEvent{Text: text})
+					emit(ctx, out, StreamEvent{Text: text})
 				}
 			}
 		case entry.Message.Role == "assistant":
-			if text := adapter.DisplayTextForPart(part); text != "" {
-				emit(ctx, out, adapter.StreamEvent{Text: text})
+			if text := DisplayTextForPart(part); text != "" {
+				emit(ctx, out, StreamEvent{Text: text})
 			}
 		}
 	}
@@ -797,21 +796,21 @@ func processAlive(pid int) bool {
 	return errors.Is(err, syscall.EPERM)
 }
 
-func (c *Client) sessionFromInstance(inst instance) adapter.Session {
+func (c *Client) sessionFromInstance(inst instance) Session {
 	if inst.transcript == "" {
 		now := inst.started.UnixMilli()
-		return adapter.Session{
+		return Session{
 			ID:        inst.sessionID,
 			Title:     "Claude window (new)",
 			Directory: inst.cwd,
-			Model:     &adapter.ModelRef{ID: defaultModelID, ProviderID: providerID},
-			Time:      adapter.SessionTime{Created: now, Updated: now},
+			Model:     &ModelRef{ID: defaultModelID, ProviderID: providerID},
+			Time:      SessionTime{Created: now, Updated: now},
 		}
 	}
 	return c.sessionFromTranscript(inst.sessionID, inst.transcript, inst.cwd)
 }
 
-func (c *Client) sessionFromTranscript(sessionID, path, cwd string) adapter.Session {
+func (c *Client) sessionFromTranscript(sessionID, path, cwd string) Session {
 	title := "Claude window"
 	modelID := defaultModelID
 	created := int64(0)
@@ -836,16 +835,16 @@ func (c *Client) sessionFromTranscript(sessionID, path, cwd string) adapter.Sess
 			}
 		}
 	}
-	return adapter.Session{
+	return Session{
 		ID:        sessionID,
 		Title:     title,
 		Directory: cwd,
-		Model:     &adapter.ModelRef{ID: modelID, ProviderID: providerID},
-		Time:      adapter.SessionTime{Created: created, Updated: updated},
+		Model:     &ModelRef{ID: modelID, ProviderID: providerID},
+		Time:      SessionTime{Created: created, Updated: updated},
 	}
 }
 
-func emit(ctx context.Context, out chan<- adapter.StreamEvent, event adapter.StreamEvent) {
+func emit(ctx context.Context, out chan<- StreamEvent, event StreamEvent) {
 	select {
 	case <-ctx.Done():
 	case out <- event:

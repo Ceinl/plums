@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>plums — plugin architecture audit</title>
+<style>
+  :root{--bg:#16141b;--panel:#1f1d28;--ink:#e8e5f1;--mut:#9a98ac;--acc:#b9a3ff;--ok:#7fd6a0;--warn:#f0c674;--bad:#f08a8a;--line:#322f3f}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:900px;margin:0 auto;padding:48px 24px 96px}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--mut);margin:0 0 36px}
+  a{color:var(--acc);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin:14px 0;display:block}
+  .card h2{margin:0 0 4px;font-size:19px}
+  .card p{margin:0;color:var(--mut)}
+  .tag{display:inline-block;font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--mut);margin-right:6px}
+  .ok{color:var(--ok);border-color:#2f5a40}
+  .warn{color:var(--warn);border-color:#5a4d2a}
+  footer{color:var(--mut);font-size:13px;margin-top:40px;border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>plums — plugin architecture audit</h1>
+  <p class="sub">Branch <code>global-rewrite</code> · audited against <code>DESIGN.md</code> · 2026-06-20</p>
+
+  <a class="card" href="step-1-architecture-audit.html">
+    <h2>Step 1 — Architecture &amp; extensibility audit <span class="tag ok">no code change</span></h2>
+    <p>How the app loads and renders, the full internal dependency tree, and a per-extension verdict: can a user recreate each tool (component, layout, command, provider, hook) as a plugin?</p>
+  </a>
+
+  <a class="card" href="step-2-dead-code.html">
+    <h2>Step 2 — Dead code removal <span class="tag ok">9 funcs removed · build+tests green</span></h2>
+    <p>Verified-unreachable functions removed, reserved seams and public API preserved. Includes before/after and the affected-package dependency tree.</p>
+  </a>
+
+  <a class="card" href="step-3-extensibility-verdicts.html">
+    <h2>Step 3 — Per-tool extensibility deep dive <span class="tag warn">gaps documented</span></h2>
+    <p>For each extension kind: the public seam, whether built-ins dogfood it, the residual gap, and the concrete recommendation to close it.</p>
+  </a>
+
+  <footer>
+    Generated during an autonomous audit session. Reserved seams (<code>internal/core/harness</code>,
+    <code>internal/core/registry.go</code>) were left untouched per DESIGN §10.
+  </footer>
+</div>
+</body>
+</html>

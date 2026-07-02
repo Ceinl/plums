@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
-
-	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
 const maxTranscriptLine = 16 * 1024 * 1024
@@ -69,33 +67,33 @@ func isHarnessText(text string) bool {
 }
 
 // entryParts converts a transcript entry into displayable message parts.
-func entryParts(entry transcriptEntry) []adapter.Part {
-	var parts []adapter.Part
+func entryParts(entry transcriptEntry) []Part {
+	var parts []Part
 	for _, block := range contentBlocks(entry.Message.Content) {
 		switch block.Type {
 		case "text":
 			if block.Text != "" && !(entry.Message.Role == "user" && isHarnessText(block.Text)) {
-				parts = append(parts, adapter.Part{Type: "text", Text: block.Text})
+				parts = append(parts, Part{Type: "text", Text: block.Text})
 			}
 		case "thinking":
 			if block.Thinking != "" {
-				parts = append(parts, adapter.Part{Type: "thinking", Text: block.Thinking})
+				parts = append(parts, Part{Type: "thinking", Text: block.Thinking})
 			}
 		case "tool_use":
-			parts = append(parts, adapter.Part{Type: "tool", Tool: &adapter.ToolEvent{
+			parts = append(parts, Part{Type: "tool", Tool: &ToolEvent{
 				ID:    block.ID,
 				Name:  block.Name,
 				Input: string(block.Input),
 			}})
 		case "tool_result":
-			tool := &adapter.ToolEvent{ID: block.ToolUseID}
+			tool := &ToolEvent{ID: block.ToolUseID}
 			output := toolResultText(block.Content)
 			if block.IsError {
 				tool.Error = output
 			} else {
 				tool.Output = output
 			}
-			parts = append(parts, adapter.Part{Type: "tool", Tool: tool})
+			parts = append(parts, Part{Type: "tool", Tool: tool})
 		}
 	}
 	return parts
@@ -187,7 +185,7 @@ func pendingQuestionID(entries []transcriptEntry) string {
 	return pendingID
 }
 
-func parseQuestionRequest(sessionID, toolUseID, input string) *adapter.QuestionRequest {
+func parseQuestionRequest(sessionID, toolUseID, input string) *QuestionRequest {
 	if sessionID == "" || toolUseID == "" {
 		return nil
 	}
@@ -200,8 +198,8 @@ func parseQuestionRequest(sessionID, toolUseID, input string) *adapter.QuestionR
 	return payload
 }
 
-func parseQuestionPayload(input string) *adapter.QuestionRequest {
-	var payload adapter.QuestionRequest
+func parseQuestionPayload(input string) *QuestionRequest {
+	var payload QuestionRequest
 	if json.Unmarshal([]byte(input), &payload) != nil || len(payload.Questions) == 0 {
 		return nil
 	}
@@ -272,7 +270,7 @@ func transcriptTitle(entries []transcriptEntry, fallback string) string {
 		}
 		for _, part := range entryParts(entry) {
 			if part.Type == "text" && part.Text != "" {
-				return adapter.TitleFromMessage(part.Text, fallback)
+				return TitleFromMessage(part.Text, fallback)
 			}
 		}
 	}

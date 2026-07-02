@@ -2,15 +2,13 @@ package app
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
-	"github.com/Ceinl/plums/internal/app/defaults"
 	"github.com/Ceinl/plums/internal/ui/tui/components"
 	"github.com/Ceinl/plums/internal/ui/tui/layout"
+	"github.com/Ceinl/plums/internal/ui/tui/theme"
 )
 
 type RenderConfig struct {
@@ -19,8 +17,7 @@ type RenderConfig struct {
 	// Menu is the ordered list of user-selectable layout ids (the ones the
 	// layout cycle and palette offer). It is the data-driven knob for adding a
 	// layout: define it under "layouts" and list its key here. When empty, the
-	// built-in chat/split/fullscreen set is recognised for backwards
-	// compatibility.
+	// legacy split/zen keys are recognised for backwards compatibility.
 	Menu     []string               `json:"menu"`
 	Overlays map[string]OverlayNode `json:"overlays"`
 }
@@ -38,6 +35,12 @@ type LayoutNode struct {
 	Children      []LayoutNode      `json:"children"`
 	WhenPopupOpen *LayoutNode       `json:"when_popup_open"`
 	Variants      map[string]string `json:"variants"`
+
+	// slotID is the component's position in the layout tree (e.g. "/0/2"). It is
+	// assigned during traversal, not deserialized, and identifies a stateful
+	// public component instance so the same component used in two slots keeps
+	// independent state.
+	slotID string
 }
 
 type SizeNode struct {
@@ -53,10 +56,14 @@ type PaddingNode struct {
 }
 
 type StyleNode struct {
-	Background []uint8 `json:"background"`
-	Foreground []uint8 `json:"foreground"`
-	Muted      []uint8 `json:"muted"`
-	Accent     []uint8 `json:"accent"`
+	Background      []uint8 `json:"background"`
+	Foreground      []uint8 `json:"foreground"`
+	Muted           []uint8 `json:"muted"`
+	Accent          []uint8 `json:"accent"`
+	BackgroundToken string  `json:"background_token"`
+	ForegroundToken string  `json:"foreground_token"`
+	MutedToken      string  `json:"muted_token"`
+	AccentToken     string  `json:"accent_token"`
 }
 
 type OverlayNode struct {
@@ -71,32 +78,40 @@ type OverlayWidthNode struct {
 	Max       json.RawMessage `json:"max"`
 }
 
-func LoadRenderConfig(path string) (*RenderConfig, error) {
-	// The single source of truth for the built-in layout is the embedded
-	// defaults/layout.json — the same bytes seeded to disk — so there is no
-	// hand-maintained second copy to drift out of sync.
-	data, err := defaults.Read("layout.json")
-	if err != nil {
-		return nil, err
+// NewRenderConfig returns an internal render-config scaffold: an empty layout
+// set plus the fixed overlay definitions (the slash-command dropdown and command
+// palette popup). Layouts and the menu are populated at startup by
+// InstallPublicLayout from the registered layout plugins — there is no
+// user-authored layout data file. The overlays are app-internal chrome, not a
+// user-authored layout, so they live here as Go values rather than a file.
+func NewRenderConfig() *RenderConfig {
+	return &RenderConfig{
+		Version:  1,
+		Layouts:  map[string]LayoutNode{},
+		Overlays: defaultOverlays(),
 	}
-	if path != "" {
-		data, err = os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-	}
+}
 
-	var cfg RenderConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
+func defaultOverlays() map[string]OverlayNode {
+	return map[string]OverlayNode{
+		"slash_command_dropdown": {
+			EnabledWhen: "!state.PopupOpen && len(state.SlashCommands()) > 0",
+			Width: OverlayWidthNode{
+				Preferred: 44,
+				Min:       20,
+				Max:       json.RawMessage(`"state.width - 2"`),
+			},
+			Style: StyleNode{
+				BackgroundToken: "bg_surface",
+				ForegroundToken: "text",
+				MutedToken:      "text_muted",
+				AccentToken:     "accent",
+			},
+		},
+		"command_palette_popup": {
+			EnabledWhen: `state.PopupOpen && (state.EffectiveLayout() != "split" || state.width < MinSplitLayoutWidth)`,
+		},
 	}
-	if cfg.Version != 1 {
-		return nil, fmt.Errorf("unsupported layout config version %d", cfg.Version)
-	}
-	if len(cfg.Layouts) == 0 {
-		return nil, errors.New("layout config has no layouts")
-	}
-	return &cfg, nil
 }
 
 func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {
@@ -104,7 +119,7 @@ func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {
 		return nil
 	}
 	// Explicit menu wins: a fully data-driven, ordered selection. Each entry
-	// must resolve to a defined layout ("chat" also accepts a "default" node).
+	// must resolve to a defined layout.
 	if len(cfg.Menu) > 0 {
 		layouts := make([]LayoutType, 0, len(cfg.Menu))
 		for _, name := range cfg.Menu {
@@ -113,31 +128,19 @@ func (cfg *RenderConfig) AvailableLayoutTypes() []LayoutType {
 			}
 			if _, ok := cfg.Layouts[name]; ok {
 				layouts = append(layouts, LayoutType(name))
-			} else if name == "chat" {
-				if _, ok := cfg.Layouts["default"]; ok {
-					layouts = append(layouts, LayoutChat)
-				}
 			}
 		}
 		return layouts
 	}
 
-	// Legacy fallback (no menu declared): recognise the built-in keys in their
-	// historical order.
-	layouts := make([]LayoutType, 0, 4)
-	if _, ok := cfg.Layouts["chat"]; ok {
-		layouts = append(layouts, LayoutChat)
-	} else if _, ok := cfg.Layouts["default"]; ok {
-		layouts = append(layouts, LayoutChat)
-	}
+	// Legacy fallback (no menu declared): recognise historical keys in their
+	// old order.
+	layouts := make([]LayoutType, 0, 2)
 	if _, ok := cfg.Layouts["split"]; ok {
 		layouts = append(layouts, LayoutSplit)
 	}
 	if _, ok := cfg.Layouts["zen"]; ok {
 		layouts = append(layouts, LayoutZen)
-	}
-	if _, ok := cfg.Layouts["fullscreen"]; ok {
-		layouts = append(layouts, LayoutFullscreen)
 	}
 	return layouts
 }
@@ -177,18 +180,13 @@ func resolveOverlayMax(state *State, raw json.RawMessage, fallback int) int {
 
 func buildLayout(state *State, cfg *RenderConfig, name string) (layout.Component, error) {
 	node, ok := cfg.Layouts[name]
-	if !ok && name == "chat" {
-		node, ok = cfg.Layouts["default"]
-	}
-	if !ok && name == "chat" {
-		node, ok = cfg.Layouts["fullscreen"]
-	}
 	if !ok {
 		return nil, fmt.Errorf("layout %q not found", name)
 	}
 	if node.MinWidth == "MinSplitLayoutWidth" && state.width < MinSplitLayoutWidth && node.Fallback != "" {
 		return buildLayout(state, cfg, node.Fallback)
 	}
+	node.slotID = ""
 	return buildNode(state, node)
 }
 
@@ -202,13 +200,15 @@ func buildNode(state *State, node LayoutNode) (layout.Component, error) {
 		if isEmptyStyle(replacement.Style) {
 			replacement.Style = node.Style
 		}
+		replacement.slotID = node.slotID
 		node = replacement
 	}
 
 	if node.Type == "div" || len(node.Children) > 0 {
 		div := components.NewDiv()
 		applyNodeProperties(state, div, node)
-		for _, childNode := range node.Children {
+		for i, childNode := range node.Children {
+			childNode.slotID = node.slotID + "/" + strconv.Itoa(i)
 			child, err := buildNode(state, childNode)
 			if err != nil {
 				return nil, err
@@ -232,62 +232,7 @@ func buildNode(state *State, node LayoutNode) (layout.Component, error) {
 }
 
 func buildComponent(state *State, node LayoutNode) (layout.Component, error) {
-	switch node.Component {
-	case "chat_output":
-		return newChatLog(state), nil
-	case "status_separator", "vertical_status_separator":
-		sep := components.NewSeparator()
-		sep.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
-		return sep, nil
-	case "editor", "editor_or_palette":
-		return state.Editor, nil
-	case "input_box", "text_box":
-		box := components.NewInputBox(state.Editor)
-		box.SetStatusSegments(chatStatusSegments(state))
-		return box, nil
-	case "command_palette_panel":
-		popup := components.NewPopup()
-		popup.SetPanel(true)
-		popup.SetTitle(state.PaletteTitle())
-		popup.SetQuery(state.PaletteSearch())
-		popup.SetItems(state.PaletteItems(), state.PaletteIndex)
-		return popup, nil
-	case "info_tabs":
-		tabs := components.NewInfoTabs()
-		tabs.SetTabs([]components.InfoTab{
-			{Label: "AI output", Active: state.InfoView == InfoViewAI},
-			{Label: "Git diff", Active: state.InfoView == InfoViewGitDiff},
-		})
-		return tabs, nil
-	case "sessions", "sessions_vertical":
-		return newSessions(state, components.SessionsVertical), nil
-	case "sessions_horizontal":
-		return newSessions(state, components.SessionsHorizontal), nil
-	case "info_view":
-		if state.InfoView == InfoViewGitDiff && node.Variants["git_diff"] == "git_diff_log" {
-			return newGitDiffLog(state), nil
-		}
-		return newChatLog(state), nil
-	case "fullscreen_view":
-		return newFullscreenView(state), nil
-	case "split_status_bar":
-		bar := components.NewStatusBar()
-		bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
-		bar.SetSession(state.SessionTitle)
-		bar.SetMode(state.Mode)
-		bar.SetModel(state.ModelProvider, state.ModelID)
-		return bar, nil
-	case "status_bar":
-		bar := components.NewStatusBar()
-		bar.SetStatus(state.ServerStarting, state.ServerReady, state.IsStreaming())
-		bar.SetSession(state.SessionTitle)
-		bar.SetMode(state.Mode)
-		bar.SetModel(state.ModelProvider, state.ModelID)
-		bar.SetShowSession(false)
-		return bar, nil
-	default:
-		return nil, fmt.Errorf("unknown component %q", node.Component)
-	}
+	return buildRegisteredComponent(state, node)
 }
 
 func applyNodeProperties(state *State, div *components.Div, node LayoutNode) {
@@ -356,11 +301,60 @@ func resolveStyle(node StyleNode) layout.Style {
 	style := layout.Style{}
 	if len(node.Background) == 3 {
 		style.SetBackground(node.Background[0], node.Background[1], node.Background[2])
+	} else if color, ok := themeColor(node.BackgroundToken); ok {
+		style.SetBackground(color.R, color.G, color.B)
 	}
 	if len(node.Foreground) == 3 {
 		style.SetForeground(node.Foreground[0], node.Foreground[1], node.Foreground[2])
+	} else if color, ok := themeColor(node.ForegroundToken); ok {
+		style.SetForeground(color.R, color.G, color.B)
 	}
 	return style
+}
+
+func themeColor(name string) (theme.Color, bool) {
+	switch name {
+	case "bg_backdrop":
+		return theme.BgBackdrop, true
+	case "bg_input":
+		return theme.BgInput, true
+	case "bg_base":
+		return theme.BgBase, true
+	case "bg_surface":
+		return theme.BgSurface, true
+	case "bg_panel":
+		return theme.BgPanel, true
+	case "bg_raised":
+		return theme.BgRaised, true
+	case "bg_highlight":
+		return theme.BgHighlight, true
+	case "bg_selected":
+		return theme.BgSelected, true
+	case "text_bright":
+		return theme.TextBright, true
+	case "text":
+		return theme.Text, true
+	case "text_soft":
+		return theme.TextSoft, true
+	case "text_muted":
+		return theme.TextMuted, true
+	case "text_faint":
+		return theme.TextFaint, true
+	case "text_dim":
+		return theme.TextDim, true
+	case "accent":
+		return theme.Accent, true
+	case "accent_bold":
+		return theme.AccentBold, true
+	case "accent_soft":
+		return theme.AccentSoft, true
+	case "border_accent":
+		return theme.BorderAccent, true
+	case "border":
+		return theme.Border, true
+	default:
+		return theme.Color{}, false
+	}
 }
 
 func hasContainerProperties(node LayoutNode) bool {
@@ -372,5 +366,12 @@ func isEmptyPadding(node PaddingNode) bool {
 }
 
 func isEmptyStyle(node StyleNode) bool {
-	return len(node.Background) == 0 && len(node.Foreground) == 0 && len(node.Muted) == 0 && len(node.Accent) == 0
+	return len(node.Background) == 0 &&
+		len(node.Foreground) == 0 &&
+		len(node.Muted) == 0 &&
+		len(node.Accent) == 0 &&
+		node.BackgroundToken == "" &&
+		node.ForegroundToken == "" &&
+		node.MutedToken == "" &&
+		node.AccentToken == ""
 }

@@ -119,8 +119,9 @@ type ChatLog struct {
 	thinkingMode   ThinkingVisibility
 	toolCallMode   ToolCallVisibility
 
-	style  layout.Style
-	parent layout.Component
+	style      layout.Style
+	parent     layout.Component
+	background string // explicit slot background for the public component path
 
 	x, y int
 	w, h int
@@ -193,6 +194,47 @@ func (cl *ChatLog) SetScrollOffset(offset int) {
 	cl.scrollOffset = offset
 	cl.ClearSelection()
 	cl.isDirty = true
+}
+
+// Scroll adjusts the offset (distance from the bottom) by delta, clamped to the
+// content height. It satisfies plums.Scrollable so a public component can own its
+// own scroll state. Returns whether the offset changed.
+func (cl *ChatLog) Scroll(delta int) bool {
+	target := cl.scrollOffset + delta
+	if target < 0 {
+		target = 0
+	}
+	if max := cl.MaxScrollOffset(); target > max {
+		target = max
+	}
+	if target == cl.scrollOffset {
+		return false
+	}
+	cl.scrollOffset = target
+	cl.ClearSelection()
+	cl.isDirty = true
+	return true
+}
+
+// SetBackground sets the pane background used when the chatlog is driven as a
+// public component (which has no layout parent to inherit from).
+func (cl *ChatLog) SetBackground(bg string) {
+	if cl.background == bg {
+		return
+	}
+	cl.background = bg
+	cl.isDirty = true
+}
+
+// ScrollToBottom returns to the newest output (offset 0).
+func (cl *ChatLog) ScrollToBottom() bool {
+	if cl.scrollOffset == 0 {
+		return false
+	}
+	cl.scrollOffset = 0
+	cl.ClearSelection()
+	cl.isDirty = true
+	return true
 }
 
 func chatMessagesEqual(a, b []ChatMessage) bool {

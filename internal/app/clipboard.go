@@ -21,10 +21,34 @@ var writeClipboard = func(text, command string) error {
 	return cmd.Run()
 }
 
-// WriteClipboard writes text to the system clipboard using the configured
-// command. If the command fails, an error is returned.
-func WriteClipboard(text, command string) error {
-	return writeClipboard(text, command)
+// readClipboard is the package-level clipboard reader backing
+// capabilities.Clipboard.Paste. Tests may replace it. The default reader uses the
+// platform paste command; an error is returned when none is available.
+var readClipboard = func() (string, error) {
+	command := defaultClipboardPasteCommand()
+	if command == "" {
+		return "", fmt.Errorf("clipboard paste unsupported on %s", runtime.GOOS)
+	}
+	parts := strings.Fields(command)
+	cmd := exec.Command(parts[0], parts[1:]...)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// defaultClipboardPasteCommand returns the default clipboard paste command for
+// the current platform, or "" when unknown.
+func defaultClipboardPasteCommand() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "pbpaste"
+	case "linux":
+		return "xclip -selection clipboard -o"
+	default:
+		return ""
+	}
 }
 
 // DefaultClipboardCommand returns the default clipboard copy command for the

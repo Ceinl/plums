@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
+	"github.com/Ceinl/plums/capabilities"
 )
 
-func displayTextForStreamEvent(event adapter.StreamEvent, emittedTools map[string]bool) string {
+func displayTextForStreamEvent(event capabilities.StreamEvent, emittedTools map[string]bool) string {
 	if event.Text != "" {
 		return event.Text
 	}
@@ -17,14 +17,14 @@ func displayTextForStreamEvent(event adapter.StreamEvent, emittedTools map[strin
 	return displayTextForToolEvent(*event.Tool, emittedTools)
 }
 
-func displayTextForPart(part adapter.Part, emittedTools map[string]bool) string {
+func displayTextForPart(part capabilities.Part, emittedTools map[string]bool) string {
 	if part.Tool != nil {
 		return displayTextForToolEvent(*part.Tool, emittedTools)
 	}
-	return adapter.DisplayTextForPart(part)
+	return displayTextForPartText(part.Type, part.Text)
 }
 
-func displayTextForToolEvent(tool adapter.ToolEvent, emittedTools map[string]bool) string {
+func displayTextForToolEvent(tool capabilities.ToolCall, emittedTools map[string]bool) string {
 	var chunks []string
 	if tool.ID == "" || !emittedTools[tool.ID] {
 		chunks = append(chunks, fmt.Sprintf("<tool_call name=%q>%s</tool_call>", tool.Name, tool.Input))
@@ -42,4 +42,18 @@ func displayTextForToolEvent(tool adapter.ToolEvent, emittedTools map[string]boo
 		return ""
 	}
 	return "\n" + strings.Join(chunks, "\n") + "\n"
+}
+
+func displayTextForPartText(partType, text string) string {
+	if text == "" {
+		return ""
+	}
+	switch partType {
+	case "text":
+		return text
+	case "reasoning", "thinking":
+		return "<thinking>" + text + "</thinking>"
+	default:
+		return ""
+	}
 }

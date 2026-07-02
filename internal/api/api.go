@@ -5,16 +5,18 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/Ceinl/plums/capabilities"
+	cfgpkg "github.com/Ceinl/plums/config"
 	"github.com/Ceinl/plums/internal/app"
+	internalbuild "github.com/Ceinl/plums/internal/build"
+	"github.com/Ceinl/plums/internal/builtincfg"
 	"github.com/Ceinl/plums/internal/core"
-	"github.com/Ceinl/plums/internal/core/adapter"
-	"github.com/Ceinl/plums/internal/core/provider/claudecode"
-	"github.com/Ceinl/plums/internal/core/provider/claudemirror"
-	"github.com/Ceinl/plums/internal/core/provider/codex"
-	"github.com/Ceinl/plums/internal/core/provider/opencode"
+	opencodebackend "github.com/Ceinl/plums/internal/core/backend/opencode"
 	"github.com/Ceinl/plums/internal/debuglog"
+	"github.com/Ceinl/plums/internal/kernel"
 	"github.com/Ceinl/plums/internal/keyboard"
 	"github.com/Ceinl/plums/internal/ui"
 )
@@ -27,43 +29,147 @@ type Config struct {
 
 	OpencodeServerURL string
 	BackendProvider   string
-	ClipboardCommand  string
 
-	UseGlobalConfig bool
-	UseLocalConfig  bool
-	InitConfig      bool
-	InitLocalConfig bool
-	ClearHistory    bool
-	ShowVersion     bool
+	InitConfig   bool
+	NoConfig     bool
+	ClearHistory bool
+	ShowVersion  bool
+	ShowDoctor   bool
+}
+
+type runtimeDefaults struct {
+	AppVersion           string
+	SpinnerInterval      time.Duration
+	HealthTimeout        time.Duration
+	QuestionReplyTimeout time.Duration
+	RecentModelTimeout   time.Duration
+	ListTimeout          time.Duration
+}
+
+// durationOrDefault converts a millisecond Opts value to a Duration, falling
+// back to def when the value is unset (zero or negative).
+func durationOrDefault(ms int, def time.Duration) time.Duration {
+	if ms > 0 {
+		return time.Duration(ms) * time.Millisecond
+	}
+	return def
+}
+
+func defaultRuntimeDefaults() runtimeDefaults {
+	return runtimeDefaults{
+		AppVersion:           "0.1.0-dev",
+		SpinnerInterval:      80 * time.Millisecond,
+		HealthTimeout:        10 * time.Second,
+		QuestionReplyTimeout: 5 * time.Second,
+		RecentModelTimeout:   2 * time.Second,
+		ListTimeout:          3 * time.Second,
+	}
+}
+
+type resolvedKernelConfig struct {
+	Config cfgpkg.Config
+	// Declared is the merged Opts BEFORE dynamic-pref resolution, so its
+	// cfg.Dynamic / unset markers still reflect what the config declared. The
+	// dynamic-pref writer reads this to decide which fields it may persist;
+	// reading Config.Opts instead would see resolved literals and refuse to save
+	// any field that already had a stored value.
+	Declared cfgpkg.Opts
+	Settings capabilities.Settings
+}
+
+// resolveKernelConfig builds the effective config by merging, last-wins:
+//
+//	built-in Default Config  ←  external user config  ←  CLI-flag overlay
+//	                                                  ←  dynamic-prefs (state.toml)
+//
+// then projects the merged Opts into the runtime-facing capabilities.Settings.
+// There is no TOML/JSON user-config layer: the compiled Default Config and the
+// compiled external user config are the only authoring paths; state.toml holds
+// only app-managed dynamic preferences.
+func resolveKernelConfig(cfg *Config, wd string) (*resolvedKernelConfig, error) {
+	defs := defaultRuntimeDefaults()
+	opencodeServerURL := opencodebackend.DefaultBaseURLForDir(wd)
+	if cfg != nil && strings.TrimSpace(cfg.OpencodeServerURL) != "" {
+		opencodeServerURL = strings.TrimSpace(cfg.OpencodeServerURL)
+	}
+
+	base := builtincfg.Config(builtincfg.RuntimeParams{
+		WorkingDirectory:  wd,
+		OpencodeServerURL: opencodeServerURL,
+		HealthTimeout:     defs.HealthTimeout,
+	})
+
+	merged := base
+	if cfg == nil || !cfg.NoConfig {
+		if external, ok := cfgpkg.Registered(); ok {
+			merged = cfgpkg.Merge(merged, external())
+		}
+	}
+
+	// CLI-flag overlay — flags express the same settings as Opts so they slot
+	// into the merge after the user config (flags win).
+	overlay := cfgpkg.Opts{}
+	if cfg != nil {
+		if provider := strings.ToLower(strings.TrimSpace(cfg.BackendProvider)); provider != "" {
+			if !app.ValidBackendProvider(provider) {
+				return nil, fmt.Errorf("unsupported backend provider %q", provider)
+			}
+			overlay.Backend = cfgpkg.Pref(provider)
+		}
+		if cfg.ClearHistory {
+			overlay.ClearHistory = cfgpkg.True
+		}
+	}
+	merged.Opts = cfgpkg.MergeOpts(merged.Opts, overlay)
+
+	// Capture the dynamic declaration before resolution: ApplyDynamicPrefs rewrites
+	// Dynamic sentinels to stored literals, which would otherwise hide from the
+	// pref writer that the field is still meant to be runtime-remembered.
+	declared := merged.Opts
+
+	// Dynamic-prefs overlay: for every Opts field declared cfg.Dynamic, seed its
+	// remembered value from the app-managed state.toml store.
+	merged.Opts = app.ApplyDynamicPrefs(merged.Opts)
+
+	settings := merged.Opts.ToSettings(builtincfg.Defaults())
+	return &resolvedKernelConfig{
+		Config:   merged,
+		Declared: declared,
+		Settings: settings,
+	}, nil
+}
+
+func layoutNameFromSettings(settings capabilities.Settings) string {
+	if settings.Layout != nil {
+		return settings.Layout.Name()
+	}
+	return settings.DefaultLayout
 }
 
 // DefaultConfig returns a Config populated with built-in defaults.
 func DefaultConfig() *Config {
-	defs := adapter.NewDefaultConfig()
+	defs := defaultRuntimeDefaults()
 	return &Config{
-		Version:           defs.AppVersion,
-		Commit:            "unknown",
-		BuildDate:         "unknown",
-		OpencodeServerURL: defs.DefaultBaseURL,
-		BackendProvider:   "opencode",
-		ClipboardCommand:  defs.ClipboardCommand,
-		UseGlobalConfig:   true,
+		Version:         defs.AppVersion,
+		Commit:          "unknown",
+		BuildDate:       "unknown",
+		BackendProvider: "opencode",
 	}
 }
 
 // RegisterFlags binds CLI flags to the supplied Config.
 func RegisterFlags(cfg *Config) {
 	flag.StringVar(&cfg.OpencodeServerURL, "server-url", cfg.OpencodeServerURL, "opencode server URL")
-	flag.StringVar(&cfg.BackendProvider, "provider", cfg.BackendProvider, "backend provider: opencode, codex, claude, or claude-mirror")
-	flag.BoolVar(&cfg.UseGlobalConfig, "config-global", cfg.UseGlobalConfig, "use global plums layout config")
-	flag.BoolVar(&cfg.UseGlobalConfig, "cg", cfg.UseGlobalConfig, "use global plums layout config")
-	flag.BoolVar(&cfg.UseLocalConfig, "config-local", false, "use local plums layout config")
-	flag.BoolVar(&cfg.UseLocalConfig, "cl", false, "use local plums layout config")
+	// Default empty (not cfg.BackendProvider) so an explicit -provider opencode is
+	// distinguishable from "flag unset" and can override a config that pinned a
+	// different backend. When unset, the merged config supplies the default.
+	flag.StringVar(&cfg.BackendProvider, "provider", "", "backend provider: opencode, codex, claude, or claude-mirror")
 	flag.BoolVar(&cfg.ClearHistory, "clear-history", false, "hide pre-existing backend sessions; show only sessions created in this run")
 	flag.BoolVar(&cfg.ClearHistory, "ch", false, "hide pre-existing backend sessions; show only sessions created in this run")
 	flag.BoolVar(&cfg.InitConfig, "init-config", false, "create default config files in ~/.config/plums/config and exit")
-	flag.BoolVar(&cfg.InitLocalConfig, "init-config-local", false, "create default config files in ./.agents/plums/config and exit")
+	flag.BoolVar(&cfg.NoConfig, "no-config", false, "run with built-in defaults and do not load or create user config")
 	flag.BoolVar(&cfg.ShowVersion, "version", false, "show version metadata and exit")
+	flag.BoolVar(&cfg.ShowDoctor, "doctor", false, "print resolved plums registry and exit")
 }
 
 // Run wires all dependencies together and starts the application event loop.
@@ -75,61 +181,39 @@ func Run(cfg *Config) error {
 		fmt.Print(app.FormatVersionMetadata(meta))
 		return nil
 	}
+	if cfg.ShowDoctor {
+		loaded, err := loadKernelForConfig(cfg)
+		if err != nil {
+			return err
+		}
+		fmt.Print(formatDoctor(loaded))
+		return nil
+	}
 
 	if cfg.InitConfig {
-		path, err := app.InitGlobalConfig()
+		path, err := app.InitGlobalConfig(app.InitConfigOptions{
+			PlumsVersion: internalbuild.ModuleVersion(cfg.Version),
+		})
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stdout, "created plums config in %s\n", path)
 		return nil
 	}
-	if cfg.InitLocalConfig {
-		path, err := app.InitLocalConfigFiles()
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(os.Stdout, "created local plums config in %s\n", path)
-		return nil
+
+	// First-run auto-seed: if the compiled user config is absent, create it so
+	// auto-build picks it up. Non-fatal — warn and continue on error.
+	if !cfg.NoConfig {
+		maybeSeedUserConfig(cfg)
 	}
 
-	configPath, err := app.ResolveConfigPath(cfg.UseGlobalConfig, cfg.UseLocalConfig)
-	if err != nil {
-		return err
-	}
-	renderConfig, err := app.LoadRenderConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load layout config: %w", err)
-	}
-	commandConfigPath, err := app.ResolveCommandsConfigPath(configPath)
-	if err != nil {
-		return err
-	}
-	commandConfig, err := app.LoadCommandConfig(commandConfigPath)
-	if err != nil {
-		return fmt.Errorf("failed to load command config: %w", err)
-	}
-	if configPath != "" {
-		debuglog.Printf("config: using %s", configPath)
-	} else {
-		debuglog.Printf("config: using built-in layout config")
-	}
-	if commandConfigPath != "" {
-		debuglog.Printf("config: using %s", commandConfigPath)
-	} else {
-		debuglog.Printf("config: using built-in command config")
-	}
+	renderConfig := app.NewRenderConfig()
 
 	t := ui.NewTerminal(int(os.Stdin.Fd()))
 	if err := t.Enter(); err != nil {
 		return fmt.Errorf("failed to initialize terminal: %w", err)
 	}
 	defer t.Exit()
-
-	// Inside tmux, Shift+Enter only reaches the app when extended-keys is on;
-	// enable it for this run so split-layout submit works, then restore it.
-	tmuxKeys := ui.EnableTmuxExtendedKeys()
-	defer tmuxKeys.Restore()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -141,63 +225,110 @@ func Run(cfg *Config) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	opencodeConfigPath := app.ResolveOpencodeConfigPath(configPath)
-	fallbackURL := adapter.DefaultBaseURLForDir(wd)
-	serverURL, err := app.LoadOpencodeServerURL(opencodeConfigPath, fallbackURL)
+	resolved, err := resolveKernelConfig(cfg, wd)
 	if err != nil {
-		return fmt.Errorf("failed to load opencode server URL: %w", err)
+		return err
 	}
-	backendProvider, err := app.LoadBackendProvider(opencodeConfigPath, cfg.BackendProvider)
-	if err != nil {
-		return fmt.Errorf("failed to load backend provider: %w", err)
-	}
-	defaultLayout, _ := app.LoadDefaultLayout(opencodeConfigPath, "split")
-	hideThinking := app.LoadHideThinking(opencodeConfigPath, true)
-	leftWidth := app.LoadSplitLeftWidth(opencodeConfigPath, 50)
-	clearHistory := cfg.ClearHistory || app.LoadClearHistory(opencodeConfigPath, false)
-	debuglog.Printf("config: opencode server URL %s", serverURL)
-	debuglog.Printf("config: backend provider %s", backendProvider)
+	settings := resolved.Settings
+	defaultLayout := layoutNameFromSettings(settings)
+	debuglog.Printf("config: backend provider %s", settings.Backend)
 	debuglog.Printf("config: default_layout %s", defaultLayout)
-	debuglog.Printf("config: hide_thinking %t", hideThinking)
-	debuglog.Printf("config: split.left_width %d", leftWidth)
-	debuglog.Printf("config: clear_history %t", clearHistory)
-	opencodeBackend := opencode.NewBackend(serverURL)
-	codexBackend := codex.NewBackend()
-	claudeBackend := claudecode.NewBackend()
-	mirrorBackend := claudemirror.NewBackend()
+	debuglog.Printf("config: hide_thinking %t", settings.HideThinking)
+	debuglog.Printf("config: split.left_width %d", settings.SplitLeftWidth)
+	debuglog.Printf("config: clear_history %t", settings.ClearHistory)
 
 	registry := core.NewAgentRegistry()
-	defs := adapter.NewDefaultConfig()
+	defs := defaultRuntimeDefaults()
+	opts := resolved.Config.Opts
 
-	runCfg := app.RunConfig{
-		OpencodeServerURL:    serverURL,
-		BackendProvider:      backendProvider,
-		ClipboardCommand:     cfg.ClipboardCommand,
-		SpinnerInterval:      defs.SpinnerInterval,
-		HealthTimeout:        defs.HealthTimeout,
-		QuestionReplyTimeout: defs.QuestionReplyTimeout,
-		RecentModelTimeout:   defs.RecentModelTimeout,
-		ListTimeout:          defs.ListTimeout,
-		WorkingDirectory:     wd,
-		ConfigTomlPath:       opencodeConfigPath,
-		DefaultLayout:        defaultLayout,
-		HideThinking:         hideThinking,
-		SplitLeftWidth:       leftWidth,
-		ClearHistory:         clearHistory,
+	// Output sizing has two complementary spellings: a concrete OutputPercent
+	// wins (split left width is its complement); otherwise SplitLeftWidth drives.
+	// A still-Dynamic OutputPercent (declared Dynamic, no stored value) is skipped
+	// so it falls through to SplitLeftWidth rather than resolving to zero.
+	splitLeftWidth := settings.SplitLeftWidth
+	if op := opts.OutputPercent; op.Set() && !op.IsDynamic() {
+		splitLeftWidth = 100 - op.Value(0)
 	}
 
+	runCfg := app.RunConfig{
+		BackendProvider:      settings.Backend,
+		ClipboardCommand:     settings.ClipboardCommand,
+		SpinnerInterval:      durationOrDefault(opts.SpinnerIntervalMS, defs.SpinnerInterval),
+		HealthTimeout:        durationOrDefault(opts.HealthTimeoutMS, defs.HealthTimeout),
+		QuestionReplyTimeout: durationOrDefault(opts.QuestionReplyTimeoutMS, defs.QuestionReplyTimeout),
+		RecentModelTimeout:   durationOrDefault(opts.RecentModelTimeoutMS, defs.RecentModelTimeout),
+		ListTimeout:          durationOrDefault(opts.ListTimeoutMS, defs.ListTimeout),
+		WorkingDirectory:     wd,
+		DynamicPrefs:         resolved.Declared,
+		DefaultLayout:        defaultLayout,
+		Mode:                 settings.Mode,
+		Model:                settings.Model,
+		Theme:                settings.Theme,
+		HideThinking:         settings.HideThinking,
+		ThinkingVisibility:   settings.ThinkingVisibility,
+		ToolCallVisibility:   settings.ToolCallVisibility,
+		SplitLeftWidth:       splitLeftWidth,
+		ClearHistory:         settings.ClearHistory,
+	}
+
+	loaded, err := kernel.Load(resolved.Config, kernel.LoadOptions{
+		Settings: &settings,
+		Logf:     debuglog.Printf,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to load kernel config: %w", err)
+	}
+	backendRegistrations, err := backendRegistrationsFromRegistry(loaded.Registry)
+	if err != nil {
+		return err
+	}
+	backendRuntimes := app.BackendRuntimesFromRegistrations(backendRegistrations)
+	if len(backendRuntimes) == 0 {
+		return fmt.Errorf("no backend registrations loaded")
+	}
+	commands, err := commandsFromRegistry(loaded.Registry)
+	if err != nil {
+		return err
+	}
+	layouts, err := layoutsFromRegistry(loaded.Registry, renderConfig)
+	if err != nil {
+		return err
+	}
+	if loaded.Settings.Layout != nil {
+		layoutType, err := app.InstallPublicLayout(renderConfig, loaded.Settings.Layout)
+		if err != nil {
+			return err
+		}
+		layouts = appendLayoutIfMissing(layouts, layoutType)
+	}
+	components, err := componentFactoriesFromRegistry(loaded.Registry)
+	if err != nil {
+		return err
+	}
+	runCfg.BackendProvider = loaded.Settings.Backend
+
 	deps := app.Deps{
-		Terminal:      t,
-		Keyboard:      keys,
-		RenderConfig:  renderConfig,
-		CommandConfig: commandConfig,
-		Registry:      registry,
-		Backends: []app.BackendRuntime{
-			{ID: "opencode", Name: "Opencode", Backend: opencodeBackend, Startup: opencodeStartup(wd, runCfg.HealthTimeout)},
-			{ID: "codex", Name: "Codex", Backend: codexBackend, Startup: codexStartup(wd, codexBackend)},
-			{ID: "claude", Name: "Claude Code", Backend: claudeBackend, Startup: claudeStartup()},
-			{ID: "claude-mirror", Name: "Claude Mirror", Backend: mirrorBackend, Startup: claudeStartup()},
+		Terminal:     t,
+		Keyboard:     keys,
+		RenderConfig: renderConfig,
+		Layouts:      layouts,
+		Commands:     commands,
+		Keybinds:     loaded.Settings.Keybinds,
+		Components:   components,
+		Hooks: app.Hooks{
+			OnMessage:      loaded.Hooks.OnMessage,
+			OnSessionStart: loaded.Hooks.OnSessionStart,
+			OnToolCall:     loaded.Hooks.OnToolCall,
+			OnShutdown:     loaded.Hooks.OnShutdown,
 		},
+		Registry: registry,
+		Backends: backendRuntimes,
+		Skills:   loaded.Skills,
+		GitDiff:  loaded.GitDiff,
+		Question: loaded.Question,
+	}
+	if loaded.Completion != nil {
+		deps.CompletionSources = loaded.Completion.Sources()
 	}
 
 	server, err := app.Run(ctx, deps, runCfg)
@@ -207,60 +338,213 @@ func Run(cfg *Config) error {
 	return err
 }
 
-func opencodeStartup(wd string, healthTimeout time.Duration) func(context.Context, adapter.Backend, chan<- app.StartupResult) {
-	return func(startCtx context.Context, b adapter.Backend, out chan<- app.StartupResult) {
-		var serverProc *opencode.ServerProcess
-		debuglog.Printf("startup: checking opencode health")
-		if err := b.Health(startCtx); err != nil {
-			debuglog.Printf("startup: health check failed: %v", err)
-			proc, err := opencode.StartServer(startCtx, b.BaseURL(), wd)
-			if err != nil {
-				debuglog.Printf("startup: start server failed: %v", err)
-				out <- app.StartupResult{Err: fmt.Errorf("failed to start opencode server: %w", err)}
-				return
-			}
-			serverProc = proc
-			debuglog.Printf("startup: started opencode server process")
-			if err := opencode.WaitForHealthOrExit(startCtx, b, serverProc, healthTimeout); err != nil {
-				debuglog.Printf("startup: wait for health failed: %v", err)
-				serverProc.Stop()
-				out <- app.StartupResult{Err: fmt.Errorf("failed to start opencode server: %w", err)}
-				return
-			}
-		} else {
-			debuglog.Printf("startup: existing opencode server is healthy")
-		}
-
-		debuglog.Printf("startup: opencode ready (session deferred)")
-		out <- app.StartupResult{Server: serverProc}
+func backendRegistrationsFromRegistry(reg *kernel.Registry) ([]capabilities.BackendRegistration, error) {
+	if reg == nil {
+		return nil, fmt.Errorf("nil kernel registry")
 	}
-}
-
-func claudeStartup() func(context.Context, adapter.Backend, chan<- app.StartupResult) {
-	return func(startCtx context.Context, b adapter.Backend, out chan<- app.StartupResult) {
-		if err := b.Health(startCtx); err != nil {
-			debuglog.Printf("startup: claude health check failed: %v", err)
-			out <- app.StartupResult{Err: err}
-			return
-		}
-		debuglog.Printf("startup: claude ready (session deferred)")
-		out <- app.StartupResult{}
-	}
-}
-
-func codexStartup(wd string, backend adapter.Backend) func(context.Context, adapter.Backend, chan<- app.StartupResult) {
-	return func(startCtx context.Context, b adapter.Backend, out chan<- app.StartupResult) {
-		debuglog.Printf("startup: codex ready (session deferred)")
-		client, ok := b.(interface {
-			ServerProcess() interface {
-				Stop()
-				Done() <-chan struct{}
-			}
-		})
+	entries := reg.EntriesInRegistrationOrder(capabilities.RegistryBackend)
+	registrations := make([]capabilities.BackendRegistration, 0, len(entries))
+	for _, entry := range entries {
+		registration, ok := entry.Value.(capabilities.BackendRegistration)
 		if !ok {
-			out <- app.StartupResult{Err: fmt.Errorf("codex backend does not expose ServerProcess")}
-			return
+			return nil, fmt.Errorf("registry backend %q from %s has type %T", entry.Name, entry.Owner, entry.Value)
 		}
-		out <- app.StartupResult{Server: client.ServerProcess()}
+		registrations = append(registrations, registration)
 	}
+	return registrations, nil
+}
+
+func loadKernelForConfig(cfg *Config) (*kernel.Loaded, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get working directory: %w", err)
+	}
+	resolved, err := resolveKernelConfig(cfg, wd)
+	if err != nil {
+		return nil, err
+	}
+	return kernel.Load(resolved.Config, kernel.LoadOptions{
+		Settings: &resolved.Settings,
+		Logf:     debuglog.Printf,
+	})
+}
+
+// maybeSeedUserConfig creates the compiled user config on first run (when
+// ~/.config/plums/config/config.go is absent) so auto-build picks it up without
+// requiring -init-config. Failures are non-fatal: warn and continue with the
+// built-in Default Config.
+func maybeSeedUserConfig(cfg *Config) {
+	path, err := app.UserConfigGoPath()
+	if err != nil {
+		debuglog.Printf("config: cannot resolve user config path: %v", err)
+		return
+	}
+	if _, err := os.Stat(path); err == nil {
+		return
+	} else if !os.IsNotExist(err) {
+		debuglog.Printf("config: cannot stat user config: %v", err)
+		return
+	}
+	version := ""
+	if cfg != nil {
+		version = internalbuild.ModuleVersion(cfg.Version)
+	}
+	dir, err := app.InitGlobalConfig(app.InitConfigOptions{PlumsVersion: version})
+	if err != nil {
+		debuglog.Printf("config: first-run seed failed: %v", err)
+		return
+	}
+	debuglog.Printf("config: seeded user config in %s", dir)
+}
+
+func formatDoctor(loaded *kernel.Loaded) string {
+	if loaded == nil || loaded.Registry == nil {
+		return "plums doctor\n\nregistry: unavailable\n"
+	}
+	var b strings.Builder
+	b.WriteString("plums doctor\n\n")
+	themeName := loaded.Settings.Theme.Name
+	if themeName == "" {
+		themeName = "default"
+	}
+	fmt.Fprintf(&b, "settings.backend: %s\n", loaded.Settings.Backend)
+	fmt.Fprintf(&b, "settings.default_layout: %s\n", layoutNameFromSettings(loaded.Settings))
+	fmt.Fprintf(&b, "settings.theme: %s\n", themeName)
+	fmt.Fprintf(&b, "settings.hide_thinking: %t\n", loaded.Settings.HideThinking)
+	fmt.Fprintf(&b, "settings.split_left_width: %d\n", loaded.Settings.SplitLeftWidth)
+	fmt.Fprintf(&b, "settings.clear_history: %t\n", loaded.Settings.ClearHistory)
+	writeKeybinds(&b, loaded.Settings.Keybinds)
+	writeDisabled(&b, loaded.Settings.Disable)
+	fmt.Fprintf(&b, "\nhooks:\n")
+	fmt.Fprintf(&b, "  on_message: %d\n", len(loaded.Hooks.OnMessage))
+	fmt.Fprintf(&b, "  on_session_start: %d\n", len(loaded.Hooks.OnSessionStart))
+	fmt.Fprintf(&b, "  on_tool_call: %d\n", len(loaded.Hooks.OnToolCall))
+	fmt.Fprintf(&b, "  on_shutdown: %d\n", len(loaded.Hooks.OnShutdown))
+	writeRegistryKind(&b, loaded.Registry, capabilities.RegistryBackend, "backends")
+	writeRegistryKind(&b, loaded.Registry, capabilities.RegistryCommand, "commands")
+	writeRegistryKind(&b, loaded.Registry, capabilities.RegistryComponent, "components")
+	writeRegistryKind(&b, loaded.Registry, capabilities.RegistryLayout, "layouts")
+	shadows := loaded.Registry.Shadows()
+	b.WriteString("\nshadows:\n")
+	if len(shadows) == 0 {
+		b.WriteString("  none\n")
+		return b.String()
+	}
+	for _, shadow := range shadows {
+		fmt.Fprintf(&b, "  %s.%s: %s -> %s\n", shadow.Kind, shadow.Name, shadow.PreviousOwner, shadow.NewOwner)
+	}
+	return b.String()
+}
+
+func writeKeybinds(b *strings.Builder, keybinds []capabilities.Keybind) {
+	b.WriteString("\nkeybinds:\n")
+	if len(keybinds) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, keybind := range keybinds {
+		fmt.Fprintf(b, "  %s -> %s\n", keybind.Key, keybind.Do)
+	}
+}
+
+func writeDisabled(b *strings.Builder, keys []capabilities.RegistryKey) {
+	b.WriteString("\ndisabled:\n")
+	if len(keys) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, key := range keys {
+		fmt.Fprintf(b, "  %s.%s\n", key.Kind, key.Name)
+	}
+}
+
+func writeRegistryKind(b *strings.Builder, reg *kernel.Registry, kind capabilities.RegistryKind, title string) {
+	entries := reg.EntriesInRegistrationOrder(kind)
+	fmt.Fprintf(b, "\n%s:\n", title)
+	if len(entries) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, entry := range entries {
+		if kind == capabilities.RegistryLayout {
+			if layout, ok := entry.Value.(capabilities.Layout); ok && !app.PublicLayoutSelectable(layout) {
+				fmt.Fprintf(b, "  %s (%s, hidden)\n", entry.Name, entry.Owner)
+				continue
+			}
+		}
+		fmt.Fprintf(b, "  %s (%s)\n", entry.Name, entry.Owner)
+	}
+}
+
+func commandsFromRegistry(reg *kernel.Registry) ([]capabilities.Command, error) {
+	if reg == nil {
+		return nil, fmt.Errorf("nil kernel registry")
+	}
+	entries := reg.EntriesInRegistrationOrder(capabilities.RegistryCommand)
+	commands := make([]capabilities.Command, 0, len(entries))
+	for _, entry := range entries {
+		command, ok := entry.Value.(capabilities.Command)
+		if !ok {
+			return nil, fmt.Errorf("registry command %q from %s has type %T", entry.Name, entry.Owner, entry.Value)
+		}
+		commands = append(commands, command)
+	}
+	return commands, nil
+}
+
+func layoutsFromRegistry(reg *kernel.Registry, renderConfig *app.RenderConfig) ([]app.LayoutType, error) {
+	if reg == nil {
+		return nil, fmt.Errorf("nil kernel registry")
+	}
+	entries := reg.EntriesInRegistrationOrder(capabilities.RegistryLayout)
+	layouts := make([]app.LayoutType, 0, len(entries))
+	for _, entry := range entries {
+		layout, ok := entry.Value.(capabilities.Layout)
+		if !ok {
+			return nil, fmt.Errorf("registry layout %q from %s has type %T", entry.Name, entry.Owner, entry.Value)
+		}
+		if layout.Tree() != nil {
+			layoutType, err := app.InstallPublicLayout(renderConfig, layout)
+			if err != nil {
+				return nil, err
+			}
+			if app.PublicLayoutSelectable(layout) {
+				layouts = appendLayoutIfMissing(layouts, layoutType)
+			}
+			continue
+		}
+		if app.PublicLayoutSelectable(layout) {
+			layouts = appendLayoutIfMissing(layouts, app.LayoutType(layout.Name()))
+		}
+	}
+	return layouts, nil
+}
+
+func appendLayoutIfMissing(layouts []app.LayoutType, layout app.LayoutType) []app.LayoutType {
+	if layout == "" {
+		return layouts
+	}
+	for _, existing := range layouts {
+		if existing == layout {
+			return layouts
+		}
+	}
+	return append(layouts, layout)
+}
+
+func componentFactoriesFromRegistry(reg *kernel.Registry) (map[string]app.ComponentFactory, error) {
+	if reg == nil {
+		return nil, fmt.Errorf("nil kernel registry")
+	}
+	entries := reg.EntriesInRegistrationOrder(capabilities.RegistryComponent)
+	factories := make(map[string]app.ComponentFactory, len(entries))
+	for _, entry := range entries {
+		component, ok := entry.Value.(capabilities.Component)
+		if !ok {
+			return nil, fmt.Errorf("registry component %q from %s has type %T", entry.Name, entry.Owner, entry.Value)
+		}
+		// Every component renders through the public Component/Surface path.
+		factories[component.Name()] = app.ComponentFactoryForPublic(component)
+	}
+	return factories, nil
 }

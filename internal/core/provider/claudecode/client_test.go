@@ -22,7 +22,7 @@ func TestNewUUIDFormat(t *testing.T) {
 }
 
 func TestCreateAndGetSession(t *testing.T) {
-	c := NewBackend().(*Client)
+	c := NewClient()
 	ctx := context.Background()
 
 	session, err := c.CreateSession(ctx, "/tmp/project")
@@ -47,7 +47,7 @@ func TestCreateAndGetSession(t *testing.T) {
 }
 
 func TestBuildArgsSessionLifecycle(t *testing.T) {
-	c := NewBackend().(*Client)
+	c := NewClient()
 
 	first := strings.Join(c.buildArgs("abc", "opus"), " ")
 	if !strings.Contains(first, "--session-id abc") {
@@ -67,7 +67,7 @@ func TestBuildArgsSessionLifecycle(t *testing.T) {
 }
 
 func TestRecordExchangeSetsTitleAndHistory(t *testing.T) {
-	c := NewBackend().(*Client)
+	c := NewClient()
 	ctx := context.Background()
 	session, err := c.CreateSession(ctx, "")
 	if err != nil {

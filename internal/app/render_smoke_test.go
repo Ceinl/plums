@@ -45,12 +45,9 @@ func smokeState(w, h int) *State {
 // catch panics and layout regressions across all modules.
 func TestRenderAllLayoutsAndSizes(t *testing.T) {
 	silenceStdout(t)
-	cfg, err := LoadRenderConfig("")
-	if err != nil {
-		t.Fatalf("load render config: %v", err)
-	}
+	cfg := testRenderConfig(t)
 
-	layouts := []LayoutType{LayoutChat, LayoutSplit, LayoutZen, LayoutFullscreen}
+	layouts := []LayoutType{LayoutSplit, LayoutZen}
 	sizes := [][2]int{{160, 48}, {120, 40}, {80, 24}, {40, 12}}
 	for _, lt := range layouts {
 		for _, size := range sizes {
@@ -68,13 +65,8 @@ func TestRenderAllLayoutsAndSizes(t *testing.T) {
 // JSON layout config cannot be loaded.
 func TestFallbackLayoutBuilders(t *testing.T) {
 	builders := map[string]func(*State) *components.Div{
-		"chat":            CreateChatLayout,
-		"split":           CreateSplitLayout,
-		"sessions":        CreateSessionsLayout,
-		"narrow_split":    CreateNarrowSplitLayout,
-		"narrow_sessions": CreateNarrowSessionsLayout,
-		"zen":             CreateZenLayout,
-		"fullscreen":      CreateFullscreenLayout,
+		"default": CreateDefaultLayout,
+		"zen":     CreateZenLayout,
 	}
 	sizes := [][2]int{{120, 40}, {40, 12}}
 	for name, build := range builders {
@@ -96,10 +88,7 @@ func TestFallbackLayoutBuilders(t *testing.T) {
 // broader smoke test would pass on the Go fallback alone and hide a missing
 // JSON entry.)
 func TestEmbeddedDefaultExposesZen(t *testing.T) {
-	cfg, err := LoadRenderConfig("")
-	if err != nil {
-		t.Fatalf("load render config: %v", err)
-	}
+	cfg := testRenderConfig(t)
 	if _, ok := cfg.Layouts["zen"]; !ok {
 		t.Fatal("embedded default config is missing the 'zen' layout node")
 	}
@@ -119,10 +108,7 @@ func TestEmbeddedDefaultExposesZen(t *testing.T) {
 // with no Go LayoutType constant) becomes selectable, cycles in, and renders.
 func TestCustomConfigLayoutNeedsNoGo(t *testing.T) {
 	silenceStdout(t)
-	cfg, err := LoadRenderConfig("")
-	if err != nil {
-		t.Fatalf("load render config: %v", err)
-	}
+	cfg := testRenderConfig(t)
 
 	// Define a bespoke single-column layout purely as data.
 	cfg.Layouts["focus"] = LayoutNode{

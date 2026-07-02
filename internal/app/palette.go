@@ -6,20 +6,17 @@ import (
 	"os"
 	"sort"
 
-	"github.com/Ceinl/plums/internal/core/adapter"
+	"github.com/Ceinl/plums/capabilities"
 )
 
-// sessionResetter is implemented by backends whose "new session" cannot create
-// anything (e.g. claude-mirror, which attaches to a running window) and instead
-// starts a fresh conversation in place.
-type sessionResetter interface {
-	ResetSession(ctx context.Context, directory string) (*adapter.Session, error)
-}
-
-func listSessionItems(ctx context.Context, state *State, client adapter.Backend, cfg RunConfig) ([]SessionListItem, error) {
+func listSessionItems(ctx context.Context, state *State, client capabilities.Backend, cfg RunConfig) ([]SessionListItem, error) {
+	sessionsBackend, err := backendSessions(client)
+	if err != nil {
+		return nil, err
+	}
 	listCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
 	defer cancel()
-	sessions, err := client.ListSessions(listCtx)
+	sessions, err := sessionsBackend.ListSessions(listCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -45,133 +42,127 @@ func listSessionItems(ctx context.Context, state *State, client adapter.Backend,
 	return items, nil
 }
 
-func handlePaletteAction(ctx context.Context, state *State, client adapter.Backend, action PaletteAction, cfg RunConfig) {
-	switch action {
-	case PaletteActionOpenPalette:
-		state.OpenPalette()
-	case PaletteActionNewSession:
-		wd := cfg.WorkingDirectory
-		if wd == "" {
-			var err error
-			wd, err = os.Getwd()
-			if err != nil {
-				state.AddMessage("system", fmt.Sprintf("failed to get working directory: %v", err))
-				return
-			}
-		}
-		// A backend that can't literally create a session (claude-mirror attaches
-		// to a live window) defines "new session" via ResetSession instead.
-		newSession := client.CreateSession
-		if resetter, ok := client.(sessionResetter); ok {
-			newSession = resetter.ResetSession
-		}
-		session, err := newSession(ctx, wd)
+func createNewSession(ctx context.Context, state *State, client capabilities.Backend, cfg RunConfig) {
+	sessionsBackend, err := backendSessions(client)
+	if err != nil {
+		state.AddMessage("system", err.Error())
+		return
+	}
+	wd := cfg.WorkingDirectory
+	if wd == "" {
+		wd, err = os.Getwd()
 		if err != nil {
-			state.AddMessage("system", fmt.Sprintf("failed to create session: %v", err))
+			state.AddMessage("system", fmt.Sprintf("failed to get working directory: %v", err))
 			return
 		}
-		state.MarkRunSession(session.ID)
-		applySession(state, session)
-		if session.Model == nil && state.ModelID == "" {
-			applyRecentModel(ctx, state, client, cfg)
-		}
-		state.ClearConversation()
-		if items, err := listSessionItems(ctx, state, client, cfg); err == nil {
-			state.SessionItems = items
-		}
-	case PaletteActionSwitchMode:
-		state.ToggleMode()
-	case PaletteActionCycleThinkingVisibility:
-		state.CycleThinkingVisibility()
-	case PaletteActionCycleToolCallVisibility:
-		state.CycleToolCallVisibility()
-	case PaletteActionLayoutsList:
-		state.SetLayoutItems()
-	case PaletteActionSelectLayout:
-		layoutType, ok := state.SelectedLayout()
-		if !ok {
-			return
-		}
-		state.SetLayout(layoutType)
-	case PaletteActionChangeModel:
-		providersCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
-		providers, connected, err := client.ListProviders(providersCtx)
-		cancel()
-		if err != nil {
-			state.AddMessage("system", fmt.Sprintf("failed to list models: %v", err))
-			return
-		}
-		state.SetModelItems(modelItemsFromProviders(providers, connected, state.ModelProvider, state.ModelID))
-	case PaletteActionSelectModel:
-		providerID, modelID := state.SelectedModel()
-		if providerID == "" || modelID == "" {
-			return
-		}
-		state.SetModel(providerID, modelID)
-	case PaletteActionSessionsList:
-		items, err := listSessionItems(ctx, state, client, cfg)
-		if err != nil {
-			state.AddMessage("system", fmt.Sprintf("failed to list sessions: %v", err))
-			return
-		}
-		state.SetSessionItems(items)
-	case PaletteActionSkillsList:
-		skills, err := DiscoverSkills("")
-		if err != nil {
-			state.AddMessage("system", fmt.Sprintf("failed to list skills: %v", err))
-			return
-		}
-		state.SetSkillItems(skills)
-	case PaletteActionSelectSession:
-		sessionID := state.SelectedSessionID()
-		if sessionID == "" {
-			return
-		}
-		sessionCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
-		session, err := client.GetSession(sessionCtx, sessionID)
-		cancel()
-		if err != nil {
-			state.AddMessage("system", fmt.Sprintf("failed to get session: %v", err))
-			return
-		}
-		applySession(state, session)
-		messagesCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
-		messages, err := client.ListMessages(messagesCtx, sessionID)
-		cancel()
-		if err != nil {
-			state.ClearConversation()
-			state.AddMessage("system", fmt.Sprintf("attached session %s; failed to load messages: %v", sessionDisplayName(session), err))
-			return
-		}
-		conversation := make([]Message, 0, len(messages))
-		for _, message := range messages {
-			content := ""
-			emittedTools := make(map[string]bool)
-			for _, part := range message.Parts {
-				content += displayTextForPart(part, emittedTools)
-			}
-			if content != "" {
-				role := message.Info.Role
-				if role == "assistant" {
-					role = "ai"
-				}
-				conversation = append(conversation, Message{Role: role, Content: content})
-			}
-		}
-		state.SetConversation(conversation)
-		if items, err := listSessionItems(ctx, state, client, cfg); err == nil {
-			state.SessionItems = items
-		}
-	case PaletteActionSelectSkill:
-		skill, ok := state.SelectedSkill()
-		if !ok {
-			return
-		}
-		state.InsertSkillMarker(skill)
+	}
+	// A backend that can't literally create a session (claude-mirror attaches
+	// to a live window) defines "new session" via ResetSession instead.
+	newSession := sessionsBackend.CreateSession
+	if resetter, ok := client.(capabilities.BackendSessionResetter); ok {
+		newSession = resetter.ResetSession
+	}
+	session, err := newSession(ctx, wd)
+	if err != nil {
+		state.AddMessage("system", fmt.Sprintf("failed to create session: %v", err))
+		return
+	}
+	state.MarkRunSession(session.ID)
+	applySession(state, session)
+	if session.Model == nil && state.ModelID == "" {
+		applyRecentModel(ctx, state, client, cfg)
+	}
+	state.ClearConversation()
+	if items, err := listSessionItems(ctx, state, client, cfg); err == nil {
+		state.SessionItems = items
 	}
 }
 
-func modelItemsFromProviders(providers []adapter.Provider, connected []string, currentProvider, currentModel string) []ModelListItem {
+func openModelList(ctx context.Context, state *State, client capabilities.Backend, cfg RunConfig) {
+	modelsBackend, err := backendModels(client)
+	if err != nil {
+		state.AddMessage("system", err.Error())
+		return
+	}
+	providersCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
+	providers, connected, err := modelsBackend.ListProviders(providersCtx)
+	cancel()
+	if err != nil {
+		state.AddMessage("system", fmt.Sprintf("failed to list models: %v", err))
+		return
+	}
+	state.SetModelItems(modelItemsFromProviders(providers, connected, state.ModelProvider, state.ModelID))
+}
+
+func openSessionList(ctx context.Context, state *State, client capabilities.Backend, cfg RunConfig) {
+	items, err := listSessionItems(ctx, state, client, cfg)
+	if err != nil {
+		state.AddMessage("system", fmt.Sprintf("failed to list sessions: %v", err))
+		return
+	}
+	state.SetSessionItems(items)
+}
+
+func openSkillsList(ctx context.Context, state *State, cfg RunConfig, skills capabilities.SkillProvider) {
+	if skills == nil {
+		state.AddMessage("system", "no skills plugin configured")
+		return
+	}
+	discovered, err := skills.Skills(ctx, cfg.WorkingDirectory)
+	if err != nil {
+		state.AddMessage("system", fmt.Sprintf("failed to list skills: %v", err))
+		return
+	}
+	state.SetSkillItems(discovered)
+}
+
+func openSessionByID(ctx context.Context, state *State, client capabilities.Backend, cfg RunConfig, sessionID string) {
+	sessionsBackend, err := backendSessions(client)
+	if err != nil {
+		state.AddMessage("system", err.Error())
+		return
+	}
+	if sessionID == "" {
+		return
+	}
+	sessionCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
+	session, err := sessionsBackend.GetSession(sessionCtx, sessionID)
+	cancel()
+	if err != nil {
+		state.AddMessage("system", fmt.Sprintf("failed to get session: %v", err))
+		return
+	}
+	applySession(state, session)
+	messagesCtx, cancel := context.WithTimeout(ctx, cfg.ListTimeout)
+	messages, err := sessionsBackend.ListMessages(messagesCtx, sessionID)
+	cancel()
+	if err != nil {
+		state.ClearConversation()
+		state.AddMessage("system", fmt.Sprintf("attached session %s; failed to load messages: %v", sessionDisplayName(session), err))
+		return
+	}
+	conversation := make([]Message, 0, len(messages))
+	for _, message := range messages {
+		content := ""
+		emittedTools := make(map[string]bool)
+		for _, part := range message.Parts {
+			content += displayTextForPart(part, emittedTools)
+		}
+		if content != "" {
+			role := message.Info.Role
+			if role == "assistant" {
+				role = "ai"
+			}
+			conversation = append(conversation, Message{Role: role, Content: content})
+		}
+	}
+	state.SetConversation(conversation)
+	if items, err := listSessionItems(ctx, state, client, cfg); err == nil {
+		state.SessionItems = items
+	}
+}
+
+func modelItemsFromProviders(providers []capabilities.Provider, connected []string, currentProvider, currentModel string) []ModelListItem {
 	connectedSet := make(map[string]bool, len(connected))
 	for _, providerID := range connected {
 		connectedSet[providerID] = true

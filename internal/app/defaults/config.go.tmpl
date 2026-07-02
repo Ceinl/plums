@@ -1,0 +1,109 @@
+// This is your plums config — ~/.config/plums/config/config.go.
+//
+// Like a neovim init.lua, it is a real program: launching plums compiles this
+// directory (cached by content hash) and runs the result. The loop is:
+//
+//	edit config.go  →  save  →  relaunch plums
+//
+// Everything here merges over the built-in defaults, last-wins. Useful
+// commands:
+//
+//	plums plugin add <import-path>   add a published plugin (go get + wire)
+//	plums plugin new <name>          scaffold a local plugin in ./plugins/
+//	plums --doctor                   show what is registered and by whom
+//	plums --no-config                run the stock defaults, ignoring this file
+package config
+
+import (
+	// Plugins are ordinary Go modules. Import them here, then list them in
+	// Plugins below. Third-party example:
+	//
+	//	import somelayout "github.com/someone/plums-somelayout"
+	//	...
+	//	Plugins: []cfg.Plugin{ somelayout.New(somelayout.Options{}) }
+	"github.com/Ceinl/plums/capabilities"
+	cfg "github.com/Ceinl/plums/config"
+	layout "github.com/Ceinl/plums/plums/layout"
+)
+
+func init() { cfg.Use(Config) }
+
+// Config is the root of your configuration: Opts holds everything that is not
+// a plugin (backend, theme, keybinds, ...); Plugins lists the plugins to
+// activate, in order. A field left unset inherits the built-in default.
+func Config() cfg.Config {
+	return cfg.Config{
+		Opts: cfg.Opts{
+			// Which backend and layout to start with. Set a field to
+			// cfg.Dynamic instead of a literal to have plums remember your
+			// last runtime choice across restarts.
+			Backend:       "opencode",
+			DefaultLayout: "split",
+
+			// Appearance and input.
+			Theme:            cfg.Theme{Name: "default"},
+			ClipboardCommand: "pbcopy",
+
+			// Conversation display. Tri-state: cfg.True / cfg.False / unset.
+			HideThinking: cfg.True,
+
+			// Sizing (percent). Wrap ints in cfg.Int so 0 stays meaningful.
+			SplitLeftWidth: cfg.Int(50),
+
+			// Keybinds map a chord to any registered command name; run
+			// `plums --doctor` to list command names.
+			Keybinds: []cfg.Keybind{
+				{Key: "ctrl+p", Do: "palette.open"},
+				{Key: "ctrl+s", Do: "prompt.submit"},
+			},
+		},
+		Plugins: []cfg.Plugin{
+			{Self: &SplitLayoutPlugin{}},
+		},
+	}
+}
+
+// SplitLayoutPlugin defines the `split` layout right here in your config —
+// layouts are plugins, and a plugin can be as small as this. It registers
+// exactly like a bundled one (see `plums --doctor`: split, owned by
+// "split-layout"). Delete it if you prefer the stock `chat` layout, or use it
+// as the starting point for your own.
+type SplitLayoutPlugin struct{}
+
+func (*SplitLayoutPlugin) Name() string                      { return "split-layout" }
+func (*SplitLayoutPlugin) Init(capabilities.Host, any) error { return nil }
+
+func (*SplitLayoutPlugin) Layouts() []capabilities.Layout {
+	return []capabilities.Layout{
+		layout.Named("split", splitTree()),
+	}
+}
+
+// splitTree is editor on the left, tabbed info pane on the right.
+func splitTree() capabilities.Node {
+	return layout.Row(
+		layout.EditorOrPalette().
+			Width("state.SplitLeftPercent%").
+			Height("100%").
+			Padding(pad(1, 2, 1, 2)).
+			Style(layout.ThemeStyle(layout.ColorBgPanel, layout.ColorText)).
+			WhenPopupOpen(
+				layout.Component("command_palette_panel").Padding(pad(1, 2, 1, 2)),
+			),
+		layout.VerticalSeparator().Width(1).Height("100%"),
+		layout.Column(
+			layout.Tabs().Width("100%").Height(1).Style(layout.ThemeBg(layout.ColorBgBase)),
+			layout.InfoView().Variants(map[string]string{
+				"ai":       "chat_log",
+				"git_diff": "git_diff_log",
+			}),
+			layout.SplitStatusBar().Width("100%").Height(1).Style(layout.ThemeStyle(layout.ColorBgBase, layout.ColorTextFaint)),
+		).
+			Width("grow").Height("100%").Padding(pad(1, 2, 1, 2)).Style(layout.ThemeBg(layout.ColorBgBase)),
+	).
+		Width("100%").Height("100%")
+}
+
+func pad(top, right, bottom, left float64) layout.Padding {
+	return layout.Padding{Top: &top, Right: &right, Bottom: &bottom, Left: &left}
+}

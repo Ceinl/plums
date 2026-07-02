@@ -52,6 +52,24 @@ func (s *Screen) resize(w, h int) {
 func (s *Screen) Width() int  { return s.w }
 func (s *Screen) Height() int { return s.h }
 
+// SetOutput redirects flushed terminal bytes. It is primarily useful for tests
+// that need to assert rendered output without writing to stdout.
+func (s *Screen) SetOutput(out io.Writer) {
+	if out == nil {
+		out = os.Stdout
+	}
+	s.out = out
+}
+
+// Cell returns the current cell at (x, y); a zero Cell for out-of-range coords.
+// Intended for tests and diagnostics.
+func (s *Screen) Cell(x, y int) Cell {
+	if x < 0 || x >= s.w || y < 0 || y >= s.h {
+		return Cell{}
+	}
+	return s.cur[y][x]
+}
+
 func (s *Screen) Clear() {
 	for i := 0; i < s.h; i++ {
 		for j := 0; j < s.w; j++ {

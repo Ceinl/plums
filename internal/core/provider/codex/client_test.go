@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
 type writeCloser struct {
@@ -76,8 +74,8 @@ func TestParseModelList(t *testing.T) {
 }
 
 func TestCopySession(t *testing.T) {
-	original := adapter.Session{ID: "s1", Title: "Test"}
-	original.Model = &adapter.ModelRef{ID: "m1", ProviderID: "p1"}
+	original := Session{ID: "s1", Title: "Test"}
+	original.Model = &ModelRef{ID: "m1", ProviderID: "p1"}
 	cp := copySession(original)
 	if cp.ID != original.ID {
 		t.Fatalf("copy ID mismatch")

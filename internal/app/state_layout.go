@@ -3,16 +3,12 @@ package app
 import "strings"
 
 // LayoutType is the identifier of a layout — the same string used as its key in
-// the render config's "layouts" map. New layouts are added purely in JSON (a
-// layouts entry plus a "menu" entry); no Go constant is required. The named
-// constants below exist only for the built-in layouts that carry special
-// interaction behaviour (split's two-pane submit, fullscreen's tabs); any other
-// layout id is treated as a simple chat-style layout.
+// the render config's "layouts" map. New layouts are added by registered layout
+// plugins; no Go constant is required. The named constants below exist only for
+// stock/runtime-recognised layouts that carry interaction behaviour.
 type LayoutType string
 
 type InfoView int
-
-type FullscreenTab int
 
 const MinSplitLayoutWidth = 90
 
@@ -24,31 +20,22 @@ const (
 )
 
 const (
-	LayoutChat       LayoutType = "chat"
-	LayoutSplit      LayoutType = "split"
-	LayoutFullscreen LayoutType = "fullscreen"
+	LayoutSplit LayoutType = "split"
 	// LayoutZen is the built-in minimalistic single-column layout in neutral
 	// greys. It needs no special Go behaviour — it's named only so the Go
 	// fallback builder and default cycle can reference it.
 	LayoutZen LayoutType = "zen"
 )
 
-const LayoutDefault = LayoutChat
+const LayoutDefault = LayoutZen
 
 const (
 	InfoViewAI InfoView = iota
 	InfoViewGitDiff
 )
 
-const (
-	FullscreenTabEditor FullscreenTab = iota
-	FullscreenTabOutput
-	FullscreenTabDiff
-	fullscreenTabCount
-)
-
 func defaultLayoutCycle() []LayoutType {
-	return []LayoutType{LayoutChat, LayoutSplit, LayoutZen, LayoutFullscreen}
+	return []LayoutType{LayoutZen}
 }
 
 func (s *State) SetAvailableLayouts(layouts []LayoutType) {
@@ -85,37 +72,8 @@ func (s *State) CycleInfoView() {
 	s.ChatLog().ClearSelection()
 	s.DiffLog().ClearSelection()
 	if s.InfoView == InfoViewGitDiff {
-		s.RefreshGitDiff()
+		s.MarkGitDiffDirty()
 	}
-}
-
-func (s *State) CycleFullscreenTab(delta int) {
-	before := s.FullscreenTab
-	next := int(s.FullscreenTab) + delta
-	for next < 0 {
-		next += int(fullscreenTabCount)
-	}
-	s.FullscreenTab = FullscreenTab(next % int(fullscreenTabCount))
-	if s.FullscreenTab != before {
-		s.outputScroll = 0
-		s.invalidateOutputMax()
-		s.ChatLog().ClearSelection()
-		s.DiffLog().ClearSelection()
-	}
-	if s.FullscreenTab == FullscreenTabDiff {
-		s.RefreshGitDiff()
-	}
-}
-
-func (s *State) FullscreenShowsEditor() bool {
-	return s.EffectiveLayout() != LayoutFullscreen || s.FullscreenTab == FullscreenTabEditor
-}
-
-func (s *State) FullscreenOutputView() InfoView {
-	if s.FullscreenTab == FullscreenTabDiff {
-		return InfoViewGitDiff
-	}
-	return InfoViewAI
 }
 
 func (s *State) SwitchLayout() {
@@ -130,9 +88,6 @@ func (s *State) SwitchLayout() {
 		}
 	}
 	s.Layout = s.availableLayouts[next]
-	if s.Layout == LayoutFullscreen {
-		s.FullscreenTab = FullscreenTabEditor
-	}
 	s.invalidateOutputMax()
 	s.ChatLog().ClearSelection()
 	s.DiffLog().ClearSelection()
@@ -143,11 +98,10 @@ func (s *State) LayoutLabel() string {
 }
 
 func (s *State) SplitOutputPercent() int {
-	min, max, _ := s.outputAdjustment()
 	if s.OutputPercent == 0 {
 		return defaultOutputPercentage
 	}
-	return clampInt(s.OutputPercent, min, max)
+	return clampInt(s.OutputPercent, minOutputPercentage, maxOutputPercentage)
 }
 
 func (s *State) SplitLeftPercent() int {
@@ -159,9 +113,8 @@ func (s *State) SplitLeftWidth() int {
 }
 
 func (s *State) AdjustOutputPercentage(delta int) bool {
-	min, max, _ := s.outputAdjustment()
 	before := s.SplitOutputPercent()
-	s.OutputPercent = clampInt(before+delta, min, max)
+	s.OutputPercent = clampInt(before+delta, minOutputPercentage, maxOutputPercentage)
 	if s.OutputPercent != before {
 		s.invalidateOutputMax()
 	}
@@ -197,9 +150,6 @@ func (s *State) SetLayout(layoutType LayoutType) {
 		return
 	}
 	s.Layout = layoutType
-	if s.Layout == LayoutFullscreen {
-		s.FullscreenTab = FullscreenTabEditor
-	}
 	s.invalidateOutputMax()
 	s.ChatLog().ClearSelection()
 	s.DiffLog().ClearSelection()
@@ -241,7 +191,7 @@ func LayoutTypeFromString(name string) LayoutType {
 }
 
 // layoutTitle is the human-facing title: the id with its first letter
-// upper-cased (chat → Chat, zen → Zen).
+// upper-cased (zen → Zen).
 func layoutTitle(layoutType LayoutType) string {
 	s := string(layoutType)
 	if s == "" {
@@ -252,11 +202,10 @@ func layoutTitle(layoutType LayoutType) string {
 
 // LayoutScrollsOutput reports whether vertical scroll keys (PageUp/Down and the
 // mouse wheel) should move the chat output rather than the editor. True for
-// simple single-column layouts — chat, zen, and any custom layout that is
-// neither split nor fullscreen.
+// simple single-column layouts — zen and any custom layout that is not split.
 func (s *State) LayoutScrollsOutput() bool {
 	switch s.EffectiveLayout() {
-	case LayoutSplit, LayoutFullscreen:
+	case LayoutSplit:
 		return false
 	default:
 		return true

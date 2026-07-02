@@ -13,8 +13,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
 func TestSendMessageBodyIncludesAgentMode(t *testing.T) {
@@ -630,10 +628,10 @@ func TestSendMessageEventsSurfacesSessionError(t *testing.T) {
 }
 
 func TestDisplayTextForPartWrapsReasoning(t *testing.T) {
-	if got := adapter.DisplayTextForPart(adapter.Part{Type: "reasoning", Text: "secret"}); got != "<thinking>secret</thinking>" {
+	if got := DisplayTextForPart(Part{Type: "reasoning", Text: "secret"}); got != "<thinking>secret</thinking>" {
 		t.Fatalf("expected wrapped reasoning, got %q", got)
 	}
-	if got := adapter.DisplayTextForPart(adapter.Part{Type: "text", Text: "answer"}); got != "answer" {
+	if got := DisplayTextForPart(Part{Type: "text", Text: "answer"}); got != "answer" {
 		t.Fatalf("expected text part, got %q", got)
 	}
 }
@@ -693,7 +691,7 @@ func TestSendMessageEventsEmitsToolPartUpdates(t *testing.T) {
 
 	client := NewClientWithURL(server.URL)
 	stream := client.SendMessageEvents(context.Background(), "s1", "hello", "", "", "")
-	var got []adapter.ToolEvent
+	var got []ToolEvent
 	for event := range stream {
 		if event.Tool != nil {
 			got = append(got, *event.Tool)

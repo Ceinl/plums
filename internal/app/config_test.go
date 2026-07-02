@@ -1,148 +1,80 @@
 package app
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Ceinl/plums/internal/app/defaults"
-	"github.com/Ceinl/plums/internal/core/adapter"
 )
 
-func TestLoadOpencodeServerURLFromConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte("[opencode]\nopencode_server_url = \"http://localhost:9999\"\n"), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
+func TestValidBackendProvider(t *testing.T) {
+	for _, p := range []string{"opencode", "codex", "claude", "claude-mirror", "OpenCode "} {
+		if !ValidBackendProvider(p) {
+			t.Fatalf("expected %q to be valid", p)
+		}
 	}
-
-	got, err := LoadOpencodeServerURL(path, adapter.DefaultBaseURL)
-	if err != nil {
-		t.Fatalf("load server URL: %v", err)
-	}
-	if got != "http://localhost:9999" {
-		t.Fatalf("expected configured URL, got %q", got)
+	for _, p := range []string{"codez", "", "gpt"} {
+		if ValidBackendProvider(p) {
+			t.Fatalf("expected %q to be invalid", p)
+		}
 	}
 }
 
-func TestLoadOpencodeServerURLDefault(t *testing.T) {
-	got, err := LoadOpencodeServerURL(filepath.Join(t.TempDir(), "missing.toml"), adapter.DefaultBaseURL)
-	if err != nil {
-		t.Fatalf("load missing config: %v", err)
-	}
-	if got != adapter.DefaultBaseURL {
-		t.Fatalf("expected default URL, got %q", got)
-	}
-}
-
-func TestLoadBackendProviderFromConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte("[backend]\nprovider = \"codex\"\n"), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	got, err := LoadBackendProvider(path, "opencode")
-	if err != nil {
-		t.Fatalf("load backend provider: %v", err)
-	}
-	if got != "codex" {
-		t.Fatalf("expected codex, got %q", got)
-	}
-}
-
-func TestLoadBackendProviderDefault(t *testing.T) {
-	got, err := LoadBackendProvider(filepath.Join(t.TempDir(), "missing.toml"), "opencode")
-	if err != nil {
-		t.Fatalf("load missing config: %v", err)
-	}
-	if got != "opencode" {
-		t.Fatalf("expected opencode, got %q", got)
-	}
-}
-
-func TestLoadBackendProviderRejectsUnknownProvider(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte("[backend]\nprovider = \"codez\"\n"), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	if _, err := LoadBackendProvider(path, "opencode"); err == nil {
-		t.Fatalf("expected unsupported provider error")
-	}
-}
-
-func TestLoadBackendProviderRejectsUnknownFallback(t *testing.T) {
-	if _, err := LoadBackendProvider(filepath.Join(t.TempDir(), "missing.toml"), "codez"); err == nil {
-		t.Fatalf("expected unsupported fallback error")
-	}
-}
-
-func TestResolveCommandsConfigPath(t *testing.T) {
-	dir := t.TempDir()
-	layoutPath := filepath.Join(dir, "layout.json")
-	commandsPath := filepath.Join(dir, "commands.json")
-	if err := os.WriteFile(commandsPath, []byte("{}"), 0o600); err != nil {
-		t.Fatalf("write commands config: %v", err)
-	}
-
-	got, err := ResolveCommandsConfigPath(layoutPath)
-	if err != nil {
-		t.Fatalf("resolve commands config: %v", err)
-	}
-	if got != commandsPath {
-		t.Fatalf("expected %q, got %q", commandsPath, got)
-	}
-}
-
-func TestResolveCommandsConfigPathDefaultsWhenMissing(t *testing.T) {
-	got, err := ResolveCommandsConfigPath(filepath.Join(t.TempDir(), "layout.json"))
-	if err != nil {
-		t.Fatalf("resolve missing commands config: %v", err)
-	}
-	if got != "" {
-		t.Fatalf("expected default command config, got %q", got)
-	}
-}
-
-func TestResolveConfigPathDefaultsToGlobal(t *testing.T) {
+func TestUserConfigGoPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-
-	got, err := ResolveConfigPath(false, false)
+	got, err := UserConfigGoPath()
 	if err != nil {
-		t.Fatalf("resolve default config: %v", err)
+		t.Fatalf("user config path: %v", err)
 	}
-	want := filepath.Join(home, ".config", "plums", "config", "layout.json")
+	want := filepath.Join(home, ".config", "plums", "config", "config.go")
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
 }
 
-func TestResolveConfigPathLocalOverridesDefaultGlobal(t *testing.T) {
-	got, err := ResolveConfigPath(false, true)
+func TestInitGlobalConfigSeedsConfigGo(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir, err := InitGlobalConfig(InitConfigOptions{PlumsVersion: "v1.2.3"})
 	if err != nil {
-		t.Fatalf("resolve local config: %v", err)
+		t.Fatalf("init config: %v", err)
 	}
-	if got != "./.agents/plums/config/layout.json" {
-		t.Fatalf("expected local config, got %q", got)
+	if _, err := os.Stat(filepath.Join(dir, "config.go")); err != nil {
+		t.Fatalf("expected config.go seeded: %v", err)
 	}
-}
-
-func TestResolveOpencodeConfigPathUsesLayoutConfigDir(t *testing.T) {
-	layoutPath := filepath.Join("/tmp", "plums", "config", "layout.json")
-	got := ResolveOpencodeConfigPath(layoutPath)
-	want := filepath.Join("/tmp", "plums", "config", "config.toml")
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
+	goMod, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		t.Fatalf("expected go.mod seeded: %v", err)
+	}
+	for _, want := range []string{
+		"module github.com/Ceinl/plums-user",
+		"require github.com/Ceinl/plums v1.2.3",
+	} {
+		if !strings.Contains(string(goMod), want) {
+			t.Fatalf("go.mod missing %q:\n%s", want, goMod)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "plugins")); err != nil {
+		t.Fatalf("expected plugins directory seeded: %v", err)
+	}
+	// Idempotent: a second call must not error.
+	if _, err := InitGlobalConfig(); err != nil {
+		t.Fatalf("second init config: %v", err)
 	}
 }
 
 func TestWriteDefaultConfigFileDoesNotOverwrite(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
+	path := filepath.Join(dir, "config.go")
 	if err := os.WriteFile(path, []byte("custom"), 0o600); err != nil {
 		t.Fatalf("write existing config: %v", err)
 	}
-	if err := defaults.WriteDefault(dir, "config.toml"); err == nil {
+	if err := defaults.WriteDefault(dir, "config.go"); err == nil {
 		t.Fatal("expected existing config error")
 	}
 	data, err := os.ReadFile(path)
@@ -154,30 +86,20 @@ func TestWriteDefaultConfigFileDoesNotOverwrite(t *testing.T) {
 	}
 }
 
-func TestInitLocalConfigFilesCreatesProjectConfig(t *testing.T) {
-	oldWd, err := os.Getwd()
+func TestDefaultCompiledConfigTemplate(t *testing.T) {
+	data, err := defaults.Read("config.go")
 	if err != nil {
-		t.Fatalf("get wd: %v", err)
+		t.Fatalf("read default config.go: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := os.Chdir(oldWd); err != nil {
-			t.Fatalf("restore wd: %v", err)
+	text := string(data)
+	for _, want := range []string{"package config", "cfg.Use(Config)", "SplitLayoutPlugin", `layout.Named("split"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("default config.go missing %q:\n%s", want, text)
 		}
-	})
-	if err := os.Chdir(t.TempDir()); err != nil {
-		t.Fatalf("chdir: %v", err)
 	}
-
-	dir, err := InitLocalConfigFiles()
-	if err != nil {
-		t.Fatalf("init local config: %v", err)
-	}
-	if dir != filepath.Join(".", ".agents", "plums", "config") {
-		t.Fatalf("expected local config dir, got %q", dir)
-	}
-	for _, name := range []string{"config.toml", "layout.json", "commands.json"} {
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
-			t.Fatalf("expected %s to exist: %v", name, err)
-		}
+	// The template is not compiled by the test suite, so guard that it is at
+	// least syntactically valid Go — a typo here only surfaces at `plums build`.
+	if _, err := parser.ParseFile(token.NewFileSet(), "config.go", data, parser.AllErrors); err != nil {
+		t.Fatalf("default config.go is not valid Go: %v", err)
 	}
 }
