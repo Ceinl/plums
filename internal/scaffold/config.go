@@ -2,6 +2,7 @@ package scaffold
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"go/format"
 	"go/parser"
@@ -57,6 +58,8 @@ func EnsureConfig(opts ConfigOptions) (string, error) {
 	}); err != nil {
 		return "", err
 	}
+	// Best-effort go.sum population so editors resolve the module immediately.
+	_ = internalbuild.TidyConfigDir(context.Background(), configDir, nil, nil)
 	return configDir, nil
 }
 

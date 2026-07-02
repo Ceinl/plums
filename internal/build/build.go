@@ -311,6 +311,22 @@ func ensureBuildGoMod(workDir string, opts Options) error {
 	return os.WriteFile(path, append(data, []byte(extra.String())...), 0o644)
 }
 
+// TidyConfigDir runs `go mod tidy` in configDir when go.sum is missing, so a
+// freshly seeded config module resolves its imports in editors (gopls needs
+// go.sum entries) without the user running go commands by hand. Callers treat
+// failure as non-fatal: the auto-build path tidies its own work module anyway,
+// and an offline first launch should not break seeding.
+func TidyConfigDir(ctx context.Context, configDir string, stdout, stderr io.Writer) error {
+	configDir, err := resolveConfigDir(configDir)
+	if err != nil {
+		return err
+	}
+	if fileExists(filepath.Join(configDir, "go.sum")) {
+		return nil
+	}
+	return runGo(ctx, configDir, stdout, stderr, "mod", "tidy")
+}
+
 func DefaultConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

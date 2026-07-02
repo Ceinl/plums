@@ -1,11 +1,14 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/Ceinl/plums/internal/app/defaults"
+	internalbuild "github.com/Ceinl/plums/internal/build"
+	"github.com/Ceinl/plums/internal/debuglog"
 )
 
 type InitConfigOptions struct {
@@ -30,6 +33,12 @@ func InitGlobalConfig(opts ...InitConfigOptions) (string, error) {
 	}
 	if err := defaults.WriteAll(dir, options); err != nil {
 		return "", err
+	}
+	// Best-effort: populate go.sum so the seeded module is editor-clean
+	// immediately. Failure (e.g. offline) is non-fatal; auto-build tidies its
+	// own work module regardless.
+	if err := internalbuild.TidyConfigDir(context.Background(), dir, nil, nil); err != nil {
+		debuglog.Printf("config: go mod tidy in %s: %v", dir, err)
 	}
 	return dir, nil
 }
