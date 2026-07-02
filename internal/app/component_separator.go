@@ -44,7 +44,11 @@ func (c *separatorComponent) Render(rctx capabilities.RenderCtx, surface capabil
 		return
 	}
 	sep := c.widget()
-	sep.SetStatus(rctx.ServerStarting(), rctx.ServerReady(), rctx.Streaming())
+	starting, ready := false, false
+	if sv, ok := rctx.(capabilities.ServerStatusView); ok {
+		starting, ready = sv.ServerStarting(), sv.ServerReady()
+	}
+	sep.SetStatus(starting, ready, rctx.Streaming())
 	sep.Layout(c.rect.X, c.rect.Y, c.rect.W, c.rect.H)
 	sep.Render(scr)
 }

@@ -49,15 +49,19 @@ func (c *palettePanelComponent) Render(rctx capabilities.RenderCtx, surface capa
 	if provider, ok := rctx.(appStateProvider); ok {
 		c.state = provider.appState()
 	}
+	pv, ok := rctx.(capabilities.PaletteView)
+	if !ok {
+		return
+	}
 	popup := c.widget()
-	popup.SetTitle(rctx.PaletteTitle())
-	popup.SetQuery(rctx.PaletteQuery())
-	items := rctx.PaletteItems()
+	popup.SetTitle(pv.PaletteTitle())
+	popup.SetQuery(pv.PaletteQuery())
+	items := pv.PaletteItems()
 	popupItems := make([]components.PopupItem, len(items))
 	for i, item := range items {
 		popupItems[i] = components.PopupItem{Title: item.Title, Detail: item.Detail, Disabled: item.Disabled}
 	}
-	popup.SetItems(popupItems, rctx.PaletteIndex())
+	popup.SetItems(popupItems, pv.PaletteIndex())
 	popup.Layout(c.rect.X, c.rect.Y, c.rect.W, c.rect.H)
 	popup.Render(scr)
 }

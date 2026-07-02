@@ -38,7 +38,10 @@ func (c *infoTabsComponent) Render(rctx capabilities.RenderCtx, surface capabili
 		return
 	}
 	tabs := c.widget()
-	infoTabs := rctx.InfoTabs()
+	var infoTabs []capabilities.InfoTabItem
+	if info, ok := rctx.(capabilities.InfoPaneView); ok {
+		infoTabs = info.InfoTabs()
+	}
 	widgetTabs := make([]components.InfoTab, len(infoTabs))
 	for i, tab := range infoTabs {
 		widgetTabs[i] = components.InfoTab{Label: tab.Label, Active: tab.Active}

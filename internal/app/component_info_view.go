@@ -39,9 +39,12 @@ func (c *infoViewComponent) Render(rctx capabilities.RenderCtx, surface capabili
 	}
 	c.state = state
 
-	if rctx.InfoView() == "git_diff" {
+	info, _ := rctx.(capabilities.InfoPaneView)
+	if info != nil && info.InfoView() == "git_diff" {
 		diff := state.DiffLog()
-		diff.SetContent(rctx.GitDiff())
+		if gd, ok := rctx.(capabilities.GitDiffView); ok {
+			diff.SetContent(gd.GitDiff())
+		}
 		diff.SetScrollOffset(state.OutputScroll())
 		diff.SetStyle(bgStyle(rctx.Background()))
 		diff.Layout(c.rect.X, c.rect.Y, c.rect.W, c.rect.H)
@@ -97,10 +100,12 @@ func renderStateChatLog(rctx capabilities.RenderCtx, state *State, rect capabili
 		chatMessages[i] = components.ChatMessage{Role: m.Role, Content: m.Content}
 	}
 	log.SetMessages(chatMessages)
-	log.SetAiOutput(rctx.StreamingText())
 	log.SetStreaming(rctx.Streaming())
-	log.SetThinkingVisibility(components.ThinkingVisibility(rctx.ThinkingVisibility()))
-	log.SetToolCallVisibility(components.ToolCallVisibility(rctx.ToolCallVisibility()))
+	if cv, ok := rctx.(capabilities.ChatView); ok {
+		log.SetAiOutput(cv.StreamingText())
+		log.SetThinkingVisibility(components.ThinkingVisibility(cv.ThinkingVisibility()))
+		log.SetToolCallVisibility(components.ToolCallVisibility(cv.ToolCallVisibility()))
+	}
 	log.SetScrollOffset(state.OutputScroll())
 	log.SetBackground(rctx.Background())
 	log.Layout(rect.X, rect.Y, rect.W, rect.H)

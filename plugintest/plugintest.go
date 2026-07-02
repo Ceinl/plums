@@ -231,14 +231,10 @@ func (fakeRenderCtx) Input() capabilities.EditorView           { return fakeEdit
 func (fakeRenderCtx) ServerStarting() bool                     { return false }
 func (fakeRenderCtx) ServerReady() bool                        { return true }
 func (fakeRenderCtx) Mode() string                             { return "build" }
-func (fakeRenderCtx) SpinnerFrame() int                        { return 0 }
 func (fakeRenderCtx) Sessions() []capabilities.SessionItem     { return nil }
-func (fakeRenderCtx) SelectedSession() string                  { return "" }
 func (fakeRenderCtx) InfoView() string                         { return "ai" }
 func (fakeRenderCtx) InfoTabs() []capabilities.InfoTabItem     { return nil }
 func (fakeRenderCtx) GitDiff() string                          { return "" }
-func (fakeRenderCtx) SplitLeftPercent() int                    { return 50 }
-func (fakeRenderCtx) OutputPercent() int                       { return 50 }
 func (fakeRenderCtx) PaletteTitle() string                     { return "" }
 func (fakeRenderCtx) PaletteQuery() string                     { return "" }
 func (fakeRenderCtx) PaletteItems() []capabilities.PaletteItem { return nil }

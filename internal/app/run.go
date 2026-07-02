@@ -437,7 +437,6 @@ func Run(ctx context.Context, deps Deps, cfg RunConfig) (capabilities.ServerProc
 		}
 	}
 	actionFns = runtimeActions{
-		openCommandPalette: func() { state.OpenPalette() },
 		changeModel: func() {
 			openModelList(ctx, state, backend, cfg)
 		},

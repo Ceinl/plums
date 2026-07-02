@@ -14,17 +14,16 @@ type stateMutation func(*State)
 type runtimeAction func()
 
 type runtimeActions struct {
-	openCommandPalette func()
-	changeModel        func()
-	setModel           func(providerID, modelID string)
-	switchBackend      func()
-	selectBackend      func(id string)
-	newSession         func()
-	openSessions       func()
-	openSession        func(id string)
-	openSkills         func()
-	answerQuestion     func(answer string)
-	switchLayout       func()
+	changeModel    func()
+	setModel       func(providerID, modelID string)
+	switchBackend  func()
+	selectBackend  func(id string)
+	newSession     func()
+	openSessions   func()
+	openSession    func(id string)
+	openSkills     func()
+	answerQuestion func(answer string)
+	switchLayout   func()
 }
 
 type runtimeCtx struct {
@@ -169,85 +168,88 @@ func (c *runtimeCtx) OpenList(title string, items []capabilities.ListItem, onPic
 	c.Services().Palette().Open(title, items, onPick)
 }
 
-// --- Command verbs ---
+// --- Grouped host capabilities ---
 //
-// Pure-state toggles mutate state directly. Backend/session/model verbs enqueue
+// View/Backends/Sessions namespace the host actions a command can trigger. Pure-
+// state toggles mutate state directly; backend/session/model actions enqueue
 // runtime actions so the event loop runs them with the live backend client.
 
-func (c *runtimeCtx) OpenCommandPalette() {
-	c.enqueueAction(c.actionFns.openCommandPalette)
+func (c *runtimeCtx) View() capabilities.View         { return ctxView{c} }
+func (c *runtimeCtx) Backends() capabilities.Backends { return ctxBackends{c} }
+func (c *runtimeCtx) Sessions() capabilities.Sessions { return ctxSessions{c} }
+
+type ctxView struct{ c *runtimeCtx }
+
+func (v ctxView) SwitchMode() {
+	v.c.enqueue(func(state *State) { state.ToggleMode() })
 }
 
-func (c *runtimeCtx) ChangeModel() {
-	c.enqueueAction(c.actionFns.changeModel)
+func (v ctxView) CycleThinkingVisibility() {
+	v.c.enqueue(func(state *State) { state.CycleThinkingVisibility() })
 }
 
-func (c *runtimeCtx) SetModel(providerID, modelID string) {
-	c.enqueueAction(func() {
-		if c.actionFns.setModel != nil {
-			c.actionFns.setModel(providerID, modelID)
+func (v ctxView) CycleToolCallVisibility() {
+	v.c.enqueue(func(state *State) { state.CycleToolCallVisibility() })
+}
+
+func (v ctxView) SwitchLayout() {
+	v.c.enqueueAction(v.c.actionFns.switchLayout)
+}
+
+func (v ctxView) OpenSkills() {
+	v.c.enqueueAction(v.c.actionFns.openSkills)
+}
+
+type ctxBackends struct{ c *runtimeCtx }
+
+func (b ctxBackends) Switch() {
+	b.c.enqueueAction(b.c.actionFns.switchBackend)
+}
+
+func (b ctxBackends) Select(id string) {
+	b.c.enqueueAction(func() {
+		if b.c.actionFns.selectBackend != nil {
+			b.c.actionFns.selectBackend(id)
 		}
 	})
 }
 
-func (c *runtimeCtx) SwitchBackend() {
-	c.enqueueAction(c.actionFns.switchBackend)
+func (b ctxBackends) ChangeModel() {
+	b.c.enqueueAction(b.c.actionFns.changeModel)
 }
 
-func (c *runtimeCtx) SelectBackend(id string) {
-	c.enqueueAction(func() {
-		if c.actionFns.selectBackend != nil {
-			c.actionFns.selectBackend(id)
+func (b ctxBackends) SetModel(providerID, modelID string) {
+	b.c.enqueueAction(func() {
+		if b.c.actionFns.setModel != nil {
+			b.c.actionFns.setModel(providerID, modelID)
 		}
 	})
 }
 
-func (c *runtimeCtx) NewSession() {
-	c.enqueueAction(c.actionFns.newSession)
-}
-
-func (c *runtimeCtx) OpenSessions() {
-	c.enqueueAction(c.actionFns.openSessions)
-}
-
-func (c *runtimeCtx) OpenSession(id string) {
-	c.enqueueAction(func() {
-		if c.actionFns.openSession != nil {
-			c.actionFns.openSession(id)
+func (b ctxBackends) AnswerQuestion(answer string) {
+	b.c.enqueueAction(func() {
+		if b.c.actionFns.answerQuestion != nil {
+			b.c.actionFns.answerQuestion(answer)
 		}
 	})
 }
 
-func (c *runtimeCtx) OpenSkills() {
-	c.enqueueAction(c.actionFns.openSkills)
+type ctxSessions struct{ c *runtimeCtx }
+
+func (s ctxSessions) New() {
+	s.c.enqueueAction(s.c.actionFns.newSession)
 }
 
-func (c *runtimeCtx) AnswerQuestion(answer string) {
-	c.enqueueAction(func() {
-		if c.actionFns.answerQuestion != nil {
-			c.actionFns.answerQuestion(answer)
+func (s ctxSessions) Picker() {
+	s.c.enqueueAction(s.c.actionFns.openSessions)
+}
+
+func (s ctxSessions) Open(id string) {
+	s.c.enqueueAction(func() {
+		if s.c.actionFns.openSession != nil {
+			s.c.actionFns.openSession(id)
 		}
 	})
-}
-
-func (c *runtimeCtx) SwitchMode() {
-	c.enqueue(func(state *State) { state.ToggleMode() })
-}
-
-func (c *runtimeCtx) CycleThinkingVisibility() {
-	c.enqueue(func(state *State) { state.CycleThinkingVisibility() })
-}
-
-func (c *runtimeCtx) CycleToolCallVisibility() {
-	c.enqueue(func(state *State) { state.CycleToolCallVisibility() })
-}
-
-func (c *runtimeCtx) AdjustOutputPercent(delta int) {
-	c.enqueue(func(state *State) { state.AdjustOutputPercentage(delta) })
-}
-
-func (c *runtimeCtx) SwitchLayout() {
-	c.enqueueAction(c.actionFns.switchLayout)
 }
 
 func (c *runtimeCtx) State() capabilities.CommandState {

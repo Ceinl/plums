@@ -33,7 +33,7 @@ func (*Plugin) Commands() []capabilities.Command {
 		// keymaps go through the same registry path, but they are hidden from the
 		// command palette and slash dropdown.
 		hidden("palette.open", "Open the command palette", func(_ context.Context, ctx capabilities.Ctx) error {
-			ctx.OpenCommandPalette()
+			ctx.Services().Palette().OpenCommandPalette()
 			return nil
 		}),
 		hidden("prompt.submit", "Submit the prompt", func(_ context.Context, ctx capabilities.Ctx) error {
@@ -48,7 +48,7 @@ func (*Plugin) Commands() []capabilities.Command {
 		// Do when submitted. They are palette-hidden (Title returns disabled) so the
 		// richer palette rows below are the ones shown in the command palette.
 		slash("/command", "Open the command palette", func(_ context.Context, ctx capabilities.Ctx) error {
-			ctx.OpenCommandPalette()
+			ctx.Services().Palette().OpenCommandPalette()
 			return nil
 		}),
 
@@ -56,7 +56,7 @@ func (*Plugin) Commands() []capabilities.Command {
 		{
 			Name:   "Switch mode",
 			Detail: "Current mode: ",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.SwitchMode(); return nil },
+			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.View().SwitchMode(); return nil },
 			Title: func(s capabilities.CommandState) capabilities.PaletteLabel {
 				title := "Switch mode"
 				switch s.Mode {
@@ -71,7 +71,7 @@ func (*Plugin) Commands() []capabilities.Command {
 		{
 			Name:   "Layouts",
 			Detail: "Select layout - current: ",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.SwitchLayout(); return nil },
+			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.View().SwitchLayout(); return nil },
 			Title: func(s capabilities.CommandState) capabilities.PaletteLabel {
 				return capabilities.PaletteLabel{Title: "Layouts", Detail: "Select layout - current: " + s.Layout}
 			},
@@ -79,7 +79,7 @@ func (*Plugin) Commands() []capabilities.Command {
 		{
 			Name:   "Thinking visibility",
 			Detail: "",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.CycleThinkingVisibility(); return nil },
+			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.View().CycleThinkingVisibility(); return nil },
 			Title: func(s capabilities.CommandState) capabilities.PaletteLabel {
 				return capabilities.PaletteLabel{Title: "Thinking visibility", Detail: "Current: " + s.ThinkingVisibility + " (cycles full/title/hidden)"}
 			},
@@ -87,7 +87,7 @@ func (*Plugin) Commands() []capabilities.Command {
 		{
 			Name:   "Tool call visibility",
 			Detail: "",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.CycleToolCallVisibility(); return nil },
+			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.View().CycleToolCallVisibility(); return nil },
 			Title: func(s capabilities.CommandState) capabilities.PaletteLabel {
 				return capabilities.PaletteLabel{Title: "Tool call visibility", Detail: "Current: " + s.ToolCallVisibility + " (cycles full/collapse/hidden)"}
 			},

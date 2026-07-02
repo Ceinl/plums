@@ -321,7 +321,7 @@ func (s *State) SelectPaletteItemWithCtx(ctx capabilities.Ctx) {
 		sessionID := s.SelectedSessionID()
 		s.PopupOpen = false
 		if ctx != nil {
-			ctx.OpenSession(sessionID)
+			ctx.Sessions().Open(sessionID)
 		}
 		return
 	}
@@ -329,7 +329,7 @@ func (s *State) SelectPaletteItemWithCtx(ctx capabilities.Ctx) {
 		providerID, modelID := s.SelectedModel()
 		s.PopupOpen = false
 		if ctx != nil {
-			ctx.SetModel(providerID, modelID)
+			ctx.Backends().SetModel(providerID, modelID)
 		}
 		return
 	}
@@ -344,7 +344,7 @@ func (s *State) SelectPaletteItemWithCtx(ctx capabilities.Ctx) {
 		answer, ok := s.SelectedQuestionAnswer()
 		s.PopupOpen = false
 		if ok && ctx != nil {
-			ctx.AnswerQuestion(answer)
+			ctx.Backends().AnswerQuestion(answer)
 		}
 		return
 	}
@@ -352,7 +352,7 @@ func (s *State) SelectPaletteItemWithCtx(ctx capabilities.Ctx) {
 		backendID := s.SelectedBackendID()
 		s.PopupOpen = false
 		if ctx != nil {
-			ctx.SelectBackend(backendID)
+			ctx.Backends().Select(backendID)
 		}
 		return
 	}

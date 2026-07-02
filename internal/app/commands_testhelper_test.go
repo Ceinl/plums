@@ -56,26 +56,48 @@ func (c *fakeCtx) Shell(context.Context, string, ...string) (string, error) {
 }
 func (c *fakeCtx) SetLayout(string)                                                      {}
 func (c *fakeCtx) OpenList(string, []capabilities.ListItem, func(capabilities.ListItem)) {}
-func (c *fakeCtx) Services() capabilities.Services                                       { return nil }
+func (c *fakeCtx) Services() capabilities.Services                                       { return fakeCtxServices{c} }
 
-func (c *fakeCtx) OpenCommandPalette()      { c.record("OpenCommandPalette") }
-func (c *fakeCtx) ChangeModel()             { c.record("ChangeModel") }
-func (c *fakeCtx) SetModel(string, string)  { c.record("SetModel") }
-func (c *fakeCtx) SwitchBackend()           { c.record("SwitchBackend") }
-func (c *fakeCtx) SelectBackend(string)     { c.record("SelectBackend") }
-func (c *fakeCtx) NewSession()              { c.record("NewSession") }
-func (c *fakeCtx) OpenSessions()            { c.record("OpenSessions") }
-func (c *fakeCtx) OpenSession(string)       { c.record("OpenSession") }
-func (c *fakeCtx) OpenSkills()              { c.record("OpenSkills") }
-func (c *fakeCtx) AnswerQuestion(string)    { c.record("AnswerQuestion") }
-func (c *fakeCtx) SwitchMode()              { c.record("SwitchMode") }
-func (c *fakeCtx) CycleThinkingVisibility() { c.record("CycleThinkingVisibility") }
-func (c *fakeCtx) CycleToolCallVisibility() { c.record("CycleToolCallVisibility") }
-func (c *fakeCtx) AdjustOutputPercent(int)  { c.record("AdjustOutputPercent") }
-func (c *fakeCtx) SwitchLayout()            { c.record("SwitchLayout") }
+func (c *fakeCtx) View() capabilities.View         { return fakeCtxView{c} }
+func (c *fakeCtx) Backends() capabilities.Backends { return fakeCtxBackends{c} }
+func (c *fakeCtx) Sessions() capabilities.Sessions { return fakeCtxSessions{c} }
 func (c *fakeCtx) State() capabilities.CommandState {
 	return capabilities.CommandState{}
 }
+
+type fakeCtxView struct{ c *fakeCtx }
+
+func (v fakeCtxView) SwitchMode()              { v.c.record("SwitchMode") }
+func (v fakeCtxView) CycleThinkingVisibility() { v.c.record("CycleThinkingVisibility") }
+func (v fakeCtxView) CycleToolCallVisibility() { v.c.record("CycleToolCallVisibility") }
+func (v fakeCtxView) SwitchLayout()            { v.c.record("SwitchLayout") }
+func (v fakeCtxView) OpenSkills()              { v.c.record("OpenSkills") }
+
+type fakeCtxBackends struct{ c *fakeCtx }
+
+func (b fakeCtxBackends) Switch()                 { b.c.record("SwitchBackend") }
+func (b fakeCtxBackends) Select(string)           { b.c.record("SelectBackend") }
+func (b fakeCtxBackends) ChangeModel()            { b.c.record("ChangeModel") }
+func (b fakeCtxBackends) SetModel(string, string) { b.c.record("SetModel") }
+func (b fakeCtxBackends) AnswerQuestion(string)   { b.c.record("AnswerQuestion") }
+
+type fakeCtxSessions struct{ c *fakeCtx }
+
+func (s fakeCtxSessions) New()        { s.c.record("NewSession") }
+func (s fakeCtxSessions) Picker()     { s.c.record("OpenSessions") }
+func (s fakeCtxSessions) Open(string) { s.c.record("OpenSession") }
+
+type fakeCtxServices struct{ c *fakeCtx }
+
+func (s fakeCtxServices) Palette() capabilities.Palette       { return fakeCtxPalette{s.c} }
+func (s fakeCtxServices) Clipboard() capabilities.Clipboard   { return nil }
+func (s fakeCtxServices) Completion() capabilities.Completion { return nil }
+func (s fakeCtxServices) Selection() capabilities.Selection   { return nil }
+
+type fakeCtxPalette struct{ c *fakeCtx }
+
+func (p fakeCtxPalette) Open(string, []capabilities.ListItem, func(capabilities.ListItem)) {}
+func (p fakeCtxPalette) OpenCommandPalette()                                               { p.c.record("OpenCommandPalette") }
 
 // runPending consumes the state's pending command and runs its Do against a
 // fakeCtx, returning the recorder.

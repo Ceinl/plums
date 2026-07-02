@@ -157,14 +157,14 @@ func (s *State) SessionMouseDown(ctx capabilities.Ctx, x, y int) bool {
 	switch action {
 	case components.SessionMouseNew:
 		if ctx != nil {
-			ctx.NewSession()
+			ctx.Sessions().New()
 		}
 	case components.SessionMouseSelect:
 		if id == "" || id == s.SessionID {
 			return true
 		}
 		if ctx != nil {
-			ctx.OpenSession(id)
+			ctx.Sessions().Open(id)
 		}
 	}
 	return true

@@ -58,7 +58,10 @@ func (c *sessionsComponent) Render(rctx capabilities.RenderCtx, surface capabili
 	}
 	sessions.SetOrientation(c.orientation)
 
-	items := rctx.Sessions()
+	var items []capabilities.SessionItem
+	if sv, ok := rctx.(capabilities.SessionsView); ok {
+		items = sv.Sessions()
+	}
 	widgetItems := make([]components.SessionItem, len(items))
 	for i, item := range items {
 		widgetItems[i] = components.SessionItem{

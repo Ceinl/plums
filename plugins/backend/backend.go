@@ -15,22 +15,22 @@ func (*Plugin) Init(capabilities.Host, any) error { return nil }
 func (*Plugin) Commands() []capabilities.Command {
 	return []capabilities.Command{
 		slash("/backend", "Switch backend provider", func(_ context.Context, ctx capabilities.Ctx) error {
-			ctx.SwitchBackend()
+			ctx.Backends().Switch()
 			return nil
 		}),
 		slash("/model", "Change the active model", func(_ context.Context, ctx capabilities.Ctx) error {
-			ctx.ChangeModel()
+			ctx.Backends().ChangeModel()
 			return nil
 		}),
 		{
 			Name:   "Change model",
 			Detail: "Select model for future prompts",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.ChangeModel(); return nil },
+			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.Backends().ChangeModel(); return nil },
 		},
 		{
 			Name:   "Backend provider",
 			Detail: "Current backend: ",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.SwitchBackend(); return nil },
+			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.Backends().Switch(); return nil },
 			Title: func(s capabilities.CommandState) capabilities.PaletteLabel {
 				return capabilities.PaletteLabel{Title: "Backend provider", Detail: "Current backend: " + s.BackendProvider}
 			},

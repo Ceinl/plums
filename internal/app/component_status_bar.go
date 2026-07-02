@@ -46,9 +46,13 @@ func (c *statusBarComponent) Render(rctx capabilities.RenderCtx, surface capabil
 		return
 	}
 	bar := c.widget()
-	bar.SetStatus(rctx.ServerStarting(), rctx.ServerReady(), rctx.Streaming())
+	starting, ready, mode := false, false, ""
+	if sv, ok := rctx.(capabilities.ServerStatusView); ok {
+		starting, ready, mode = sv.ServerStarting(), sv.ServerReady(), sv.Mode()
+	}
+	bar.SetStatus(starting, ready, rctx.Streaming())
 	bar.SetSession(rctx.Session().Title)
-	bar.SetMode(rctx.Mode())
+	bar.SetMode(mode)
 	if model := rctx.Session().Model; model != nil {
 		bar.SetModel(model.ProviderID, model.ID)
 	} else {

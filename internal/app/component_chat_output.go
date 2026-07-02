@@ -46,10 +46,12 @@ func (c *chatOutputComponent) Render(rctx capabilities.RenderCtx, surface capabi
 		chatMessages[i] = components.ChatMessage{Role: m.Role, Content: m.Content}
 	}
 	log.SetMessages(chatMessages)
-	log.SetAiOutput(rctx.StreamingText())
 	log.SetStreaming(rctx.Streaming())
-	log.SetThinkingVisibility(components.ThinkingVisibility(rctx.ThinkingVisibility()))
-	log.SetToolCallVisibility(components.ToolCallVisibility(rctx.ToolCallVisibility()))
+	if cv, ok := rctx.(capabilities.ChatView); ok {
+		log.SetAiOutput(cv.StreamingText())
+		log.SetThinkingVisibility(components.ThinkingVisibility(cv.ThinkingVisibility()))
+		log.SetToolCallVisibility(components.ToolCallVisibility(cv.ToolCallVisibility()))
+	}
 	log.SetBackground(rctx.Background())
 	log.Layout(c.rect.X, c.rect.Y, c.rect.W, c.rect.H)
 	log.RenderSurface(surface)

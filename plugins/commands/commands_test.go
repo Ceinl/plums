@@ -47,14 +47,37 @@ type recordCtx struct {
 	sent      string
 }
 
-func (c *recordCtx) OpenCommandPalette()              { c.calls = append(c.calls, "OpenCommandPalette") }
-func (c *recordCtx) SwitchMode()                      { c.calls = append(c.calls, "SwitchMode") }
-func (c *recordCtx) SwitchLayout()                    { c.calls = append(c.calls, "SwitchLayout") }
-func (c *recordCtx) CycleThinkingVisibility()         { c.calls = append(c.calls, "CycleThinkingVisibility") }
-func (c *recordCtx) CycleToolCallVisibility()         { c.calls = append(c.calls, "CycleToolCallVisibility") }
+func (c *recordCtx) View() capabilities.View          { return recordView{c} }
+func (c *recordCtx) Services() capabilities.Services  { return recordServices{c} }
 func (c *recordCtx) State() capabilities.CommandState { return c.state }
 func (c *recordCtx) Input() capabilities.Editor       { return &recordEditor{text: c.inputText} }
 func (c *recordCtx) Send(text string)                 { c.sent = text }
+
+type recordView struct{ c *recordCtx }
+
+func (v recordView) SwitchMode() { v.c.calls = append(v.c.calls, "SwitchMode") }
+func (v recordView) CycleThinkingVisibility() {
+	v.c.calls = append(v.c.calls, "CycleThinkingVisibility")
+}
+func (v recordView) CycleToolCallVisibility() {
+	v.c.calls = append(v.c.calls, "CycleToolCallVisibility")
+}
+func (v recordView) SwitchLayout() { v.c.calls = append(v.c.calls, "SwitchLayout") }
+func (v recordView) OpenSkills()   { v.c.calls = append(v.c.calls, "OpenSkills") }
+
+type recordServices struct{ c *recordCtx }
+
+func (s recordServices) Palette() capabilities.Palette       { return recordPalette{s.c} }
+func (s recordServices) Clipboard() capabilities.Clipboard   { return nil }
+func (s recordServices) Completion() capabilities.Completion { return nil }
+func (s recordServices) Selection() capabilities.Selection   { return nil }
+
+type recordPalette struct{ c *recordCtx }
+
+func (p recordPalette) Open(string, []capabilities.ListItem, func(capabilities.ListItem)) {}
+func (p recordPalette) OpenCommandPalette() {
+	p.c.calls = append(p.c.calls, "OpenCommandPalette")
+}
 
 type recordEditor struct {
 	text string

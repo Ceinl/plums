@@ -25,13 +25,13 @@ func (*Plugin) Init(capabilities.Host, any) error { return nil }
 func (*Plugin) Commands() []capabilities.Command {
 	return []capabilities.Command{
 		slash("/skills", "Load an opencode skill", func(_ context.Context, ctx capabilities.Ctx) error {
-			ctx.OpenSkills()
+			ctx.View().OpenSkills()
 			return nil
 		}),
 		{
 			Name:   "Skills list",
 			Detail: "Load an opencode skill for the next prompt",
-			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.OpenSkills(); return nil },
+			Do:     func(_ context.Context, ctx capabilities.Ctx) error { ctx.View().OpenSkills(); return nil },
 		},
 	}
 }

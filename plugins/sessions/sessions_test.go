@@ -12,8 +12,13 @@ type recordCtx struct {
 	calls []string
 }
 
-func (c *recordCtx) NewSession()   { c.calls = append(c.calls, "NewSession") }
-func (c *recordCtx) OpenSessions() { c.calls = append(c.calls, "OpenSessions") }
+func (c *recordCtx) Sessions() capabilities.Sessions { return recordSessions{c} }
+
+type recordSessions struct{ c *recordCtx }
+
+func (s recordSessions) New()        { s.c.calls = append(s.c.calls, "NewSession") }
+func (s recordSessions) Picker()     { s.c.calls = append(s.c.calls, "OpenSessions") }
+func (s recordSessions) Open(string) { s.c.calls = append(s.c.calls, "OpenSession") }
 
 func TestCommandsOwnSessionEntries(t *testing.T) {
 	commands := (&Plugin{}).Commands()

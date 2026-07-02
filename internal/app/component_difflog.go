@@ -38,7 +38,9 @@ func (c *diffLogComponent) Render(rctx capabilities.RenderCtx, surface capabilit
 	}
 	c.state = state
 	diff := state.DiffLog()
-	diff.SetContent(rctx.GitDiff())
+	if gd, ok := rctx.(capabilities.GitDiffView); ok {
+		diff.SetContent(gd.GitDiff())
+	}
 	diff.SetScrollOffset(state.OutputScroll())
 	diff.Layout(c.rect.X, c.rect.Y, c.rect.W, c.rect.H)
 	diff.Render(scr)

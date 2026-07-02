@@ -204,7 +204,11 @@ type PaletteLabel struct {
 	Step     int
 }
 
-// Ctx is the runtime surface exposed to commands and hooks.
+// Ctx is the runtime surface exposed to commands and hooks. It is deliberately
+// small: conversation/session basics plus the host capability services. Host
+// actions that used to hang off Ctx as a flat verb pile are now grouped behind
+// the View/Backends/Sessions accessors, so a new host action extends one of those
+// capability interfaces instead of widening Ctx and breaking every plugin.
 type Ctx interface {
 	Session() Session
 	Input() Editor
@@ -217,32 +221,51 @@ type Ctx interface {
 	OpenList(title string, items []ListItem, onPick func(ListItem))
 	// Services exposes the host capability services for runtime invocation. Copy
 	// and OpenList above are conveniences that delegate to Services().Clipboard()
-	// and Services().Palette() respectively.
+	// and Services().Palette() respectively; OpenCommandPalette lives on
+	// Services().Palette().
 	Services() Services
 
-	// Command verbs — the built-in command set drives the host through these. Each
-	// enqueues the same effect the host would run for the corresponding action
-	// (open a picker, toggle a setting, start a session). They wrap existing host
-	// behavior; backends are not yet refactored into capabilities.
-	OpenCommandPalette()
-	ChangeModel()
-	SetModel(providerID, modelID string)
-	SwitchBackend()
-	SelectBackend(id string)
-	NewSession()
-	OpenSessions()
-	OpenSession(id string)
-	OpenSkills()
-	AnswerQuestion(answer string)
-	SwitchMode()
-	CycleThinkingVisibility()
-	CycleToolCallVisibility()
-	AdjustOutputPercent(delta int)
-	SwitchLayout()
+	// Grouped host capabilities. Each method enqueues the same effect the host
+	// would run for the corresponding action (toggle a setting, open a picker,
+	// start a session). They wrap existing host behavior; backends are not yet
+	// fully refactored into capabilities.
+	View() View
+	Backends() Backends
+	Sessions() Sessions
 
 	// State reads commands use to render dynamic titles (mode/layout/visibility
 	// labels, output percent, active backend).
 	State() CommandState
+}
+
+// View groups the conversation/display actions a command can trigger: agent mode,
+// thinking/tool-call visibility, the active layout, and the skills picker.
+type View interface {
+	SwitchMode()
+	CycleThinkingVisibility()
+	CycleToolCallVisibility()
+	SwitchLayout()
+	OpenSkills()
+}
+
+// Backends groups backend- and model-selection actions plus replying to a backend
+// question. Switch/ChangeModel open the respective pickers; Select/SetModel apply
+// a specific choice (used by the pickers themselves); AnswerQuestion replies to
+// the active backend question.
+type Backends interface {
+	Switch()
+	Select(id string)
+	ChangeModel()
+	SetModel(providerID, modelID string)
+	AnswerQuestion(answer string)
+}
+
+// Sessions groups session-lifecycle actions: start a fresh session, open the
+// sessions picker, or switch to a session by id.
+type Sessions interface {
+	New()
+	Picker()
+	Open(id string)
 }
 
 // CommandState is the read-only snapshot of host state a command consults to
@@ -346,38 +369,61 @@ type LayoutVisibility interface {
 
 type Node interface{}
 
+// RenderCtx is the core read surface every component receives: rendering basics
+// (geometry, theme, background) plus the conversation/session essentials. It is
+// deliberately small. Feature-specific reads — chat detail, server status,
+// sessions, info tabs, git diff, palette — live on the optional *View interfaces
+// below, which a component obtains by type-asserting the RenderCtx it is handed:
+//
+//	if cv, ok := rc.(capabilities.ChatView); ok { … }
+//
+// The host's concrete RenderCtx implements every view; a component (or its test
+// fake) only implements this core plus the views it actually reads.
 type RenderCtx interface {
 	Rect() Rect
 	Theme() Theme
 	Background() string
 	Messages() []Message
 	Streaming() bool
+	Session() Session
+	Input() EditorView
+}
+
+// ChatView is the conversation-rendering detail read by the chat panes
+// (chat_output, info_view): the in-flight streaming text and the thinking /
+// tool-call visibility levels (0 = full).
+type ChatView interface {
 	StreamingText() string
 	ThinkingVisibility() int
 	ToolCallVisibility() int
-	Session() Session
-	Input() EditorView
+}
 
-	// Server/runtime status, read by the status bar and separator panes.
+// ServerStatusView is the backend/runtime status read by the status bar and
+// separator panes.
+type ServerStatusView interface {
 	ServerStarting() bool
 	ServerReady() bool
 	Mode() string
-	SpinnerFrame() int
+}
 
-	// Sessions pane state.
+// SessionsView is the sessions-pane state.
+type SessionsView interface {
 	Sessions() []SessionItem
-	SelectedSession() string
+}
 
-	// Info pane state (chat vs git diff tabs).
+// InfoPaneView is the split-layout info pane state (chat vs git-diff tab).
+type InfoPaneView interface {
 	InfoView() string
 	InfoTabs() []InfoTabItem
+}
+
+// GitDiffView is the git-diff body read by the difflog and info panes.
+type GitDiffView interface {
 	GitDiff() string
+}
 
-	// Split geometry percentages.
-	SplitLeftPercent() int
-	OutputPercent() int
-
-	// Command palette panel state.
+// PaletteView is the inline command-palette panel state.
+type PaletteView interface {
 	PaletteTitle() string
 	PaletteQuery() string
 	PaletteItems() []PaletteItem

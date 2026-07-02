@@ -390,13 +390,6 @@ func (c renderCtx) Mode() string {
 	return c.state.Mode
 }
 
-func (c renderCtx) SpinnerFrame() int {
-	if c.state == nil {
-		return 0
-	}
-	return c.state.spinnerFrame
-}
-
 func (c renderCtx) Sessions() []capabilities.SessionItem {
 	if c.state == nil {
 		return nil
@@ -426,13 +419,6 @@ func (c renderCtx) Sessions() []capabilities.SessionItem {
 	return items
 }
 
-func (c renderCtx) SelectedSession() string {
-	if c.state == nil {
-		return ""
-	}
-	return c.state.SessionID
-}
-
 func (c renderCtx) InfoView() string {
 	if c.state != nil && c.state.InfoView == InfoViewGitDiff {
 		return "git_diff"
@@ -453,20 +439,6 @@ func (c renderCtx) GitDiff() string {
 		return ""
 	}
 	return c.state.GitDiff
-}
-
-func (c renderCtx) SplitLeftPercent() int {
-	if c.state == nil {
-		return 0
-	}
-	return c.state.SplitLeftPercent()
-}
-
-func (c renderCtx) OutputPercent() int {
-	if c.state == nil {
-		return 0
-	}
-	return c.state.SplitOutputPercent()
 }
 
 func (c renderCtx) PaletteTitle() string {

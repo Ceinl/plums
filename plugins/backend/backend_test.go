@@ -12,8 +12,15 @@ type recordCtx struct {
 	calls []string
 }
 
-func (c *recordCtx) SwitchBackend() { c.calls = append(c.calls, "SwitchBackend") }
-func (c *recordCtx) ChangeModel()   { c.calls = append(c.calls, "ChangeModel") }
+func (c *recordCtx) Backends() capabilities.Backends { return recordBackends{c} }
+
+type recordBackends struct{ c *recordCtx }
+
+func (b recordBackends) Switch()                 { b.c.calls = append(b.c.calls, "SwitchBackend") }
+func (b recordBackends) Select(string)           { b.c.calls = append(b.c.calls, "SelectBackend") }
+func (b recordBackends) ChangeModel()            { b.c.calls = append(b.c.calls, "ChangeModel") }
+func (b recordBackends) SetModel(string, string) { b.c.calls = append(b.c.calls, "SetModel") }
+func (b recordBackends) AnswerQuestion(string)   { b.c.calls = append(b.c.calls, "AnswerQuestion") }
 
 func TestCommandsOwnBackendAndModelEntries(t *testing.T) {
 	commands := (&Plugin{}).Commands()
